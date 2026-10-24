@@ -226,7 +226,7 @@ export default {
       lead: G.proxy, actors: members, tokens: [G.token], group: G, mount,
       camera: camOpts,
       begin() {
-        game.track(G.intro({ focus: rider || { pos: { x: spawnX, y: 0, z: 0 } }, ticks: 140, distance: 12.8, height: 3.8, lookHeight: 1.85, announceAt: 70, onBeat(t) {
+        G.run(G.intro({ focus: rider || { pos: { x: spawnX, y: 0, z: 0 } }, ticks: 140, distance: 12.8, height: 3.8, lookHeight: 1.85, announceAt: 70, onBeat(t) {
           if (t === 70 && game.audio && game.audio.play) game.audio.play('roar', { volume: 0.9, pitch: 0.8 });
           if (t === 72 && game.cameraRig && game.cameraRig.shake) game.cameraRig.shake(0.4);
         } }));

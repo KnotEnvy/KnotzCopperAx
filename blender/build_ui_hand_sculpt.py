@@ -16,6 +16,13 @@ middle finger (cupped crown); opposed thumb swings forward-out and hooks in acro
 dome-topped blocks in staggered rows (box n ellipsoid); radius + ulna run together, heavier, leaning into the heap.
 Desaturated grey-ivory albedo, neutral occlusion tint.
 
+C2 r14 (board r13: "fingers = chains of separate bone sausages with dark GAPS, arcing into a closed RING behind the hero;
+uniform matte grey"): CONTINUOUS digits (phalanx(): mild waist, each base overlaps the previous head -> hard-union crease +
+a fine CreaseRing, tapering bone to bone into a small rounded tuft); the fingers FAN out to the sides and curl FORWARD
+toward the camera (open cup, no hoop); a stout thumb leaves the heel low on the camera side and turns up/in toward the
+hero; the earth web stays only under the feet (floor shows between the metacarpals toward the heel); warm aged-ivory
+albedo with a per-bone tint/value, paler knuckle tops, darker deck + joints. The preview path paints with the same painter.
+
 C2 r13 (board r12: "every palm a heap of rounded cobbles; fingers evenly spaced straight posts"): the select camera looks
 across the palm at ~10 deg, so a flat palm can never show its metacarpals. Now five slender CURVED metacarpals (CurveBone,
 43-45 % of the hand length) form a short flat deck under the hero's feet right in front of the knuckles and then curve DOWN
@@ -59,7 +66,7 @@ from lib import sdf
 from lib.sdf import V, norm, Sculpt, Ellipsoid, RoundBox, RoundCone, Chain, Displace, Prim, Union, Diff, Offset, Inter
 
 OUT_GLB = os.path.join(ROOT, "public", "assets", "models", "ui_skeletal_hand.glb")
-OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r13", "tex")
+OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r14", "tex")
 REPORT = os.path.join(HERE, "out", "ui_hand_sculpt_report.json")
 
 TOP = 1.216            # palm top surface under the hero's feet (select3d: PALM_Y / HAND_SCALE - HAND_DROP / HAND_SCALE)
@@ -71,6 +78,8 @@ UP = V(0, 1, 0)
 JOINTS = []            # (centre, radius) of every articulation: stains / grime in the painter
 TIPS = []              # distal tips: soot
 BIG = []               # (name, Bone) bones big enough for real cracks / chips
+BONES = []             # C2 r14: (name, a, b, r) segment of every bone -> per-bone ivory tint in the painter
+KNUCK = []             # C2 r14: (centre, radius, dorsal dir) of every knuckle top -> paler worn ivory
 
 
 def sst(a, b, x):
@@ -336,6 +345,82 @@ def seg_bone(name, J0, J1, rA, rS, rh, kind, pref, prev=None, lat=(1.18, 1.05, 1
     return pr, head
 
 
+class CreaseRing(Prim):
+    """C2 r14: a fine articular crease ring around a bone (elliptic section like Bone: lateral `la`, palmar flattening
+    `dv`), subtracted where a base meets the previous head -> a crisp joint LINE (no gap, nothing see-through)."""
+
+    def __init__(self, c, e0, e1, e2, R, la, dv, r):
+        self.c, self.e0, self.e1, self.e2 = V(c), V(e0), V(e1), V(e2)
+        self.R, self.la, self.dv, self.r = float(R), float(la), float(dv), float(r)
+        ext = R * max(la, 1.0) + r + 0.01
+        self.lo, self.hi = self.c - ext, self.c + ext
+
+    def d(self, X, Y, Z):
+        dx, dy, dz = X - self.c[0], Y - self.c[1], Z - self.c[2]
+        ax = dx * self.e0[0] + dy * self.e0[1] + dz * self.e0[2]
+        v = dx * self.e1[0] + dy * self.e1[1] + dz * self.e1[2]
+        u = dx * self.e2[0] + dy * self.e2[1] + dz * self.e2[2]
+        dv = np.where(v > 0, self.dv, 1.0)
+        q = np.sqrt((u / self.la) ** 2 + (v / dv) ** 2) - self.R
+        return np.sqrt(q * q + (ax * 1.6) ** 2) - self.r
+
+
+J_TIGHT = 0.0           # C2 r14: knuckles are HARD-unioned (base overlaps the head) -> a crease, never a gap
+
+
+def phalanx(name, J0, J1, rA, rS, rB, pref, prev_rB=None, kind="p", lat=(1.08, 1.03, 1.07), palm=0.88, seed=0,
+            tip_r=None, bow=0.012, big=False):
+    """C2 r14 (board r13: "chains of separate bone sausages / ball-jointed bamboo with dark GAPS between the phalanges and
+    blunt widened ends"): one phalanx of a CONTINUOUS digit. Mild waist (shaft ~0.8 of the ends), the base flare starts
+    INSIDE the previous bone's head (it overlaps it; hard union -> a tight crease ring where the concave base meets the
+    convex head, no gap), the head a low condyle swell (bicondylar groove on the palmar face only), and the distal
+    phalanx tapers into a small rounded tuft (no spade, no widened cap). Bones get thinner bone by bone toward the tip."""
+    J0, J1 = V(J0), V(J1)
+    e0, e1, e2 = bone_frame(J1 - J0, pref)
+    M = frame_M(e0, e1, e2)
+    L = float(np.linalg.norm(J1 - J0))
+    a = J0 + e0 * (0.40 * prev_rB) if prev_rB else J0
+    if kind == "tip":
+        b = J1 - e0 * (0.55 * tip_r)
+        rBe = tip_r
+    else:
+        b = J1
+        rBe = rB * 0.90
+    sh = Bone(a, b, rA, rS, rBe, pref=pref, lat=lat, palm=palm, bow=bow, fa=0.26, fb=0.30 if kind != "tip" else 0.45,
+              capA=0.55, capB=0.75)
+    parts = [sh]
+    head = None
+    if kind == "p":
+        hr = (rB * lat[2], rB * 0.88, rB * 0.80)
+        hd = Ellipsoid(J1, hr, M)
+        # shallow trochlear groove across the PALMAR face only (two condyles underneath; the dorsal knuckle stays smooth)
+        groove = RoundCone(J1 + e0 * (0.70 * rB) + e1 * (0.55 * rB), J1 - e0 * (0.10 * rB) + e1 * (1.05 * rB),
+                           0.11 * rB, 0.15 * rB)
+        parts.append(Diff(hd, groove, k=0.004))
+        head = rB
+    else:
+        # distal tuft: barely wider than the shaft just behind it, rounded, flattened palmar-dorsal; no hooked spike
+        tc = J1 - e0 * (0.45 * tip_r)
+        parts.append(Ellipsoid(tc, (1.16 * tip_r, 0.72 * tip_r, 0.95 * tip_r), M))
+        parts.append(RoundCone(tc - e0 * (0.2 * tip_r), J1 + e1 * (0.18 * tip_r), 0.70 * tip_r, 0.34 * tip_r,
+                               squash=(1.0, 0.8), ref=tuple(e1)))
+    # low palmar tubercles either side of the base (they make the base read as the concave receiving end)
+    for s in (-1, 1):
+        parts.append(Ellipsoid(a + e0 * (0.10 * rA) + e2 * (s * 0.55 * rA * lat[0]) + e1 * (0.42 * rA),
+                               (0.30 * rA, 0.30 * rA, 0.45 * rA), M))
+    pr = Union(*parts, k=0.010 * (rS / 0.06) ** 0.5)
+    pr = Displace(pr, 0.0018, 8.0, octaves=3, seed=seed)
+    if prev_rB:
+        # fine crease where this base meets the previous head (reads as articulation at 2x, never as a gap at 1x)
+        cr = CreaseRing(J0 + e0 * (0.40 * prev_rB - 0.30 * rA), e0, e1, e2, 0.90 * rA, lat[0], palm, 0.0055)
+        pr = Diff(pr, cr, k=0.002)
+    pr.bone = sh
+    BONES.append((name, a - e0 * (0.3 * rA), J1, 0.5 * (rA + rS)))
+    if big:
+        BIG.append((name, sh))
+    return pr, head
+
+
 def carpal(c, half, ang=(0, 0, 0), seed=0, round_=0.30):
     """Carpal = a bevelled block with FLAT contact planes (pressed against its neighbours -> straight crease lines)."""
     M = sdf.rot(*ang)
@@ -364,17 +449,26 @@ def blk(u, v, w):
 
 
 FINGERS = {
-    #           knuckle (x, z)   base (x, z)      deck dy  scale  curl-plane azimuth (x, z)  P1/P2/P3 deg from vertical (+ = out)
-    "index":  ((0.385, -0.150), (0.135, 0.735), 0.014, 0.94, (1.00, -0.50), (27, -26, -80)),
-    "middle": ((0.125, -0.275), (0.050, 0.742), 0.000, 1.00, (0.30, -1.00), (23, -21, -70)),
-    "ring":   ((-0.140, -0.250), (-0.050, 0.736), 0.004, 0.95, (-0.45, -1.00), (27, -12, -56)),
-    "pinky":  ((-0.385, -0.115), (-0.148, 0.722), 0.024, 0.80, (-1.00, -0.35), (32, 2, -38)),
+    # C2 r14 pose (board r13: "fingers rise straight up and arc into a near-closed RING behind the hero"): the fingers FAN
+    # out to the sides from the knuckles and then curl FORWARD toward the camera (a cupping hand with the hero between
+    # them, open at the top). Each phalanx direction = (polar deg from vertical, azimuth deg in xz: 0 = +Z toward the
+    # camera, +90 = +X thumb side).
+    #           knuckle (x, z)   base (x, z)      deck dy  scale  P1 / P2 / P3 (polar, azimuth)
+    "index":  ((0.385, -0.150), (0.135, 0.735), 0.014, 0.94, ((42, 115), (26, 55), (74, 8))),
+    "middle": ((0.125, -0.275), (0.050, 0.742), 0.000, 1.00, ((22, 145), (18, 20), (70, 0))),
+    "ring":   ((-0.140, -0.250), (-0.050, 0.736), 0.004, 0.95, ((24, -145), (18, -22), (67, -2))),
+    "pinky":  ((-0.385, -0.115), (-0.148, 0.722), 0.024, 0.80, ((44, -110), (28, -56), (68, -10))),
 }
-LEN = (0.58, 0.37, 0.27)         # proximal / middle / distal phalanx (joint centre to joint centre), x finger scale
-#        base   shaft  head            C2 r13: slimmer, tapering to the tip (r12: 0.112/0.076/0.090 -> swollen balls)
-R_PH = ((0.095, 0.062, 0.070),   # proximal phalanx
-        (0.077, 0.050, 0.056),   # middle phalanx
-        (0.061, 0.038, 0.041))   # distal phalanx (head = tuft)
+LEN = (0.56, 0.36, 0.27)         # proximal / middle / distal phalanx (joint centre to joint centre), x finger scale
+#        base   shaft  head        C2 r14: continuous taper bone to bone (each base ~ the previous head), mild waist
+R_PH = ((0.090, 0.072, 0.078),   # proximal phalanx (ref: fingers about as thick as the hero's thigh)
+        (0.076, 0.060, 0.064),   # middle phalanx
+        (0.063, 0.048, 0.032))   # distal phalanx (last = tuft radius: a rounded taper, no blunt cap)
+
+
+def sph_dir(polar, az):
+    p, a = math.radians(polar), math.radians(az)
+    return V(math.sin(p) * math.sin(a), math.cos(p), math.sin(p) * math.cos(a))
 
 
 def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.20, 1.12, 1.06), palm=0.84):
@@ -396,17 +490,20 @@ def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.20, 1.12, 1.06), palm=0.84):
     pr = Displace(pr, 0.0022, 7.5, octaves=3, seed=seed)
     pr.bone = sh
     BIG.append((name, sh))
+    for j in range(len(sh.pts) - 1):
+        BONES.append((name, sh.pts[j], sh.pts[j + 1], rS * 1.2))
+    KNUCK.append((J1.copy(), rh, -e1))
     return pr, Head(J1, hr, M)
 
 
 def build_sculpt():
-    JOINTS.clear(); TIPS.clear(); BIG.clear()
+    JOINTS.clear(); TIPS.clear(); BIG.clear(); BONES.clear(); KNUCK.clear()
     S = Sculpt(materials=("bone",), default_mat="bone")
     rng = np.random.default_rng(13)
     heads, curves = {}, {}
 
     # --- metacarpals: five long slender separate shafts fanning from the carpal block to the knuckles
-    for i, (nm, (kxz, bxz, dy, s, _, _)) in enumerate(FINGERS.items()):
+    for i, (nm, (kxz, bxz, dy, s, _)) in enumerate(FINGERS.items()):
         sw = s ** 0.5
         xh, zh = kxz
         xb, zb = bxz
@@ -418,7 +515,7 @@ def build_sculpt():
             keys.append(V(xb + (xh - xb) * g, yy, zz))
         base = blk(xb - CB[0], 0.0, 0.112 + 0.4 * (zb - 0.735))   # on the distal face of the carpal block
         pts = [base] + keys[::-1]
-        pr, hd = mc_curve("mc_" + nm, pts, 0.052 * sw, 0.033 * sw, 0.072 * sw, seed=10 + i)
+        pr, hd = mc_curve("mc_" + nm, pts, 0.056 * sw, 0.040 * sw, 0.080 * sw, seed=10 + i)
         S.add(pr, k=0.0)
         heads[nm] = hd
         curves[nm] = pr.bone
@@ -430,7 +527,7 @@ def build_sculpt():
     for A_, B_ in zip(names[:-1], names[1:]):
         ca, cb = curves[A_], curves[B_]
         ell = []
-        for t in np.linspace(0.07, 0.86, 11):
+        for t in np.linspace(0.50, 0.90, 7):     # C2 r14: deck only (under the feet); open gaps toward the heel
             pa, pb = ca.frame_at(t)[0], cb.frame_at(t)[0]
             tg = norm(ca._seg_at(t)[1] + cb._seg_at(t)[1])
             lt = norm((pb - pa) - tg * float(np.dot(pb - pa, tg)))
@@ -438,58 +535,63 @@ def build_sculpt():
             if nn[1] < 0:
                 nn = -nn
             hw = 0.5 * float(np.linalg.norm(pb - pa))
-            c = 0.5 * (pa + pb) - nn * 0.044
+            c = 0.5 * (pa + pb) - nn * (0.058 + 0.02 * sst(0.70, 0.50, t))
             # thin ellipsoid rims are buried inside the shafts (hw x 1.15): no paper-thin edge for the noise to break into islands
-            ell.append(Ellipsoid(c, (hw * 1.15, 0.036, 0.065), frame_M(tg, nn, lt)))
-        web = Displace(Union(*ell, k=0.035), 0.0035, 11.0, octaves=3, seed=40 + len(A_))
+            # it narrows + thins toward the heel end (t 0.5) so it tucks in between the shafts instead of ending in a cut
+            ell.append(Ellipsoid(c, (hw * (1.15 - 0.25 * sst(0.66, 0.50, t)), 0.036 - 0.012 * sst(0.66, 0.50, t), 0.065),
+                                 frame_M(tg, nn, lt)))
+        # packed barrow earth + grit (C2 r14: lumpier, so it never reads as a smooth flat plate)
+        web = Displace(Union(*ell, k=0.035), 0.0065, 16.0, octaves=3, seed=40 + len(A_))
         S.add(web, k=0.016)                            # filleted into the shafts: no slivers / pockets
         S.paint(Offset(web, 0.004), "dirt", soft=0.01)
 
-    # --- fingers: 3 tapering phalanges each, cupping UNEVENLY around the hero: P1 leans out/back from the knuckle, P2 and P3
-    #     flex back in (index/middle curl hardest, little finger least), each finger in its own curl plane (azimuth) so the
-    #     crown reads as a loosely cupped hand, not evenly spaced posts
-    for i, (nm, (kxz, bxz, dy, s, az, ang)) in enumerate(FINGERS.items()):
+    # --- fingers (C2 r14): CONTINUOUS digits - 3 phalanges that taper bone to bone, each base overlapping the previous
+    #     head (tight crease, no gap); the fingers fan out to the sides and curl forward toward the camera
+    for i, (nm, (kxz, bxz, dy, s, dirs)) in enumerate(FINGERS.items()):
         sw = s ** 0.6
-        out = norm(V(az[0], 0.0, az[1]))
         J = heads[nm].c.copy()
-        prev = heads[nm]
-        JOINTS.append((J.copy(), 0.085 * sw))
-        jit = rng.uniform(-3.0, 3.0, 3)
+        prev_rB = float(heads[nm].r[0]) * 0.92
+        JOINTS.append((J.copy(), 0.075 * sw))
+        jit = rng.uniform(-2.5, 2.5, (3, 2))
+        D = [sph_dir(p_ + jit[k, 0], a_ + jit[k, 1]) for k, (p_, a_) in enumerate(dirs)]
         for k in range(3):
-            ph = math.radians(ang[k] + jit[k])
-            dvec = UP * math.cos(ph) + out * math.sin(ph)
-            Jn = J + dvec * (LEN[k] * s)
+            Jn = J + D[k] * (LEN[k] * s)
             rA, rS, rh = (x * sw for x in R_PH[k])
-            # palmar side of a flexed phalanx faces the inside of the curl (toward the hero)
-            pref = UP * math.cos(ph - math.pi / 2) + out * math.sin(ph - math.pi / 2)
-            pref = -pref if float(np.dot(pref, out)) > 0 else pref
+            # palmar side faces the inside of the curl: toward the next bone's direction (forward / toward the camera)
+            nxt = D[k + 1] if k < 2 else D[k] + V(0, -0.6, 0.4)
+            pref = nxt - D[k] * float(np.dot(nxt, D[k]))
+            if float(np.linalg.norm(pref)) < 0.15:
+                pref = V(0, 0, 1)
             kind = "tip" if k == 2 else "p"
-            pr, hd = seg_bone(f"{nm}_{k}", J, Jn, rA, rS, rh, kind, pref=pref, prev=prev,
-                              lat=(1.10, 1.04, 1.06), palm=0.86, bow=0.018 if k < 2 else 0.0, seed=30 + i * 5 + k,
-                              big=(k == 0), tip_len=0.45)
-            S.add(pr, k=0.0)
+            pr, hd = phalanx(f"{nm}_{k}", J, Jn, rA, rS, rh, tuple(norm(pref)), prev_rB=prev_rB, kind=kind,
+                             seed=30 + i * 5 + k, tip_r=rh if kind == "tip" else None, big=(k == 0))
+            S.add(pr, k=J_TIGHT)
             if k < 2:
-                JOINTS.append((Jn.copy(), 0.065 * sw * (1 - 0.18 * k)))
+                JOINTS.append((Jn.copy(), 0.055 * sw * (1 - 0.15 * k)))
+                KNUCK.append((Jn.copy(), rh, -norm(pref)))
             else:
                 TIPS.append(Jn.copy())
-            J, prev = Jn, hd
+            J, prev_rB = Jn, hd
 
-    # --- thumb: set apart on the radial side. Its metacarpal leaves the trapezium out (+X) and up the slope, well clear of
-    #     the index (wide first web space); the two phalanges rise and hook IN toward the hero (opposed, pad facing the fingers)
+    # --- thumb (C2 r14: "a clearly opposing thumb on the camera side"): stouter and shorter than the fingers, it leaves the
+    #     trapezium at the FRONT radial corner, runs out sideways low over the floor (well below the fanned index), and its
+    #     two phalanges turn up and in toward the hero - pad facing the fingers, a separate lower digit at the front corner
     t0 = blk(0.215, 0.006, 0.030)
-    t1, t2, t3 = V(0.570, 1.060, 0.500), V(0.745, 1.370, 0.445), V(0.665, 1.625, 0.275)
-    opp = V(-0.80, 0.05, -0.55)
-    pr, hd = seg_bone("mc_thumb", t0, t1, 0.066, 0.048, 0.078, "mc", pref=tuple(opp), lat=(1.18, 1.14, 1.04),
-                      palm=0.84, bow=0.02, seed=60, big=True)
+    t1, t2, t3 = V(0.530, 0.990, 0.665), V(0.790, 1.180, 0.610), V(0.745, 1.415, 0.455)
+    opp = V(-0.75, 0.10, -0.60)
+    pr, hd = seg_bone("mc_thumb", t0, t1, 0.068, 0.052, 0.080, "mc", pref=tuple(opp), lat=(1.16, 1.10, 1.04),
+                      palm=0.86, bow=0.02, seed=60, big=True)
     S.add(pr, k=0.0)
-    JOINTS.append((t1.copy(), 0.08))
-    pr, hd = seg_bone("thumb_0", t1, t2, 0.084, 0.058, 0.066, "p", pref=tuple(opp), prev=hd, lat=(1.10, 1.04, 1.06),
-                      palm=0.86, bow=0.02, seed=61, big=True)
-    S.add(pr, k=0.0)
-    JOINTS.append((t2.copy(), 0.065))
-    pr, _ = seg_bone("thumb_1", t2, t3, 0.066, 0.042, 0.044, "tip", pref=tuple(opp), prev=hd, lat=(1.08, 1.04, 1.1),
-                     palm=0.86, bow=0.0, seed=62, tip_len=0.5)
-    S.add(pr, k=0.0)
+    BONES.append(("mc_thumb", t0, t1, 0.06))
+    KNUCK.append((t1.copy(), 0.08, -norm(opp)))
+    JOINTS.append((t1.copy(), 0.075))
+    pr, rb = phalanx("thumb_0", t1, t2, 0.082, 0.066, 0.068, tuple(opp), prev_rB=float(hd.r[0]) * 0.92, kind="p",
+                     seed=61, big=True)
+    S.add(pr, k=J_TIGHT)
+    JOINTS.append((t2.copy(), 0.06))
+    KNUCK.append((t2.copy(), 0.068, -norm(opp)))
+    pr, _ = phalanx("thumb_1", t2, t3, 0.068, 0.054, 0.042, tuple(opp), prev_rB=rb, kind="tip", seed=62, tip_r=0.042)
+    S.add(pr, k=J_TIGHT)
     TIPS.append(t3.copy())
 
     # --- carpals: 8 SMALL interlocking bones in two staggered rows at the heel (block ~0.38 x 0.24, r12 was 0.73 x 0.45),
@@ -510,6 +612,7 @@ def build_sculpt():
         dome = Ellipsoid(c, V(hf) * V(1.30, 1.22, 1.30), Mc)
         S.add(Displace(Inter(rb, dome, k=0.010), 0.0018, 11.0, octaves=2, seed=sd), k=0.0)
         JOINTS.append((c, 0.04))
+        BONES.append((nm, c, c + 1e-4, max(hf)))
     # hidden core under the carpal seams (fills the enclosed air pockets where three blocks meet; the seams stay creases)
     S.add(RoundBox(blk(0.025, -0.004, 0.015), (0.165, 0.022, 0.095), M_BLOCK, r=0.015), k=0.0)
     # pisiform: the small pea bone sitting ON the triquetrum (palmar side)
@@ -535,6 +638,7 @@ def build_sculpt():
     for u_ in (0.060, -0.075):
         S.add(RoundCone(blk(u_, -0.012, -0.090), blk(u_, -0.016, -0.150), 0.026, 0.028), k=0.0)
     JOINTS.append((ra0, 0.09)); JOINTS.append((ul0, 0.07))
+    BONES.append(("radius", ra0, ra1, 0.06)); BONES.append(("ulna", ul0, ul1, 0.05))
 
     # --- real cracks + chips on the big bones (fine hairline cracks / pores are node-side in the normal bake)
     crng = np.random.default_rng(5)
@@ -647,20 +751,72 @@ def preview_main(out, h):
     Vv = v.astype(np.float64)
     N = mesh_normals(Vv, F)
     ao = sdf_ao(S, Vv, N)
-    # quick look-dev colour (the release bake replaces all of this): ivory-brown, AO-darkened
-    base = np.array([0.50, 0.40, 0.27])
-    n = sdf.fbm(Vv[:, 0], Vv[:, 1], Vv[:, 2], 3, 6.0, seed=4)
-    c = base[None, :] * (0.25 + 0.75 * ao[:, None] ** 1.3) * (0.92 + 0.12 * n)[:, None]
-    c = np.clip(c, 0, 1)
-    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    # C2 r14: the REAL painter (p_handbone, stub maths) x the bake's occlusion tint -> linear vertex colour
+    _, _, paints = S.eval_points(Vv)
+    rgb, _ = p_handbone(PreviewCtx(Vv, N, ao, paints), palette())
+    t_ = np.array(OCC_TINT)
+    lin = np.clip(rgb * (t_ + (1 - t_) * ao[:, None] ** 1.2), 0, 1)
     write_glb_vc(out, v.astype(np.float32), N.astype(np.float32), lin.astype(np.float32), F.astype(np.uint32))
     print(f"[hand] preview {len(F)} tris -> {out} ({os.path.getsize(out)/1e6:.2f} MB) {time.time()-t0:.1f}s; bounds {Vv.min(0).round(3)} {Vv.max(0).round(3)}", flush=True)
 
 
 # ----------------------------------------------------------------------------------------------------------- Blender path
+class _SHStub:
+    @staticmethod
+    def smooth01(x, a, b):
+        return sst(a, b, x)
+
+    @staticmethod
+    def mix(a, b, t):
+        t = np.asarray(t, float)
+        if t.ndim == 1:
+            t = t[:, None]
+        return np.asarray(a, float) + (np.asarray(b, float) - np.asarray(a, float)) * t
+
+    @staticmethod
+    def out(n, rgb, rough, metal=0.0, emit=0.0):
+        return np.broadcast_to(np.asarray(rgb, float), (n, 3)).copy(), rough
+
+
+def srgb_lin(r, g, b):
+    c = np.array([r, g, b], float) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def palette():
+    # C2 r14: warm AGED IVORY (r12-r13 were grey-ivory 96/90/76; board: "no ivory warmth"), per-bone tints multiply it
+    srgb = srgb_lin
+    return dict(base=srgb(112, 98, 76), base2=srgb(98, 86, 66), hi=srgb(150, 136, 108), grime=srgb(30, 25, 19),
+                stain=srgb(80, 63, 44), moss=srgb(52, 60, 34), moss2=srgb(72, 78, 44), lichen=srgb(118, 116, 92),
+                soot=srgb(26, 23, 20), earth=srgb(36, 30, 24), earth2=srgb(54, 44, 32),
+                tint_warm=np.array([1.04, 1.00, 0.88]), tint_grey=np.array([0.96, 0.98, 1.00]),
+                tint_brown=np.array([1.02, 0.92, 0.80]))
+
+
+OCC_TINT = (0.24, 0.20, 0.16)   # C2 r14: occlusion darkens toward warm brown (r13 neutral 0.20/0.19/0.17)
+
+
+class PreviewCtx:
+    """Painter context for the slot-free preview: cavity / ridge from the SDF AO (the bake uses mesh curvature)."""
+
+    def __init__(self, P, N, ao, paints):
+        self.P, self.N, self.n, self._p = P, N, len(P), paints
+        self.cav = np.clip((0.86 - ao) * 2.2, 0, 1)
+        self.ridge = np.clip((ao - 0.93) * 8.0, 0, 1)
+
+    def paint(self, name):
+        return self._p.get(name, np.zeros(self.n))
+
+    def noise(self, freq, octaves=3, seed=0):
+        return sdf.fbm(self.P[:, 0], self.P[:, 1], self.P[:, 2], octaves, freq, seed=seed)
+
+
 def p_handbone(c, pal):
     """Aged ivory-brown bone, matte. P is in the JS frame (Y up). Value kept LOW: the heroes must out-shine the bones."""
-    from lib import shaders as SH
+    try:
+        from lib import shaders as SH
+    except ImportError:          # slot-free preview (no bpy): same maths
+        SH = _SHStub
     P, N = c.P, c.N
     X, Y, Z = P[:, 0], P[:, 1], P[:, 2]
     n1 = c.noise(3.2, 3, 201)
@@ -669,6 +825,28 @@ def p_handbone(c, pal):
     base, hi, grime = pal["base"], pal["hi"], pal["grime"]
     rgb = SH.mix(base, pal["base2"], SH.smooth01(n1, -0.35, 0.45))
     rgb = rgb * (0.90 + 0.10 * n2 + 0.05 * n3)[:, None]
+    # C2 r14: per-BONE tint + value (board r13: "uniform matte grey, no tint variation"): every bone gets its own aged
+    # ivory - warmer yellow, greyer, or browner - and a +-9 % value step, so the digits read as separate bones of one hand
+    if BONES:
+        best = np.full(c.n, 1e9); bid = np.zeros(c.n, np.int32)
+        for k, (_, a, b, _r) in enumerate(BONES):
+            a, b = V(a), V(b)
+            ab = b - a
+            tt = np.clip(((P - a[None]) @ ab) / max(float(ab @ ab), 1e-9), 0, 1)
+            dd = np.linalg.norm(P - (a[None] + tt[:, None] * ab[None]), axis=1)
+            m = dd < best
+            best[m] = dd[m]; bid[m] = k
+        brng = np.random.default_rng(1414)
+        warm, grey, brown = pal["tint_warm"], pal["tint_grey"], pal["tint_brown"]
+        tints = []
+        for k in range(len(BONES)):
+            w = brng.dirichlet((1.6, 1.0, 0.9))
+            tints.append((warm * w[0] + grey * w[1] + brown * w[2]) * brng.uniform(0.91, 1.09))
+        tints = np.array(tints)
+        rgb = rgb * tints[bid]
+    # porosity: fine dark pores + a soft mottle (aged bone is never a flat colour)
+    por = SH.smooth01(c.noise(110.0, 1, 212), 0.58, 0.80)
+    rgb = rgb * (1 - 0.22 * por)[:, None] * (0.95 + 0.08 * SH.smooth01(c.noise(40.0, 2, 213), -0.4, 0.4))[:, None]
     # joints: brown marrow / grave-dust staining soaking out of every articulation
     jd = np.full(c.n, 9.0)
     for (jc, jr) in JOINTS:
@@ -680,6 +858,14 @@ def p_handbone(c, pal):
     # cavities: packed grime; worn convex highs: paler ivory
     rgb = SH.mix(rgb, grime, np.clip(SH.smooth01(c.cav, 0.03, 0.45) * 0.95, 0, 0.95))
     rgb = SH.mix(rgb, hi, np.clip(0.55 * c.ridge * (0.6 + 0.4 * SH.smooth01(n2, -0.2, 0.4)), 0, 0.6))
+    # C2 r14: worn, paler ivory on the knuckle TOPS (dorsal side of every head), darker deck under the hero's feet
+    kn = np.zeros(c.n)
+    for (kc, kr, kd) in KNUCK:
+        dk = np.linalg.norm(P - kc[None, :], axis=1) / (1.35 * kr)
+        kn = np.maximum(kn, (1 - SH.smooth01(dk, 0.55, 1.0)) * SH.smooth01(N @ V(kd), 0.0, 0.6))
+    rgb = SH.mix(rgb, hi * 1.06, np.clip(0.55 * kn, 0, 0.55))
+    deck = SH.smooth01(Y, TOP - 0.16, TOP - 0.04) * (1 - SH.smooth01(Z, 0.30, 0.42)) * SH.smooth01(Z, -0.42, -0.30)
+    rgb = rgb * (1 - 0.22 * deck * (1 - kn))[:, None]
     # hairline crack network in patches (dark lines), fine pits
     cr = np.exp(-(c.noise(17.0, 2, 205) / 0.045) ** 2) * SH.smooth01(c.noise(2.5, 2, 206), 0.0, 0.35)
     rgb = SH.mix(rgb, grime * 0.7, np.clip(cr * 0.85, 0, 0.85))
@@ -688,7 +874,9 @@ def p_handbone(c, pal):
     # moss: in hollows and on up-facing surfaces, low on the hand + clumps at the joints; lichen flecks on top faces
     up = np.clip(N[:, 1], 0, 1)
     mz = SH.smooth01(c.noise(6.5, 3, 208), 0.05, 0.42)
-    moss = np.clip(mz * (0.75 * SH.smooth01(c.cav, 0.0, 0.3) + 0.6 * up ** 2 * (0.4 + 0.6 * joint) + 0.35 * (Y < 0.70)), 0, 0.85)
+    # C2 r14: moss only in the deep hollows, the joints' up-faces and low on the hand (it was on every up-face: green bones
+    #     once the grade keeps some chroma)
+    moss = np.clip(mz * (0.55 * SH.smooth01(c.cav, 0.15, 0.5) + 0.35 * up ** 2 * joint + 0.35 * (Y < 0.70)), 0, 0.7)
     rgb = SH.mix(rgb, SH.mix(pal["moss"], pal["moss2"], SH.smooth01(n3, -0.3, 0.6)), moss)
     lich = SH.smooth01(c.noise(14.0, 2, 209), 0.52, 0.66) * up ** 1.5 * (1 - moss)
     rgb = SH.mix(rgb, pal["lichen"], 0.55 * lich)
@@ -811,9 +999,7 @@ def blender_main(args):
     for m in hi.data.materials:
         add_micro(m)
     srgb = shaders.srgb
-    pal = dict(base=srgb(96, 90, 76), base2=srgb(82, 78, 66), hi=srgb(138, 133, 116), grime=srgb(26, 24, 21),
-               stain=srgb(70, 60, 46), moss=srgb(50, 60, 34), moss2=srgb(70, 78, 44), lichen=srgb(116, 118, 98),
-               soot=srgb(23, 22, 21), earth=srgb(34, 30, 25), earth2=srgb(50, 43, 33))
+    pal = palette()
     shaders.paint_mesh(hi, S.materials, {}, pal, {}, painters={"bone": p_handbone})
     for o in (hi, lo):
         pipeline.set_ray_visibility(o, False)
@@ -822,7 +1008,7 @@ def blender_main(args):
     maps = B.run(passes=[("albedo", "EMIT", 4), ("prm", "EMIT", 2), ("ao", "EMIT", 24 if fast else 64),
                          ("normal", "NORMAL", 4 if fast else 8)])
     pipeline.log(f"bakes {time.time()-t:.0f}s")
-    tex = charkit.composite_maps(maps, OUT_TEX, "ui_skeletal_hand", tint=(0.20, 0.19, 0.17))
+    tex = charkit.composite_maps(maps, OUT_TEX, "ui_skeletal_hand", tint=OCC_TINT)
     mat = pipeline.final_material("M_ui_skeletal_hand", tex["albedo"], tex["normal"], tex["orm"])
     lo.data.materials.clear()
     lo.data.materials.append(mat)

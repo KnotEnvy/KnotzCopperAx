@@ -9,7 +9,7 @@ import path from 'node:path';
 export default async (api) => {
   await api.advance(200);
   const r = await api.evalGame(() => {
-    const k = window.__KCA; const h = k.showcase.actor; const m = h.model; const out = { hero: h.def.id, hands: {} };
+    const k = window.__KCA; const h = k.showcase?.actor || k.game.world.query({ kind: 'hero' })[0]; const m = h.model; const out = { hero: h.def.id, hands: {} };
     const T = window.THREE || null;
     const tipNode = (src) => src && (src.getObjectByName('bit_edge') || src.getObjectByName('blade_tip') || src.getObjectByName('head_tip')); // C2 r3: an axe's trail tip is its bit edge
     const wp = (o) => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; return [e[12], e[13], e[14]]; };

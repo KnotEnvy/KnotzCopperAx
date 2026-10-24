@@ -72,15 +72,16 @@ PARAMS = dict(
     eye_r_mul=1.0,              # eyeball radius vs the scaled base socket sphere
     canthus_lift=0.0020,        # outer corners up (almond)
     cheek_out=0.0050,           # zygomatic push (outward + forward)
-    chin_fwd=0.0025, chin_down=0.0030,
+    chin_fwd=0.0035, chin_down=0.0030,
     jaw_in=0.0040,              # gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
     nose_w=0.93,                # alae narrower
-    lip_lower_fwd=0.0012, lip_upper_fwd=0.0006,
+    lip_lower_fwd=-0.0002, lip_upper_fwd=0.0012,
     neck_slim=0.90,             # neck xy about its axis below the jaw
     skull_w=1.0,
     brow_soft=0.0020,           # brow ridge pushed back (soft natural brows; C2 r3: 2 mm, board r9 "heavy brow")
     lid_drop=0.0028,            # C2 r3: upper lid margin lowered over the iris (board r9: exposed round irises)
-    sulcus_fill=0.0010,         # C2 r3: the crease under the lower lip filled 1 mm (dark under-lip slit)
+    sulcus_fill=0.0018,         # r4: firmer chin transition / lighter lower vermilion
+    nostril_soft=0.0012,       # soften the continuous alar rim while retaining the downward nostril cavities
     lip_close=0.0034,           # morphological closing radius (m) in a box round the mouth: the base mesh's deep
                                 # lip slit baked as a black line (fast build #1); the slit is filled to ~1.6 mm
 )
@@ -390,6 +391,18 @@ def main():
         print(f"sdf grid h={sdf_h*1000:.2f}mm shape {shape} ({np.prod(shape)/1e6:.1f} M cells) lo {lo.round(3)} hi {hi.round(3)}")
         t0 = time.time()
         G = sdf_grid(W, T, N, lo, sdf_h, shape)
+        ns = float(lm["params"].get("nostril_soft", 0.0))
+        if ns > 0:
+            from scipy import ndimage
+            nc = np.array(lm["nose_tip"]) + np.array([0, 0.009, -0.004])
+            nr = np.array([0.027, 0.025, 0.015])
+            b0 = np.maximum(0, ((nc - nr * 1.5 - lo) / sdf_h).astype(int))
+            b1 = np.minimum(shape, ((nc + nr * 1.5 - lo) / sdf_h).astype(int) + 1)
+            sl = tuple(slice(a, b) for a, b in zip(b0, b1))
+            sub = G[sl]
+            xyz = np.meshgrid(*[lo[a] + np.arange(b0[a], b1[a]) * sdf_h for a in range(3)], indexing="ij")
+            w = smooth(1 - np.sqrt(sum(((xyz[a] - nc[a]) / nr[a]) ** 2 for a in range(3))))
+            G[sl] = sub + w * (ndimage.gaussian_filter(sub, ns / sdf_h) - sub)
         lc = float(lm["params"].get("lip_close", 0.0))
         if lc > 0:          # closing (grey dilation - r) only round the mouth: fills slits narrower than ~2r
             from scipy import ndimage

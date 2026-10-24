@@ -26,7 +26,7 @@ def atlas():
     color=bpy.data.images.new('Ashen_surface_bake',width=size,height=size,alpha=False)
     normal=bpy.data.images.new('Ashen_normal_bake',width=size,height=size,alpha=False); normal.colorspace_settings.name='Non-Color'
     planes=[]
-    palettes=[((.20,.185,.15),(.62,.55,.41),(65,1.2,1)),((.045,.038,.034),(.22,.17,.12),(28,1.5,1)),((.23,.20,.17),(.64,.57,.45),(8,8,8)),((.29,.31,.32),(.54,.53,.49),(7,7,7))]
+    palettes=[((.20,.185,.15),(.62,.55,.41),(65,1.2,1)),((.045,.038,.034),(.22,.17,.12),(28,1.5,1)),((.23,.20,.17),(.64,.57,.45),(8,8,8)),((.25,.22,.17),(.62,.55,.43),(12,12,12))]
     for k,(c0,c1,stretch) in enumerate(palettes):
         bpy.ops.mesh.primitive_plane_add(size=2,location=(k*3,0,0)); ob=bpy.context.object; planes.append(ob)
         for uv in ob.data.uv_layers.active.data: uv.uv=(uv.uv.x*.5+(k%2)*.5,uv.uv.y*.5+(k//2)*.5)
@@ -49,7 +49,7 @@ def atlas():
         if k==3:
             # Mineral variation, not a painted Voronoi crack on every stone.
             # Split faces come from the mesh; baked small-scale relief is subtle.
-            mineral=n.new('ShaderNodeMixRGB');mineral.blend_type='MULTIPLY';mineral.inputs[0].default_value=.24
+            mineral=n.new('ShaderNodeMixRGB');mineral.blend_type='MULTIPLY';mineral.inputs[0].default_value=.42
             l.new(ramp.outputs[0],mineral.inputs[1]);l.new(noise.outputs['Color'],mineral.inputs[2])
             stonecolor=mineral.outputs[0]
         bs=n.new('ShaderNodeBsdfPrincipled'); bs.inputs['Roughness'].default_value=.94; l.new(stonecolor if k==3 else ramp.outputs[0],bs.inputs['Base Color'])
@@ -163,7 +163,7 @@ class Build:
             end.append(b+v*r*rng.uniform(.55,.95)+axis*rng.uniform(-.10,.045))
         for i in range(6):
             k=(i+1)%6
-            self.face([root[i],root[k],end[k],end[i]],1,col=(.38,.41,.43))
+            self.face([root[i],root[k],end[k],end[i]],1,col=(.55 if i%3==0 else .33,.40 if i%3==0 else .27,.25 if i%3==0 else .19))
         centre=sum(end,Vector())/6-axis*.035
         for i in range(6):
             self.face([end[i],end[(i+1)%6],centre],1,[(.1,.1),(.9,.1),(.5,.8)],
@@ -188,7 +188,7 @@ class Build:
                 contact=.45+.55*max(0,min(1,(height+.02)/.20)) if foundation else .65+.35*crown
                 soot=1-.35*max(0,min(1,(height-.36)/.45)) if foundation else 1
                 moss=max(0,1-abs(height-.12)/.19)*(.45+.55*max(0,math.sin(pp[j][0]*12+pp[j][1]*9))) if foundation else 0
-                mineral=np.array((.80,.86,.89))*tone*contact*soot
+                mineral=np.array((.98,.92,.80))*tone*contact*soot
                 # Small fresh split planes, broad mineral faces, dark bedding.
                 if len(f)<=4 and crown>.3:mineral*=1.22
                 green=np.array((.23,.31,.075))*contact
@@ -233,7 +233,7 @@ for k in range(3):
             bm.verts.new((px,py,pz))
     hull=bmesh.ops.convex_hull(bm,input=list(bm.verts))
     bmesh.ops.delete(bm,geom=hull.get('geom_interior',[]),context='VERTS')
-    bmesh.ops.bevel(bm,geom=list(bm.edges),offset=.09,segments=2,affect='EDGES')
+    bmesh.ops.bevel(bm,geom=list(bm.edges),offset=.055,segments=2,affect='EDGES')
     bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
     bm.verts.ensure_lookup_table();bm.verts.index_update()
     vv=[tuple(v.co) for v in bm.verts];ff=[tuple(v.index for v in f.verts) for f in bm.faces]
@@ -241,7 +241,7 @@ for k in range(3):
     B=Build('stone_'+str(k));B.stone(vv,ff,np.zeros(3),np.ones(3));objects.append(B.finish())
 
 specs=[(19,5.2,3.9,2.5,.5,None,False),(3,5.6,4,2.5,.75,1,False),(5,5.4,3.9,2.5,0,None,True),(7,6,4.2,2.8,1,-.6,False),(11,5.2,3.9,2.5,.35,1.2,False),(13,5.8,3.9,2.5,.8,None,False),(17,5.4,3.9,2.5,0,None,True)]
-meta={'version':2,'revision':'C2-r14-cavity-and-ground','fast':FAST,'stoneBake':{'normal':'selected-to-active carved relief','ao':'Cycles cavity AO multiplied into albedo','atlasSize':1024 if FAST else 2048},'huts':{}}
+meta={'version':2,'revision':'C2-r15-collapsed-recesses-warm-stone','fast':FAST,'stoneBake':{'normal':'selected-to-active carved relief','ao':'Cycles cavity AO multiplied into albedo','atlasSize':1024 if FAST else 2048},'huts':{}}
 for seed,w,d,rise,collapse,hu,gutted in specs:
     rng=random.Random(seed);B=Build('hut_'+str(seed));C=Build('straw_'+str(seed)); wall=2.05;H=wall+rise;hx=w/2;hz=d/2;hu=hu if hu is not None else hx*.4
     # Hand-laid mixed footing: large sunk blocks, slabs bridging gaps, small
@@ -367,19 +367,24 @@ for seed,w,d,rise,collapse,hu,gutted in specs:
             # Distinct destruction histories, not one oval scaled seven times.
             rag=.08*math.sin(u*9+v*7+seed)+.045*math.sin(u*19-v*11)
             if seed==11:
-                a=math.hypot((u+1.15)/.62,(v-.36*slope)/.57)
-                b=math.hypot((u-1.1)/.86,(v-.64*slope)/.66)
-                return min(a,b)+rag
+                # Left: angular triangular collapse. Right: skewed split with
+                # a deep downward notch; different silhouettes at game camera.
+                ax=(u+1.15)/.70;ay=(v-.36*slope)/.62
+                a=max(abs(ax)*.85-ay*.30,ay*.92,-ay*.95)+rag*1.7
+                bx=(u-1.04)/.88;by=(v-.61*slope)/.67
+                b=max(abs(bx+by*.35),abs(by))+.15*math.sin(v*5+u*3)
+                split=max(abs(u-1.34)/.22,(.71*slope-v)/.56+1)
+                return min(a,b,split)+rag
             if seed==7:
                 # Much of the right pitch has fallen; ragged diagonal loss from
                 # ridge to eave exposes sagging rafters rather than an aperture.
                 return 1+(abs(u+.30)-1.35-.30*v-.20*math.sin(v*2.7))+.10*math.sin(u*16-v*9)
             du=(u-hu)/(1+collapse*.95);dv=(v-.45*slope)/(.65+collapse*.62)
-            main=math.hypot(du,dv)+rag
+            main=max(abs(du+dv*.17),abs(dv)*.93)+rag*1.6+.13*math.sin(v*4+seed)
             notch=max(abs(u-hu-.2*math.sin(v*3))/.27,(.58*slope-v)/.48+1)+rag
             return min(main,notch) if seed in (3,13) else main
         def sag(u,v):
-            return .52*max(0,1-abs(u+.5)/2.8)*math.sin(min(1,v/slope)*math.pi*.8) if seed==7 and side==-1 else 0
+            return .52*max(0,1-abs(u+.5)/2.8)*math.sin(min(1,v/slope)*math.pi*.8) if seed==7 and side==-1 else .10*math.sin(u*1.45+seed)*math.sin(min(1,v/slope)*math.pi)
         def clamp(x):return max(0,min(1,x))
         def paint(u,v):
             h=hole(u,v)

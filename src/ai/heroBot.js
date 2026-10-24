@@ -18,6 +18,10 @@ import { viewRange } from './_kit.js';
 const EDGE_BAND = 0.25; // fraction of the frame width: the bot's own centre stays this far from an edge while it fights (> the director's PIN_SIDE 0.2, so foes never detour round a bot)
 const MATE_GAP = 1.9;   // m: x gap a bot keeps from its partner while their silhouettes overlap (|dz| < MATE_DZ): a body + the partner's strike spot
 const MATE_DZ = 2.4;
+const PIN_BAND = 0.25; // C2 r3: the bot steps back inward inside this band (r12: same, hysteresis to 0.29) …
+const HARD_PIN = 0.18; // …but between HARD_PIN (= the director's PIN_SIDE) and PIN_BAND a foe already UPON it on its outer side (< 1.8 m) is fought,
+                       // not walked away from (r12 traces: an attacker walking in on the outer side chased a stepping-in bot for 2–9 s). A/B: a
+                       // 0.18 step-in band put the co-op bots within 20 % of an edge 22–24 % of the time (r12 12–17 %) and sent their foes round.
 const THIEF_EDGE = 0.15; // C2 r13: a thief closer than this (fraction of the frame width) to an edge is not chased
 export class HeroBot {
   constructor(game, hero, { skill = 0.8 } = {}) {
@@ -42,6 +46,10 @@ export class HeroBot {
     this.edgeOn = qp('botedge') !== '0';
     this.thiefOn = qp('botthief') !== '0';
     const gp = Number(qp('botgap')); this.mateGap = gp > 0 ? gp : MATE_GAP; // A/B knob &botgap=
+    const pb = Number(qp('botpin')); this.pinBand = pb > 0 ? pb : PIN_BAND; // C2 r3 A/B: &botpin=<band>
+    this.edgeOuter = qp('botouter') !== '0'; // C2 r3: step in from the edge for any close foe on the outer side (&botouter=0: target only)
+    this.bonesOn = qp('botbones') !== '0'; // C2 r3: OTG a skeleton bone pile (see the jump-attack rule)
+    this.magicOn = qp('botmagic') !== '0'; this.magicOld = qp('botmagic') === 'r12'; // C2 r3: &botmagic=0 → melee-only bots (AI evidence clips: no spell spam hiding the crowd)
     if (game.bus && game.bus.on) this._off = game.bus.on('hit', (ev) => { if (ev && ev.attacker === hero) this.lastHit = game.tick; });
   }
 
@@ -115,10 +123,15 @@ export class HeroBot {
     if (edge && !stuck && !h.fsm.is('clinch')) {
       if (adx > reach && outward(Math.sign(dx))) holdX = true;
       // pinned at an edge with the foe on the outer side: step back toward the middle (the foe follows; never fought clipped)
-      // hysteresis: starts inside the band, keeps stepping in until band + 0.04 (clear of the director's 0.24 soft inner-flank band)
-      const was = this.inwardSide && g.tick - (this.inwardT || 0) < 3 ? this.inwardSide : 0, lim = was ? band + 0.04 : band;
+      // hysteresis: starts inside the pin band, keeps stepping in until pin band + 0.04
+      const was = this.inwardSide && g.tick - (this.inwardT || 0) < 3 ? this.inwardSide : 0, lim = was ? this.pinBand + 0.04 : this.pinBand;
       const pin = hf < lim ? -1 : hf > 1 - lim ? 1 : 0;
-      if (pin && (Math.sign(dx) === pin || was === -pin)) { inward = -pin; this.inwardSide = inward; this.inwardT = g.tick; }
+      // C2 r3: …or ANY standing foe close on its outer side (r12 traces: a bot pinned at 10 % of the frame kept chasing a foe on its
+      // inner side while another, trapped between it and the edge, spent seconds trying to go round it)
+      const outerFoe = pin && enemies.some((e) => e !== target && Math.sign(e.pos.x - h.pos.x) === pin && Math.abs(e.pos.x - h.pos.x) < 3 && Math.abs(e.pos.z - h.pos.z) < 2.4 && e.fsm && !e.fsm.is('down', 'knockdown', 'dead', 'thrown', 'grabbed') && !(e.def && e.def.passive));
+      // …and outside the hard band a foe already upon it on the outer side (< 1.8 m) is fought, not walked away from
+      const upon = pin && hf >= HARD_PIN && hf <= 1 - HARD_PIN && enemies.some((e) => Math.sign(e.pos.x - h.pos.x) === pin && Math.abs(e.pos.x - h.pos.x) < 1.8 && Math.abs(e.pos.z - h.pos.z) < 0.8 && e.fsm && !e.fsm.is('down', 'knockdown', 'dead') && !(e.def && e.def.passive));
+      if (pin && !upon && (Math.sign(dx) === pin || was === -pin || (outerFoe && this.edgeOuter))) { inward = -pin; this.inwardSide = inward; this.inwardT = g.tick; }
     }
     if (inward) dirs.push(inward > 0 ? 'right' : 'left');
     else if (adx > reach && !holdX) dirs.push(dirX);
@@ -175,7 +188,7 @@ export class HeroBot {
     if (h.fsm.is('run') && this.runPlan === 'stab' && adx > 3.0 && adx < 4.4 && Math.abs(dz) < 0.3 && this.cool <= 0 && rng.chance(0.35 * this.skill)) { this.tap('jump'); this.cool = 20; return; }
     if (h.fsm.is('jump', 'fall') && h.runJump && Math.abs(h.vel.y) < 3 && !h.attack) { this.tap('light'); return; }
     // Airborne: strike on the way down (slam onto downed / clustered foes).
-    if (h.fsm.is('jump', 'fall') && h.vel.y < 1 && adx < 1.8 && Math.abs(dz) < 0.4 && !h.attack && !(edge && mate && Math.abs(mate.pos.x - target.pos.x) < 1.0 && Math.abs(mate.pos.z - target.pos.z) < 1.2)) { this.tap(target.fsm.is('down') || rng.chance(0.3) ? 'heavy' : 'light'); return; }
+    if (h.fsm.is('jump', 'fall') && h.vel.y < 1 && adx < 1.8 && Math.abs(dz) < 0.4 && !h.attack && !(edge && mate && Math.abs(mate.pos.x - target.pos.x) < 1.0 && Math.abs(mate.pos.z - target.pos.z) < 1.2)) { this.tap(target.fsm.is('down', 'bones') || rng.chance(0.3) ? 'heavy' : 'light'); return; }
 
     // Close string: end on an aimed THROW (toward the bigger crowd side) about half the time.
     if (h.moveId === 'pommel_2' && h.attack && h.attack.anyHit && !this.throwAimed) {
@@ -194,9 +207,12 @@ export class HeroBot {
       const threat = enemies.find((e) => e.attack && e.attack.frame < (e.attack.def.startup || 0) - 2 && Math.abs(e.pos.x - h.pos.x) < 2.2 && Math.abs(e.pos.z - h.pos.z) < 0.55);
       if (threat && rng.chance((this.uses.dodge ? 0.1 : 0.3) * this.skill)) { this.use('dodge'); this.lastDodge = g.tick; this.hold([]); this.tap('dodge'); this.cool = 26; return; }
     }
-    // Magic into a crowd (or with a full stock).
+    // Magic into a crowd. C2 r3 (board r12: "half the clips were hero spell spam"; the bots cast at the FIRST foe in sight with a
+    // full stock, flooring each new wave for ~3 s): like a good player, a crowd of 3+, or 2+ with a strong spell when the stock
+    // is full or the hero is hurt. &botmagic=0: never; &botmagic=r12: the old rule.
     const near = enemies.filter((e) => Math.abs(e.pos.x - h.pos.x) < 7 && !e.fsm.is('down')).length;
-    if (!busy && h.grounded && h.pots > 0 && this.cool <= 0 && !(h.game.magic && h.game.magic.locked) && (near >= 3 || (near >= 2 && h.magicTier() >= 2) || (h.pots >= h.maxPots && near >= 1)) && rng.chance(0.03)) { this.tap('magic'); this.cool = 90; return; }
+    const want = this.magicOld ? (near >= 3 || (near >= 2 && h.magicTier() >= 2) || (h.pots >= h.maxPots && near >= 1)) : (near >= 3 || (near >= 2 && h.magicTier() >= 2 && (h.pots >= h.maxPots || h.hp < h.maxHp * 0.6)));
+    if (this.magicOn && !busy && h.grounded && h.pots > 0 && this.cool <= 0 && !(h.game.magic && h.game.magic.locked) && want && rng.chance(0.03)) { this.tap('magic'); this.cool = 90; return; }
     // Flanked: back attack (Light+Jump) on the foe behind.
     const behind = enemies.find((e) => Math.sign(e.pos.x - h.pos.x) === -h.facing && Math.abs(e.pos.x - h.pos.x) < 1.5 && Math.abs(e.pos.z - h.pos.z) < 0.4 && !e.fsm.is('down'));
     if (!busy && behind && this.cool <= 0 && h.moves.back_attack && rng.chance((this.uses.back ? 0.25 : 0.6) * this.skill)) { this.use('back'); this.tap('light'); this.tap('jump'); this.cool = 36; return; }
@@ -210,7 +226,11 @@ export class HeroBot {
     if (!inRange || this.cool > 0 || busy || repositioning) return;
     const facing = Math.sign(dx) === h.facing;
     if (!facing) { this.tap(dirX, 2); return; }
-    if (target.fsm.is('down') && h.grounded && rng.chance(0.5) && !(edge && mate && Math.abs(mate.pos.x - target.pos.x) < 1.6 && Math.abs(mate.pos.z - target.pos.z) < 1.2)) { /* C2 r2: not a jump onto the partner's spot */ this.tap('jump'); this.later(14, () => this.tap(rng.chance(0.5) ? 'heavy' : 'light')); this.cool = 40; return; }
+    // C2 r3 (stage-3 stall, bosses r14: two god-mode bots hit a lone skeleton for 2 min, the boss never came): a skeleton's BONE PILE only
+    // stays down to an OTG hit (jump attack / air slam) or magic — normal swings do nothing and it reforms every ~5 s. A pile in reach
+    // always gets the jump attack, and the partner-spot rule only holds while the partner is airborne itself. &botbones=0: old rule.
+    const pile = this.bonesOn && target.fsm.is('bones');
+    if ((pile || (target.fsm.is('down') && rng.chance(0.5))) && h.grounded && !(edge && mate && Math.abs(mate.pos.x - target.pos.x) < 1.6 && Math.abs(mate.pos.z - target.pos.z) < 1.2 && (!pile || !mate.grounded))) { /* C2 r2: not a jump onto the partner's spot */ this.tap('jump'); this.later(14, () => this.tap(rng.chance(0.5) ? 'heavy' : 'light')); this.cool = 40; return; }
     const crowd = enemies.filter((e) => Math.abs(e.pos.x - h.pos.x) < 1.6 && Math.abs(e.pos.z - h.pos.z) < 0.6).length;
     if (crowd >= 3 && rng.chance(0.08 * this.skill)) { this.tap('dodge'); this.cool = 24; return; }
     if (this.closeUntil > g.tick) { this.closeUntil = 0; this.tap('light'); this.cool = 30; return; } // stepped in: close string

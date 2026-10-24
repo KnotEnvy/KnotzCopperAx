@@ -61,7 +61,7 @@ export function groundFirelight(material, huts, rocks = []) {
         vec3 baked = groundBake.rgb;
         vec4 grain = kN(vKW.xz * vec2(0.29, 0.63) + 0.137);
         float nearGround = 1.0 - smoothstep(8.0, 20.0, -vKW.z);
-        float scuff = mix(0.92, 1.06, grain.g) * (1.0 - kgRut * 0.38);
+        float scuff = mix(0.92, 1.06, grain.g) * (1.0 - kgRut * 0.56);
         // Cool ash reflects the dusk; amber illumination follows the burning huts
         // across the road. Scorched islands and tracks remain dark inside the pools.
         // Keep the actor-foot belt inside its 35–60 value range while preserving
@@ -69,9 +69,9 @@ export function groundFirelight(material, huts, rocks = []) {
         float beltBalance = mix(.78, 1.0, smoothstep(2.2, 3.6, abs(vKW.z)));
         vec3 bounce = vec3(0.48, 0.205, 0.075) * baked.r * baked.r * scuff * s1GroundGain.x * beltBalance;
         vec3 ash = vec3(0.045, 0.043, 0.056) * (0.3 + baked.g * 1.7) * s1GroundGain.y;
-        float scar = 1.0 - baked.b * 0.20;
+        float scar = (1.0 - baked.b * 0.20) * (1.0 - kgBurn * .25);
         totalEmissiveRadiance += vec3(.015, .016, .023) * s1Ash * nearGround * groundBake.a;
-        totalEmissiveRadiance += (bounce + ash) * scar * nearGround * s1Reflectance * groundBake.a;
+        totalEmissiveRadiance += (bounce + ash) * scar * nearGround * (s1Reflectance + s1Shoulder*.15) * groundBake.a;
         // Sparse ember fissures in scorched near-verge soil, derivative filtered.
         float line = abs(grain.r - 0.51);
         float aa = max(fwidth(grain.r), 0.003);
@@ -87,7 +87,7 @@ export function groundFirelight(material, huts, rocks = []) {
         diffuseColor.rgb *= groundBake.a;
       }`);
   };
-  material.customProgramCacheKey = () => key.call(material) + '|s1GroundFirelight';
+  material.customProgramCacheKey = () => key.call(material) + '|s1GroundFirelight-r15';
   material.addEventListener('dispose', () => tex.dispose());
   return material;
 }

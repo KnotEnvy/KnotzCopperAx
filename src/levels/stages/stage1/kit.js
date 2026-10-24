@@ -77,7 +77,7 @@ export async function loadStage1Kit(game) {
           : `#include <emissivemap_fragment>
           totalEmissiveRadiance += vec3(2.4,.48,.025) * vS1Ember * (.88+.12*sin(s1Time*6.1)) + vec3(.32,.16,.034) * vS1Warm * clamp(sampledDiffuseColor.rgb*18.0,vec3(.12),vec3(1.5));`);
       };
-      mat.customProgramCacheKey = () => (isStraw ? 's1AlphaStraw-C2-r14' : 's1BakedVillage-C2-r14') + mat.type;
+      mat.customProgramCacheKey = () => (isStraw ? 's1AlphaStraw-C2-r15' : 's1BakedVillage-C2-r15') + mat.type;
       if (isStraw) strawMaterial = mat; else material = mat;
     }
     const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
@@ -103,11 +103,13 @@ export async function loadStage1Kit(game) {
       const interior = !isStraw && anchors.length && pos.getY(i)>2 && pos.getZ(i)<.4;
       const n=g.getAttribute('normal');
       const facing=interior ? .4+.6*Math.abs(n.getZ(i)) : 1;
-      const inner = interior ? .70*Math.exp(-((pos.getY(i)-3.0)**2)/3.0)
-        * (.60+.40*Math.cos(pos.getX(i)*1.6+pos.getY(i))) * facing : 0;
+      // Falloff from the floor fire: no broad self-lit pink rear pitch.
+      const lowBounce = Math.exp(-((pos.getY(i)-2.25)**2)/.65)
+        * (.45+.55*Math.pow(Math.sin(pos.getX(i)*2.7+1.4),2));
+      const inner = interior ? .18*(.28+.72*lowBounce)*facing : 0;
       const reedUnder=isStraw && pos.getZ(i)<-.10 && pos.getY(i)>2
-        ? .80*Math.exp(-((pos.getY(i)-3.1)**2)/2.8) : 0;
-      warm[i]=glow*(isStraw?.45:.85)+inner+reedUnder;
+        ? .22*(.32+.68*lowBounce) : 0;
+      warm[i]=glow*(isStraw?.32:.65)+inner+reedUnder;
     }
     g.setAttribute('s1Warm', new THREE.BufferAttribute(warm, 1));
     g.setAttribute('color', new THREE.BufferAttribute(rgb, 3));

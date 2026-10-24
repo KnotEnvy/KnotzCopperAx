@@ -234,7 +234,9 @@ export function rockField(vfx, kind, { glow = '#ffad42', variant = 0 } = {}) {
   const mesh = new THREE.InstancedMesh(geo, mat, cap);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = 0; mesh.visible = false; mesh.frustumCulled = false;
-  mesh.castShadow = !protect; mesh.receiveShadow = true;
+  // Tiny hot grit needs no second shadow draw; protected luminous shafts have their own
+  // baked cavity/AO and cannot receive actor shadows across an exposed magma channel.
+  mesh.castShadow = !protect && kind !== 'chip'; mesh.receiveShadow = !protect && kind !== 'chip';
   if (protect) mesh.renderOrder = -2; // opaque basalt before scenery: depth rejects the hidden ground/walls
   mesh.userData.magicOccluder = protect;
   mesh.userData.magicOpacity = new Float32Array(cap).fill(1);

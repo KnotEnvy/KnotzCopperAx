@@ -67,27 +67,44 @@ def roof(B,C,rng,hx,H,slope,D,N,hole,paint,rim,side,sag):
         x=-hx-.38+u*(hx*2+.76);v=t*(slope-.03)
         return x,v,Vector((x,0,H-sag(x,v)))+D*v-N*(.14+.025*math.sin(x*29)),u,t
     def coreface(p):
-        # The dark backing has real pitch; fine reed packing below it receives bounce.
-        colors=[(.65,.53,.36) if side==1 else (.12,.14,.15) for a in p]
-        B.face([a[2] for a in p],1,[(a[3],a[4]) for a in p],colors)
-        if side==1:
-            # Fine reed packing on the actual far pitch, visible from inside.
-            # The same straw atlas supplies strands instead of stretched trim.
-            C.face([a[2]-N*.025 for a in p],-1,
-                   [(a[3]*9,1-a[4]*3) for a in p],col=(.60,.48,.31),smooth=True)
+        # Recessed charred backing, with irregular remaining reed mats in front.
+        # Grain and value change per bay; top recess receives no blanket bounce.
+        colors=[]
+        for a in p:
+            low=max(0,min(1,a[1]/slope))
+            value=.38+.24*low+.10*abs(math.sin(a[0]*5.7+a[1]*3.1))
+            colors.append((value,value*.87,value*.68) if side==1 else (.12,.14,.15))
+        B.face([a[2]-N*.16 for a in p],1,[(a[3],a[4]) for a in p],colors)
     clipgrid(core,30,20,coreface,lambda x,v:hole(x,v)-.13)
+    if side==1:
+        # Separate remnants follow the far roof plane, separated by blackened
+        # exposed wood. They stop at different heights and recess per bay.
+        for j in range(3):
+            x=-hx-.25
+            while x<hx+.2:
+                width=rng.uniform(.34,.72);v0=j*slope/3+rng.uniform(-.12,.18)
+                length=slope*rng.uniform(.15,.29);depth=rng.uniform(.05,.23)
+                tone=rng.uniform(.36,.58)*(1+j*.10)
+                if rng.random()>.23:
+                    pts=[Vector((x,0,H))+D*v0-N*depth,
+                         Vector((x+width,0,H))+D*(v0+.07)-N*depth,
+                         Vector((x+width*.82,0,H))+D*(v0+length*.77)-N*(depth+.04),
+                         Vector((x+.05,0,H))+D*(v0+length)-N*(depth+.09)]
+                    C.face(pts,-1,[(0,1),(1,1),(1,0),(0,0)],
+                           col=(tone,tone*.80,tone*.53),smooth=True)
+                x+=width+rng.uniform(.08,.22)
     for row in range(8):
         x=-hx-.48
         while x<hx+.40:
-            width=min(rng.uniform(.48,.86),hx+.52-x);start=row*slope/8-.10+rng.uniform(-.07,.07)
-            length=slope/8+rng.uniform(.22,.29);phase=rng.random()*6.28
+            width=min(rng.uniform(.48,.86),hx+.52-x);start=row*slope/8-.10+.07*math.sin(x*1.6+row*2.2)+rng.uniform(-.035,.035)
+            length=slope/8+rng.uniform(.34,.43);phase=rng.random()*6.28
             # Individual sheaves end at different lengths. Fine serrations and
             # sparse drooping tips belong to these alpha cards, never to a rim.
             def field(px,v):
                 return hole(px,v)+.035*math.sin(px*47+phase)+.035*math.sin(px*23-v*13+phase)
             def card(u,t):
                 px=x+width*u+.025*math.sin(t*3+phase)
-                v=start+t*length+.025*math.sin(u*7+phase)*t
+                v=start+t*length+.065*math.sin(u*4+phase)*t
                 h=hole(px,v);burn=max(0,min(1,(1.45-h)/.45))
                 lift=.055+(7-row)*.009+.075*t*t+.012*math.sin(u*7+phase)
                 lift-=burn*(.025+.06*math.sin(phase)**2)

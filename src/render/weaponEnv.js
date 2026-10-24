@@ -70,11 +70,24 @@ export function applySelectWeaponEnv(game, heroes, { intensity = 1.0 } = {}) {
         if (!o.isMesh) return;
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
           if (!m || !m.isMeshStandardMaterial || !m.userData.kcaMetalTint || mats.includes(m)) continue;
+          // The two raised stand-pose blades mirror the soft box near their tips,
+          // behind the title band. Aim their finite reflection lower down the visible blade.
+          if (w.getObjectByName('weapon_grudgebrand') || w.getObjectByName('weapon_dawn')) {
+            const glint = m.userData.kcaSelectBaseGlint || (m.userData.kcaSelectBaseGlint = m.userData.kcaWeaponGlint);
+            if (glint) {
+              const raisedSteel = !!w.getObjectByName('weapon_grudgebrand');
+              m.userData.kcaWeaponGlint = [glint[0] * (raisedSteel ? 1.8 : 1), glint[1] * (raisedSteel ? 0.5 : 0.72), glint[2], glint[3]];
+              if (m.userData.kcaWeaponGlintU) m.userData.kcaWeaponGlintU.value.fromArray(m.userData.kcaWeaponGlint);
+            }
+          }
+          // The warm chosen-hand rig otherwise washes copper cheeks pale salmon.
+          // Keep the recess/body energy below the independent polished reflection peak.
+          if (w.getObjectByName('weapon_copperax')) m.color.setScalar(0.65);
           m.envMap = rt.texture;
           m.envMapIntensity = intensity;
-          // the stage lowers the IBL on these materials (uniform violet sky); here the env IS the highlight source
-          m.userData.kcaMetalEnv = 1;
-          if (m.userData.kcaMetalEnvU) m.userData.kcaMetalEnvU.value = 1;
+          // C2 r7: keep dark recesses in this set too; the finite weapon soft-box supplies the localized peak.
+          m.userData.kcaMetalEnv = 0.45;
+          if (m.userData.kcaMetalEnvU) m.userData.kcaMetalEnvU.value = 0.45;
           m.needsUpdate = true;
           mats.push(m);
         }

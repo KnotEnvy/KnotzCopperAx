@@ -56,11 +56,18 @@ export default {
   clips: {
     // riding: Dawn raised, Dusk held low along the flank (no reins — knees steer); a falling cut from the saddle
     ...rideSet({ carry: W([0.46, -0.02, 0.36], dir(10, 40), [0, 0.3, 1]), carryL: W([0.3, -0.36, -0.42], dir(160, -30), [0, 0.3, -1]), up: W([0.0, 0.86, 0.36], dir(170, 40), [0, 0, 1]), hit: W([0.8, 0.02, 0.3], dir(10, -24), [0, 0, 1]), follow: W([0.56, -0.42, -0.1], dir(-40, -50), [0, 0, 1]) }),
-    idle: {  // fencer's bounce, two per second
-      frames: 60, loop: true, plant: 1, breathe: 0.8, tags: ['idle'],
+    idle: {  // relaxed asymmetric guard; weight settles over a supporting leg
+      frames: 120, loop: true, plant: 1, breathe: 0.65, tags: ['idle'],
       keys: [
-        g(0), g(15, { hips: [0, -0.075, 0], wpn: W([0.56, 0.06, 0.24], dir(-8, 22), [0, 0.3, 1]) }),
-        g(30, { hips: [0, -0.095, 0] }), g(45, { hips: [0, -0.078, 0], wpnL: WL([0.36, -0.42, -0.3], dir(-24, -20), [0, 0.3, -1]) }), g(60),
+        { f: 0, pose: torso({ pelvis: -20, yaw: 8, pitch: -4, roll: 2, look: 0.95 }), hips: [0.015, -0.045, 0],
+          ...feet([0.15, 0, -0.02, 0, 6], [-0.15, 0.018, 0.04, -7, 28]),
+          wpn: W([0.38, -0.10, 0.30], dir(8, 25), [0, 0.3, 1]), wpnL: WL([0.26, -0.32, -0.32], dir(-26, -24), [0, 0.3, -1]) },
+        { f: 40, ease: 'inOut', pose: torso({ pelvis: -18, yaw: 10, pitch: -3, roll: 1, look: 0.95 }), hips: [0.025, -0.035, 0],
+          wpn: W([0.40, -0.08, 0.30], dir(10, 27), [0, 0.3, 1]) },
+        { f: 80, ease: 'inOut', pose: torso({ pelvis: -22, yaw: 7, pitch: -5, roll: 2, look: 0.95 }), hips: [0.005, -0.047, 0],
+          wpn: W([0.37, -0.11, 0.31], dir(7, 24), [0, 0.3, 1]), wpnL: WL([0.28, -0.30, -0.32], dir(-24, -22), [0, 0.3, -1]) },
+        { f: 120, ease: 'inOut', pose: torso({ pelvis: -20, yaw: 8, pitch: -4, roll: 2, look: 0.95 }), hips: [0.015, -0.045, 0],
+          wpn: W([0.38, -0.10, 0.30], dir(8, 25), [0, 0.3, 1]), wpnL: WL([0.26, -0.32, -0.32], dir(-26, -24), [0, 0.3, -1]) },
       ],
     },
     walk: { duration: 0.56, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
@@ -447,9 +454,9 @@ export default {
     select_stand: {
       frames: 120, loop: true, plant: 1, breathe: 0.8, tags: ['idle'],
       keys: [
-        { f: 0, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(-30, 76), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
-        { f: 60, pose: torso({ pelvis: -14, yaw: 7, pitch: 1, look: 0.6 }), hips: [0, -0.085, 0], ...ST_W, wpn: W([0.3, 0.0, 0.42], dir(-30, 75), [0.92, 0.19, 0.35]), wpnL: WL([0.33, -0.47, -0.44], dir(-45, -35), [0.92, 0.19, 0.35]) },
-        { f: 120, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(-30, 76), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
+        { f: 0, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
+        { f: 60, pose: torso({ pelvis: -14, yaw: 7, pitch: 1, look: 0.6 }), hips: [0, -0.085, 0], ...ST_W, wpn: W([0.3, 0.0, 0.42], dir(25, 63), [0.92, 0.19, 0.35]), wpnL: WL([0.33, -0.47, -0.44], dir(-45, -35), [0.92, 0.19, 0.35]) },
+        { f: 120, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
       ],
     },
     // magic: blades crossed low, then flung up into a burning V (castPeak)

@@ -8,6 +8,25 @@ import { bossShade, bossGrade } from './_look.js';
 
 const Q = typeof location !== 'undefined' ? location.search : '';
 const OLD_INTRO = /[?&]varkhulintro=0/.test(Q), OLD_CARRY = /[?&]varkhulcarry=0/.test(Q);
+// C2 r14 (board r13: "in the stage-4 fight he is seen from BEHIND as a cape slab — T-visor, pauldrons and serpent tabard
+// hidden"): the visual yaw cheat toward the lens (Actor default 0.32 rad) is raised to a front three-quarter while he stands,
+// stalks or postures (0.78 rad ≈ 45°) and eases back to 0.46 inside attacks (the flail arcs stay readable side-on); in the
+// intro he turns to 0.9 under the card. His cape (GLB, kilt chain) also gets cloth kicks on the stride stop, the spin and the
+// taunt (overlapping motion). `&varkhulturn=0` = r13.
+const OLD_TURN = /[?&]varkhulturn=0/.test(Q);
+const CHEAT = { stand: 0.78, attack: 0.46, intro: 0.9 };
+const _kv = new THREE.Vector3();
+function capeKick(b, x, y, z) {
+  const sp = b.animator && b.animator.post && b.animator.post.springs;
+  if (sp && sp.kick) try { sp.kick(_kv.set(x, y, z)); } catch (e) { reportError('varkhul.capeKick', e); }
+}
+function turnToLens(b) {
+  if (OLD_TURN) return;
+  const want = b.fsm.is('bossIntro') ? (b._introSpin || b.introMark != null ? CHEAT.intro : CHEAT.stand)
+    : b.fsm.is('idle', 'walk', 'run', 'pause', 'block', 'puppet') ? CHEAT.stand : CHEAT.attack;
+  const d = want - b.cheatYaw;
+  b.cheatYaw += Math.max(-0.02, Math.min(0.02, d));
+}
 
 function envOf(g) {
   const reg = typeof window !== 'undefined' && window.__KCA && window.__KCA.registry && window.__KCA.registry.stage4;
@@ -172,9 +191,12 @@ export function varkhulScript() {
         strode = true; b.vel.x = 0; b.faceToward(b.heroes()[0] || { pos: { x: b.pos.x - 1 } });
         b.play('flail_spin', { restart: true, fade: 0.15, duration: 1.0 });
         b.introMark = t; b._introSpin = true;
+        if (!OLD_TURN) capeKick(b, b.facing * 2.6, -0.3, 0.4);   // the stride stops, the cape carries on past him
       }
       const k = t - (b.introMark ?? t);
+      if (!OLD_TURN && b._introSpin && k > 0 && k < 56 && k % 12 === 0) { const a = (k / 12) * 2.1; capeKick(b, Math.cos(a) * 1.6, 0.35, Math.sin(a) * 1.2); }   // the spin flings it round
       if (k === 58) {
+        if (!OLD_TURN) capeKick(b, -b.facing * 1.4, -0.9, -0.6);   // the taunt's stamp settles it
         b._introSpin = false;
         b.play('taunt', { restart: true, fade: 0.12 });
         if (g.cameraRig && g.cameraRig.shake) g.cameraRig.shake(0.22);
@@ -222,7 +244,7 @@ export function varkhulScript() {
       if (t >= 130) { if (cam) { cam.release(); cam = null; } return true; }
       return false;
     },
-    update(b) { if (fx) fx.update(); },
+    update(b) { if (fx) fx.update(); turnToLens(b); },
     render(b, alpha, dt) {
       const time = b.game.time;
       if (capeFx) capeFx.update(dt, time);

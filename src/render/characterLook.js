@@ -160,6 +160,23 @@ const FRAG = /* glsl */`{
     float kt = km <= kk ? km : kk + kw * (1.0 - exp(-(km - kk) / kw));
     outgoingLight = kc * (kt / max(km, 1e-5)) + kem;
   }
+  // C2 r7 weapons: finite reflected strip light. The old angular key lobe misses most
+  // bevel normals and the common actor shoulder flattens its rare peaks. Local position
+  // bounds a small soft-box image; its centre follows the weapon's view-space axis,
+  // never a clock, so it travels with the swing and stops during hitstop. Uniform opt-in.
+  // A separate bounded shoulder lets a polished hotspot exceed the matte body's cap.
+  if (kWeaponGlint.x > 0.0 && kMet > 0.0) {
+    float kwAcross = mix(vKWeaponPos.x, vKWeaponPos.z, kWeaponGlint.w);
+    float kwCentre = kWeaponGlint.y * (0.60 + 0.28 * vKWeaponPos.w);
+    float kwWidth = kWeaponGlint.y * 0.038;
+    float kwBand = 1.0 - smoothstep(0.0, kwWidth,
+      abs(vKWeaponPos.y + kwAcross * 0.45 - kwCentre));
+    float kwBlade = smoothstep(kWeaponGlint.z, kWeaponGlint.z + 0.035, vKWeaponPos.y);
+    float kwPolish = 1.0 - smoothstep(0.24, 0.58, kRgh);
+    float kwHot = kwBand * kwBlade * kwPolish * kwPolish * kwPolish * kMet * kWeaponGlint.x;
+    vec3 kwWhite = mix(vec3(1.0), normalize(diffuseColor.rgb + vec3(0.001)), 0.08);
+    outgoingLight += kwWhite * (1.35 * (1.0 - exp(-kwHot * 2.0)));
+  }
   // C2 r7 contact fill: body-local warm lift plus a two-frame heavy rim, after the
   // actor shoulder. Per-material uniforms keep the existing program and texture detail.
   if (kContactPoint.w > 0.0 && kContactFill.a > 0.0) {
@@ -196,6 +213,9 @@ export function applyCharacterLook(root, { strength = 1 } = {}) {
       const mt = m.userData.kcaMetalTintU || (m.userData.kcaMetalTintU = { value: new THREE.Vector4().fromArray(m.userData.kcaMetalTint || [0, 0, 0, 0]) });
       // C2 r6 (hero-weapons): per-material IBL scale on metal texels (1 = unchanged; anim/retarget.js lowers it on the hero weapons)
       const menv = m.userData.kcaMetalEnvU || (m.userData.kcaMetalEnvU = { value: m.userData.kcaMetalEnv === undefined ? 1 : +m.userData.kcaMetalEnv });
+      const wg = m.userData.kcaWeaponGlintU || (m.userData.kcaWeaponGlintU = {
+        value: new THREE.Vector4().fromArray(m.userData.kcaWeaponGlint || [0, 1, 0, 0]),
+      });
       const contact = m.userData.kcaContact || (m.userData.kcaContact = {
         point: { value: new THREE.Vector4() }, fill: { value: new THREE.Vector4() }, white: { value: 0 }, age: 0, life: 0,
       });
@@ -210,11 +230,17 @@ export function applyCharacterLook(root, { strength = 1 } = {}) {
         shader.uniforms.kEdgeDark = ed;
         shader.uniforms.kMetalTint = mt;
         shader.uniforms.kMetalEnv = menv;
+        shader.uniforms.kWeaponGlint = wg;
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec4 vKWeaponPos;\nuniform vec4 kWeaponGlint;')
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+            vKWeaponPos = vec4(0.0);
+            if (kWeaponGlint.x > 0.0) vKWeaponPos = vec4(position, dot(normalize(modelViewMatrix[1].xyz), normalize(vec3(0.8, 0.5, 0.35))));`);
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nuniform vec4 kContactPoint;\nuniform vec4 kContactFill;\nuniform float kContactWhite;\nuniform vec3 kRimColor;\nuniform vec4 kRimParams;\nuniform vec4 kRimEdge;\nuniform vec2 kRimNear;\nuniform vec3 kRimDir;\nuniform float kRimK;\nuniform float kEdgeDark;\nuniform vec4 kMetalTint;\nuniform float kMetalEnv;\nuniform vec3 kKeyColor;\nuniform vec3 kKeyDir;\nuniform vec3 kKeyAmb;\nuniform float kKeyWrap;\nuniform vec4 kKeyTone;\nuniform vec2 kClamp;\nuniform vec4 kSceneGrade;')
+          .replace('#include <common>', '#include <common>\nvarying vec4 vKWeaponPos;\nuniform vec4 kWeaponGlint;\nuniform vec4 kContactPoint;\nuniform vec4 kContactFill;\nuniform float kContactWhite;\nuniform vec3 kRimColor;\nuniform vec4 kRimParams;\nuniform vec4 kRimEdge;\nuniform vec2 kRimNear;\nuniform vec3 kRimDir;\nuniform float kRimK;\nuniform float kEdgeDark;\nuniform vec4 kMetalTint;\nuniform float kMetalEnv;\nuniform vec3 kKeyColor;\nuniform vec3 kKeyDir;\nuniform vec3 kKeyAmb;\nuniform float kKeyWrap;\nuniform vec4 kKeyTone;\nuniform vec2 kClamp;\nuniform vec4 kSceneGrade;')
           .replace('#include <opaque_fragment>', FRAG + '#include <opaque_fragment>');
       };
-      m.customProgramCacheKey = () => orderFreeKey(m, prevKey, prev, '|kcaChar7');
+      m.customProgramCacheKey = () => orderFreeKey(m, prevKey, prev, '|kcaChar8');
       m.needsUpdate = true;
     }
   });
@@ -268,7 +294,7 @@ export function contactFill(root, point, { radius = 1.05, strength = 1.8, life =
       if (!u) continue;
       u.point.value.set(point.x, point.y, point.z, radius);
       u.fill.value.set(1.0, .34, .055, strength);
-      u.white.value = heavy ? 2.5 : 0;
+      u.white.value = heavy ? .24 : 0;
       u.age = 0; u.life = life; u.strength = strength; u.heavy = heavy;
       contactMaterials.add(u);
     }
@@ -281,6 +307,6 @@ export function updateContactFills(dt, clear = false) {
       u.point.value.w = 0; u.fill.value.w = 0; u.white.value = 0; contactMaterials.delete(u); continue;
     }
     u.fill.value.w = u.strength * (1 - u.age / u.life);
-    u.white.value = u.heavy && u.age < .028 ? 2.5 * (1 - u.age / .028) : 0;
+    u.white.value = u.heavy && u.age < .028 ? .24 * (1 - u.age / .028) : 0;
   }
 }

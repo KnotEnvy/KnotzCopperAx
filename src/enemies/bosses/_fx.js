@@ -40,7 +40,7 @@ export function fxSystem(boss) {
       for (let i = fx.jobs.length - 1; i >= 0; i--) if (fx.t >= fx.jobs[i].at) { const j = fx.jobs.splice(i, 1)[0]; try { j.fn(); } catch (e) { reportError('bossfx.job', e); } }
       for (let i = fx.sparks.length - 1; i >= 0; i--) if (!stepSpark(fx, fx.sparks[i])) fx.sparks.splice(i, 1);
     },
-    dispose() { for (const o of [...fx.objs]) fx.remove(o); fx.sparks.length = 0; fx.jobs.length = 0; },
+    dispose() { for (const o of [...fx.objs]) fx.remove(o); for (const s of fx.sparks) dropSparkFlames(fx, s); fx.sparks.length = 0; fx.jobs.length = 0; },
   };
   return fx;
 }
@@ -59,6 +59,13 @@ const vfxOf = (game) => (game.vfx && game.vfx.shape ? game.vfx : null);
 const shake = (game, t) => { if (game.cameraRig && game.cameraRig.shake) game.cameraRig.shake(t); };
 
 // ------------------------------------------------------------------------------------------------ homing spark
+const SPARK_R13 = typeof location !== 'undefined' && /[?&]witchspark=r13/.test(location.search);   // A/B: the r13 white orb
+// [w, h, cycle s, phase, additive, core, tint] — tint = Morvane's casting-hand body / core (the braziers' mint green)
+const SPARK_FLAMES = [
+  [0.38, 0.92, 0.52, 0.0, false, 0.4, [0.04, 1.25, 0.32]],    // body tongue (silhouetted; first look 0.26×0.62 read as a 16 px glint)
+  [0.27, 0.66, 0.43, 0.57, false, 0.35, [0.04, 1.25, 0.32]],  // second tongue, out of phase
+  [0.26, 0.62, 0.37, 0.29, true, 2.4, [1.5, 3.2, 1.9]],       // hot inner core (additive; gives the flame a body — 0.18×0.5 read as strands)
+];
 /** Plant a spark that crawls along the ground after `target`. Jumping over it (hero y > 0.35) dodges it. */
 export function spark(fx, boss, target, o = {}) {
   const f = boss.facing;
@@ -95,7 +102,44 @@ function stepSpark(fx, s) {
   if (s.z < b.zMin || s.z > b.zMax) { s.z = Math.max(b.zMin, Math.min(b.zMax, s.z)); s.dir = -s.dir; }
   // visuals: crawling witchfire orb + crackle sparks + scorched trail
   const v = vfxOf(game);
-  if (v) {
+  if (v && !SPARK_R13) {
+    // C2 r14 (board r13: "the spark must read as a small green witchfire, brazier hue, emissive + flickering light,
+    // crawling along the floor"): a green flame tongue + additive hot core from the shared fire pool (same tint as his
+    // casting hand), rooted on the floor and leaning back against the crawl; a small floor hot-spot instead of the
+    // white-blown orb; one flickering green light shared by all live sparks (pooled pop-light slot 1 — the hand uses the
+    // last slot; the scene's point-light count never changes → 0 new programs).
+    const fl = 0.85 + 0.15 * Math.sin(s.age * 0.53 + s.seed) * Math.sin(s.age * 0.21 + s.seed * 2);
+    const pool = v.fire;
+    if (pool) {
+      if (s.flames && s.flames.some((o) => pool.items.indexOf(o) < 0)) s.flames = null;   // pool cleared (stage change)
+      if (!s.flames) {
+        s.flames = [];
+        for (const T of SPARK_FLAMES) {
+          const o = pool.emit({ clip: 'flame', loop: true, life: T[2], phase: (s.seed + T[3]) % 1, size: [T[0], T[1]], additive: T[4], core: T[5], mirror: T[3] > 0.5 ? -1 : 1, pos: [s.x, 0, s.z], radiance: T[4] ? 0 : 0.9 });
+          if (!o) break;
+          o.tint = [...T[6]]; s.flames.push(o);
+        }
+      }
+      const cz = game.camera ? Math.sign(game.camera.position.z - s.z) || 1 : 1;
+      const lean = Math.max(-0.45, Math.min(0.45, -Math.cos(s.dir) * Math.min(1, s.age / 20) * 0.4));   // tongues trail the crawl
+      const grow = Math.min(1, s.age / 10);
+      for (let i = 0; i < s.flames.length; i++) {
+        const o = s.flames[i], T = SPARK_FLAMES[i], f2 = 0.9 + 0.1 * Math.sin(s.age * (0.37 + i * 0.11) + i * 1.7 + s.seed);
+        o.size[0] = T[0] * grow * fl; o.size[1] = T[1] * grow * fl * f2;
+        o.pos[0] = s.x - Math.cos(s.dir) * 0.04 * i; o.pos[1] = 0.04 + o.size[1] * 0.4; o.pos[2] = s.z + cz * (0.36 + 0.03 * i);   // the pool soft-fades against the depth behind (0.2 m): off the floor toward the lens like the hand's
+        o.rot = lean; o.vel[0] = o.vel[1] = o.vel[2] = 0;
+      }
+    }
+    if (fx.sparks[0] === s && v.lights && v.lights.length > 2) {   // one light for the lead spark
+      const L = v.lights[1];
+      L.light.position.set(s.x, 0.45, s.z + 0.3); L.light.color.set(0x4dff7a);
+      L.light.distance = 2.4; L.base = 3.6 * fl + (Math.random() - 0.5) * 0.5; L.t = 0; L.life = 0.12; L.hold = 0.1; L.light.intensity = L.base;
+      s.light = L;
+    }
+    v.shape.emit({ shape: 'orb', pos: [s.x, 0.16, s.z + 0.3], size: [0.5 * fl, 0.38 * fl], life: 0.07, color: [WITCH.hot, WITCH.mid], intensity: 3.8, alpha: [1, 1] });
+    if (s.age % 3 === 0) v.add.emit({ pos: [s.x, 0.2, s.z], vel: [(Math.random() - 0.5) * 1.6 - Math.cos(s.dir) * 0.8, 1.2 + Math.random() * 1.6, (Math.random() - 0.5) * 1.2], life: 0.45, size: [0.05, 0.01], color: [WITCH.hot, WITCH.tail], intensity: 4, shape: 'spark', stretch: 0.02, gravity: -1.2, drag: 1.5 });
+    if (s.age % 4 === 0) v.shape.emit({ shape: 'glow', mode: 'plane', pos: [s.x, 0.025, s.z], size: [0.8, 0.8], life: 0.7, color: [WITCH.mid, WITCH.tail], intensity: 1.8 });
+  } else if (v) {
     const fl = 0.8 + 0.3 * Math.sin(s.age * 0.9 + s.seed);
     v.shape.emit({ shape: 'orb', pos: [s.x, 0.22, s.z], size: [0.55 * fl, 0.55 * fl], life: 0.07, color: [WITCH.core, WITCH.hot], intensity: 7, alpha: [1, 1] });
     if (s.age % 2 === 0) v.add.emit({ pos: [s.x, 0.15, s.z], vel: [(Math.random() - 0.5) * 3, 1.5 + Math.random() * 2.5, (Math.random() - 0.5) * 2], life: 0.35, size: [0.06, 0.01], color: [WITCH.core, WITCH.mid], intensity: 6, shape: 'spark', stretch: 0.03, gravity: 7, drag: 1 });
@@ -113,7 +157,15 @@ function stepSpark(fx, s) {
   return true;
 }
 
+function dropSparkFlames(fx, s) {
+  const v = vfxOf(fx.game), pool = v && v.fire;
+  if (s.flames && pool) for (const o of s.flames) { const i = pool.items.indexOf(o); if (i >= 0) pool.items.splice(i, 1); }
+  s.flames = null;
+  if (s.light) { s.light.t = s.light.life; s.light.light.intensity = 0; s.light = null; }
+}
+
 function sparkPop(fx, s) {
+  dropSparkFlames(fx, s);
   const v = vfxOf(fx.game);
   if (!v) return;
   v.shape.emit({ shape: 'burst', pos: [s.x, 0.3, s.z], size: [1.2, 1.2], life: 0.3, color: [WITCH.core, WITCH.mid], intensity: 6 });
@@ -376,6 +428,7 @@ function foldNormal() {
   }, { srgb: false });
 }
 
+const CAPE_R13 = typeof location !== 'undefined' && /[?&]capespring=r13/.test(location.search);
 export function cape(fx, boss, { color = '#1a2a1e', trim = '#b08a3a', lining = '#6a4a2a', width = 0.95, length = 1.0, top = 0.78 } = {}) {
   const H = boss.height, W = H * width * 0.36, L = H * length * 0.62, T = H * 0.014;
   const geo = new THREE.BoxGeometry(W, L, T, 30, 22, 1);
@@ -508,16 +561,32 @@ export function cape(fx, boss, { color = '#1a2a1e', trim = '#b08a3a', lining = '
       hang();
       const vx = boss.vel.x * boss.facing;
       const target = Math.max(-0.15, Math.min(0.7, vx * 0.12)) + 0.05 + Math.sin(time * 1.3) * 0.03;
-      sv += (target - swing) * 30 * dt; sv *= Math.exp(-5 * dt); swing += sv * dt * 4;
-      if (dt > 0) {
+      // C2 r14 (board r13 "tan ribbon"): both springs ran ONE explicit step per rendered frame with the frame's dt. The
+      // swing spring is unstable above dt ≈ 0.3 s (captures advance 500 ms per render) and grew ×1.3 per frame until the
+      // cape was a 70 m sheared strip across the arena. Now: the frame dt is capped like real play (0.1 s) and integrated
+      // in fixed 1/60 s substeps; the state is bounded as a backstop (&capespring=r13 = old single step, for A/B only).
+      const fdt = CAPE_R13 ? dt : Math.min(Math.max(dt, 0), 0.1);
+      const n = CAPE_R13 ? 1 : Math.max(1, Math.ceil(fdt * 60 - 1e-6)), h = fdt / n;
+      if (fdt > 0) {
         mesh.getWorldPosition(wp);
-        if (havePrev && wp.distanceToSquared(prev) < 1) {   // > 1 m in a tick = a teleport / respawn: no whip
-          wv.subVectors(wp, prev).divideScalar(dt);
+        let tx = lx, tz = lz, live = false;
+        if (havePrev && wp.distanceToSquared(prev) < 1) {   // > 1 m in a frame = a teleport / respawn: no whip
+          wv.subVectors(wp, prev).divideScalar(Math.max(fdt, 1 / 60));
           mesh.getWorldQuaternion(wq); wv.applyQuaternion(wq.invert());   // world velocity → cape-local (x across, z out of the back)
-          const tx = Math.max(-0.35, Math.min(0.35, -wv.x * 0.07)), tz = Math.max(-0.35, Math.min(0.45, -wv.z * 0.07));
-          vlx += (tx - lx) * 90 * dt; vlz += (tz - lz) * 90 * dt;
-          const damp = Math.exp(-7 * dt); vlx *= damp; vlz *= damp;
-          lx += vlx * dt; lz += vlz * dt;
+          tx = Math.max(-0.35, Math.min(0.35, -wv.x * 0.07)); tz = Math.max(-0.35, Math.min(0.45, -wv.z * 0.07)); live = true;
+        }
+        for (let k = 0; k < n; k++) {
+          sv += (target - swing) * 30 * h; sv *= Math.exp(-5 * h); swing += sv * h * 4;
+          if (live) {
+            vlx += (tx - lx) * 90 * h; vlz += (tz - lz) * 90 * h;
+            const damp = Math.exp(-7 * h); vlx *= damp; vlz *= damp;
+            lx += vlx * h; lz += vlz * h;
+          }
+        }
+        if (!CAPE_R13) {
+          if (!(Math.abs(swing) < 1.2) || !Number.isFinite(sv)) { swing = Math.max(-0.3, Math.min(1.2, swing || 0)); sv = 0; }
+          if (!(Math.abs(lx) <= 0.6)) { lx = Math.max(-0.6, Math.min(0.6, lx || 0)); vlx = 0; }
+          if (!(Math.abs(lz) <= 0.7)) { lz = Math.max(-0.6, Math.min(0.7, lz || 0)); vlz = 0; }
         }
         prev.copy(wp); havePrev = true;
       }

@@ -68,13 +68,9 @@ function bladeLine(vfx, p, a, { length = 1, width = 0.06, color, intensity = 2.2
 
 // ------------------------------------------------------------------ element motifs (magic + accents)
 const ELEMENT_FX = {
-  fire(vfx, q, pal, { gy, hs, dir, s = 1 }) {
+  fire(vfx, q, pal, { gy, hs, dir, target, s = 1 }) {
     const scale = 0.65 + s * 0.35;
-    // Independently rising soot behind the small premultiplied combustion tongues.
-    if (s >= 1) vfx.fire.emit({ clip: 'smoke', pos: [q.x - dir*.18, q.y + .16, q.z + .10], size: [1.65, 1.8],
-      delay: .075, fadeIn: .065, life: .52, vel: [dir*.24, .65, 0], core: 0, tint: '#b1a69c', alpha: 1.0, grow: .52, spin: -dir*.24 });
-    vfx.fire.emit({ clip: 'fireBurst', pos: [q.x - dir*.30, q.y + .10, q.z + .025], size: [1.28 * scale, 1.30 * scale],
-      life: .355, alpha: 1, core: 2.6, erosion: 0, grow: .07, radiance: 1.8, mirror: dir, rot: -dir * .12 });
+    vfx.fire.emitCombustion({pos:[q.x,q.y,q.z],target,scale,dir});
     vfx.fire.emit({ clip: 'embers', pos: [q.x, q.y + .3, q.z + .03], size: [1.6 * scale, 1.8 * scale],
       life: 0.5, core: 0.2, alpha: .65, grow: 0.3 });
     vfx.light(q, { color: pal.mid, intensity: 1.5, distance: 1.6, life: 0.1 });
@@ -118,9 +114,11 @@ export default {
     const pal = hitPalette(kind, o.attacker, o.element);
     const hs = Math.max(0, (o.hitstop ?? 5) / 60);
     const t = o.target;
+    const small=t?.typeId==='thief' || (t?.height || 1.8)<1.25;
     const boss = t && (t.kind === 'boss' || t.modelRoot?.userData.kcaBossFlash);
     const repeat = kind !== 'block' && repeatContact(vfx, t);
-    const compact = boss || repeat;
+    const payoff = ['heavy','knockdown','ko'].includes(kind) || o.moveId === 'close_finisher';
+    const compact = boss || (repeat && !payoff);
     const gy = t ? vfx.groundY(t) : 0;
     // A throw landing's event point can be the attacker/victim midpoint (over the thrower's face).
     // Its contact kernel belongs to the victim's landing, alongside the existing body-slam layers.
@@ -144,11 +142,11 @@ export default {
     const depth = camera ? _v.set(q.x, q.y, q.z).sub(camera.position).dot(cb.fwd) : 18;
     const px = camera ? 2 * Math.max(1, depth) * Math.tan(camera.fov * Math.PI / 360) / 900 : 0.015;
     const diameter = Math.min(1.3, Math.max(0.72, px * 68));
-    if (kind !== 'block' && (compact || !['light', 'heavy', 'knockdown', 'magic'].includes(kind))) vfx.shapeLit.emit({ shape: 'contact', pos: [q.x, q.y, q.z + 0.025],
+    if (kind !== 'block' && !(boss && payoff) && (compact || !['light', 'heavy', 'knockdown', 'magic'].includes(kind))) vfx.shapeLit.emit({ shape: 'contact', pos: [q.x, q.y, q.z + 0.025],
       size: [diameter * (compact ? (repeat ? 0.32 : 0.52) : kind === 'light' ? 1 : 1.18), diameter * (compact ? (repeat ? 0.32 : 0.52) : kind === 'light' ? 1 : 1.18)], rot: swA + 0.12,
       p0: [compact ? 1 : 0, 0, 0, 0],
       life: 0.065, hold: compact ? 0.015 : 0.05, grow: [1, 0.78], color: '#ffffff', alpha: [1, 0], ease: 'linear' });
-    const ctx = { gy, gx, gz, hs, dir };
+    const ctx = { gy, gx, gz, hs, dir, target:t };
 
     if (kind === 'block') {
       const M = PALETTES.metal;
@@ -167,9 +165,19 @@ export default {
       return;
     }
 
+    if (kind !== 'magic') metalChips(vfx,q,sw,payoff,gy);
+
+    // Bound paint to the struck body's width, independent of camera zoom or scene depth.
+    const boxes=t?.hurtboxes?.() || [];
+    const bodyWidth=boxes.length ? Math.max(...boxes.map(b=>b.maxX-b.minX)) : .8;
+    const extent=Math.min(2.1,Math.max(1.0,bodyWidth*1.65));
+
     // Boss physical contacts / repeat elemental hits: small kernel plus directional moving sparks.
     // Repeat hits on any target keep their own point/direction, without another broad burst/ring/light.
     if (compact) {
+      // Boss payoff swaps the compact kernel for the heavy sequence in the same bounded area.
+      if (payoff) vfx.fire.emit({clip:'blunt',pos:[q.x,q.y,q.z],size:[diameter*.85,diameter*.75],
+        life:.12,rot:swA,core:6,radiance:1.15,erosion:.05});
       sparkSpray(vfx, q, sw, { n: repeat ? 5 : kind === 'light' ? 8 : 12, speed: [5, 10], cone: 0.32,
         up: 0.12, life: [0.06, 0.14], size: [0.022, 0.008], color: [pal.mid, pal.tail], intensity: 1.45,
         gravity: 9, floor: gy + 0.02, stretch: 0.018 });
@@ -203,18 +211,17 @@ export default {
 
     if (kind === 'light') {
       // Four authored directional wedge poses with open streaks and travelling metal.
-      const extent = Math.min(4.15, Math.max(3.95, px * 255)) * r.range(.94, 1.06);
-      vfx.fire.emit({ clip: 'slash', pos: [q.x, q.y, q.z], size: [extent, extent * r.range(.78,.82)],
-        skew: r.range(-.30,.30), rot: swA, life: .12, core: 10, radiance: 1.15, erosion: .04, grow: .10, growY: -.12,
-        vel: [sw.x*.8, sw.y*.8, sw.z*.8] });
+      const width = extent * r.range(.96,1.02);
+      vfx.fire.emit({ clip: 'slash', pos: [q.x, q.y, q.z], size: [width, width * r.range(.58,.64)],
+        skew: r.range(-.30,.30), rot: swA, life: .12, core: 6, radiance: 1.15, erosion: .04, grow: -.08, growY: -.15,
+        vel: [sw.x*.20, sw.y*.20, sw.z*.20] });
       sparkSpray(vfx, q, sw, { n: 9, speed: [6, 13], cone: .55, life: [.09, .18], size: [.025, .006],
         color: ['#ffd976', pal.tail], intensity: 1.1, gravity: 8, floor: gy + .02, stretch: .020 });
-      metalChips(vfx,q,sw,false,gy);
-      contactFill(t?.modelRoot, {x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.22});
+      contactFill(t?.modelRoot, {x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.22},{strength:small ? .26 : .65,radius:small ? .38 : .80,life:.070});
       const arm=o.attacker?.model?.sockets?.R;
-      if(arm) contactFill(o.attacker.modelRoot,arm.getWorldPosition(new THREE.Vector3()),{radius:.72,strength:1.1,life:.075});
+      if(arm) contactFill(o.attacker.modelRoot,arm.getWorldPosition(new THREE.Vector3()),{radius:.60,strength:.50,life:.065});
       // A surface-level light reaches the torso and weapon arm; one existing pool slot is reused.
-      vfx.light({x:p.x-dir*.27,y:p.y+.16,z:p.z+.42}, { color: '#ffd18a', intensity: 18, distance: 1.65, life: .060, contact: true });
+      vfx.light({x:p.x-dir*.27,y:p.y+.16,z:p.z+.42}, { color: '#ffd18a', intensity: small ? 3 : 7, distance: small ? .8 : 1.1, life: .055, contact: true });
       accent(0.35);
       return;
     }
@@ -241,57 +248,26 @@ export default {
     }
 
     // Real heavy moves carry knockdown; retain their weight-specific contact at +0.
-    if (kind === 'heavy' || (kind === 'knockdown' && /^heavy/.test(o.moveId || ''))) {
+    if (kind === 'heavy' || kind === 'knockdown') {
       // Authored blunt burst and broken painted shock rim, with ground dust.
-      vfx.fire.emit({ clip: 'blunt', pos: [q.x, q.y, q.z], size: [r.range(3.0,3.25), r.range(2.7,2.9)], life: .15,
-        skew: r.range(-.24,.24), core: 10, radiance: 1.15, erosion: .06, grow: .22, growY: -.18, vel: [sw.x*1.4,sw.y*1.4,sw.z*1.4], rot: swA });
+      vfx.fire.emit({ clip: 'blunt', pos: [q.x, q.y, q.z], size: [extent*r.range(1.45,1.55), extent*r.range(1.25,1.35)], life: .15,
+        skew: r.range(-.24,.24), core: 7, radiance: 1.15, erosion: .06, grow: .08, growY: -.18, vel: [sw.x*.45,sw.y*.45,sw.z*.45], rot: swA });
       sparkSpray(vfx, q, sw, { n: 14, speed: [8, 15], cone: 0.7, life: [0.12, 0.3], color: [pal.hot, pal.tail], intensity: 2.088, gravity: 11, floor: gy + 0.02 });
-      metalChips(vfx,q,sw,true,gy);
-      contactFill(t?.modelRoot,{x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.2},{strength:2.4,radius:1.25,life:.10,heavy:true});
+      contactFill(t?.modelRoot,{x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.2},{strength:small ? .30 : .85,radius:small ? .40 : .9,life:.080,heavy:!small});
       const arm=o.attacker?.model?.sockets?.R;
-      if(arm) contactFill(o.attacker.modelRoot,arm.getWorldPosition(new THREE.Vector3()),{radius:.78,strength:1.4,life:.09});
+      if(arm) contactFill(o.attacker.modelRoot,arm.getWorldPosition(new THREE.Vector3()),{radius:.68,strength:.65,life:.075});
       groundRing(vfx, gx, gy, gz, { radius: .80, color: ['#a68b69', '#65513d'], intensity: .34, life: .065, thick: [.14, .065], breakup: .90 });
       vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [gx, gy + .035, gz], size: [3.2, 2.8], life: .065, color: ['#ffc063', '#f47d20'], intensity: 1.5, p0: [2.6, .2] });
       if (nearGround) {
         dustRing(vfx, gx, gy, gz, { radius: .82, alpha: .55, life: .30, n: 6, band: false, size: [.15,.35] });
       }
       embers(vfx, q, { n: 5, dir, color: [pal.hot, pal.tail] });
-      vfx.light({x:p.x,y:gy+.65,z:p.z+.18}, { color: '#ffd478', intensity: 6, distance: 2.6, life: .05 });
+      vfx.light({x:p.x,y:gy+.65,z:p.z+.18}, { color: '#ffd478', intensity: small ? 1.8 : 6, distance: small ? 1.1 : 2.6, life: .05 });
       accent(0.55);
       return;
     }
 
-    if (kind === 'knockdown') {
-      // The ranged light-string finisher keeps a short blade-direction contact before its floor slam.
-      if (o.moveId === 'close_finisher') {
-        // Foot contact needs a hot core even when the body is small and the kick floors it.
-        // Compact compressed shock arc for a boot/pommel, separate from both blade clips.
-        vfx.shape.emit({shape:'ring',pos:[q.x,q.y,q.z],size:[.68,.42],life:.075,rot:swA,
-          color:['#fff4cc','#bd7131'],intensity:1.6,p0:[.32,.12,.85,1],p1:[.82,.035,.85,1],grow:[.7,1.1]});
-        bladeLine(vfx,q,swA,{length:.48,width:.055,color:['#fff9df','#e9a44b'],life:.06,intensity:2.4});
-      } else if (o.moveId === 'light_3') {
-        vfx.fire.emit({ clip: 'slash', pos: [q.x, q.y, q.z + .025], size: [2.1, 1.5], life: .12,
-          rot: swA, vel: [sw.x, sw.y, sw.z], grow: .20, growY: -.12, core: 8, radiance: 1.15, erosion: .08 });
-      } else {
-        vfx.fire.emit({ clip: 'blunt', pos: [q.x,q.y,q.z], size: [1.8,1.6], life: .12,
-          core: 8, radiance: 1.15, erosion: .08, rot: swA });
-      }
-      // Low, wide dust-led body slam rooted at the victim's feet.
-      const kick=o.moveId==='close_finisher';
-      const ground = { x: gx, y: gy + .18, z: gz + .22 };
-      coreGlow(vfx, ground, { size: .65, color: pal.hot, tail: pal.mid, intensity: 1.1, life: .05, core: .1 });
-      vfx.fire.emit({ clip: 'knockdown', pos: [gx, gy + .48, q.z], size: kick ? [1.1,.55] : [3.8,1.4], life: kick ? .18 : .40,
-        core: 0, erosion: .15, grow: .35, growY: .1, soft: .08, floor: gy });
-      groundRing(vfx, gx, gy, gz, { radius: kick ? .48 : 1.9, color: kick ? ['#9c8060','#67513a'] : [pal.mid, pal.tail], intensity: kick ? .24 : .8, life: kick ? .055 : .26, breakup: .75 });
-      dustRing(vfx, gx, gy, gz, { radius: kick ? .48 : 1.7, alpha: kick ? .5 : .8, life: kick ? .22 : .6, stretchX: kick ? 1 : 1.4, size: kick ? [.1,.3] : [.2,.65], n: kick ? 5 : 12, band: !kick });
-      dustPuffs(vfx, gx, gy, gz, { n: kick ? 4 : 8, dir, bias: .7, speed: kick ? [.5,1.2] : [1.8,3.5], up: [.05,.3], size: kick ? [.12,.35] : [.25,.7], alpha: kick ? .5 : .7 });
-      sparkSpray(vfx, ground, _dir.set(dir, .12, 0).normalize(), { n: 9, speed: [7, 13], cone: .7,
-        life: [.07, .17], color: [pal.mid, pal.tail], intensity: 1.4, gravity: 18, floor: gy + .02 });
-      vfx.light(ground, { color: pal.mid, intensity: 2.6, distance: 2, life: .07 });
-      accent(0.55);
-      return;
-    }
-
+    vfx.fire.emit({clip:'blunt',pos:[q.x,q.y,q.z],size:[extent*1.6,extent*1.4],life:.15,rot:swA,core:7,radiance:1.15});
     // KO: freeze-flash + soul wisp
     coreGlow(vfx, q, { size: 0.38, color: pal.mid, tail: pal.mid, intensity: 1.392, life: 0.12, hold: hs, core: 0.15 });
     flare(vfx, q, { width: 4.2, height: 0.42, color: ['#e4b440', '#a51e4c'], intensity: 0.95, life: 0.2, hold: hs });

@@ -229,10 +229,6 @@ const CSS = `${FONT_FACES}
 @keyframes kca-logo { 0% { opacity: 0; transform: scale(1.25); filter: blur(10px) brightness(3); } 50% { opacity: 1; filter: none; } 100% { opacity: 1; transform: none; } }
 .kca-logo > :not(.backer) { position: relative; z-index: 1; }
 .kca-logo .backer { position: absolute; left: 50%; top: -9vh; width: 0; height: 0; z-index: 0; pointer-events: none; }
-.kca-logo .backer .burst { position: absolute; left: -560px; top: calc(9vh - 330px + 60px); width: 1120px; height: 1120px; border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, rgba(255,170,70,.20) 0deg 4deg, transparent 4deg 12deg);
-  -webkit-mask: radial-gradient(circle, #000 12%, rgba(0,0,0,.55) 34%, transparent 62%); mask: radial-gradient(circle, #000 12%, rgba(0,0,0,.55) 34%, transparent 62%);
-  animation: kca-spin 160s linear infinite; mix-blend-mode: screen; }
 .kca-logo .backer .banner { position: absolute; left: -190px; top: 0; width: 380px; height: calc(9vh + 330px); filter: drop-shadow(0 18px 22px rgba(0,0,0,.85));
   transform-origin: 50% 0; animation: kca-sway 7s ease-in-out infinite alternate; }
 @keyframes kca-sway { from { transform: rotate(-.6deg) skewX(.4deg); } to { transform: rotate(.6deg) skewX(-.4deg); } }

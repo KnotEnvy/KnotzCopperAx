@@ -16,7 +16,7 @@ const ITEMS = [
 let credits = 0;
 
 // Graphic backer behind the wordmark (title r2): a painted crimson war-banner hanging from an iron crossbar,
-// gold-trimmed with a swallowtail hem and a stitched knot device, over a hammered sunburst — plus a ragged ink
+// gold-trimmed with a swallowtail hem and a stitched knot device, (the sun's rays are painted into the dusk backdrop now, from the sun itself) — plus a ragged ink
 // "brushstroke" slab that the COPPER AX line sits on. Pure inline SVG (no bitmap), animated by CSS.
 function backer() {
   // ragged brush edge: deterministic jitter along a long slab
@@ -25,7 +25,6 @@ function backer() {
   for (let i = 24; i >= 0; i--) { const x = 40 + i * 45, j = ((i * 53) % 13) - 6; bot += ` L${x} ${178 + j}`; }
   const slab = `${top} L1130 120 ${bot.trim()} L10 124 Z`;
   return `<div class="backer" aria-hidden="true">
-    <div class="burst"></div>
     <svg class="banner" viewBox="0 0 420 760" preserveAspectRatio="xMidYMin meet">
       <defs>
         <linearGradient id="kbCloth" x1="0" x2="1"><stop offset="0" stop-color="#3a0604"/><stop offset=".22" stop-color="#7a120a"/><stop offset=".5" stop-color="#9a1c10"/><stop offset=".78" stop-color="#6e1008"/><stop offset="1" stop-color="#2a0402"/></linearGradient>

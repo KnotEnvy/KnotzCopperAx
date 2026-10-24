@@ -161,13 +161,13 @@ export function buildWoodProps(ctx, mats, fx, rocks = [], huts = []) {
       const length = .24 + Math.pow(rng.next(), 2) * .65;
       // Broad flat fractured planks, not tapered four-sided spikes. Low ash-grey
       // char keeps their edges legible beside the rock and leaves gaps in the pile.
-      const board = panel(length, .065, .12 + rng.next() * .10,
-        { mask: () => [.42 + rng.next() * .14, 0, 0, 1] });
+      const board = panel(length, .14, .16 + rng.next() * .12,
+        { mask: () => [.22 + rng.next() * .17, 0, 0, 1] });
       const bp = board.getAttribute('position');
       for (let v = 0; v < bp.count; v++) if (bp.getX(v) > 0 && bp.getZ(v) > 0)
         bp.setX(v, bp.getX(v) - .055);
       board.computeVertexNormals(); board.rotateY(-a); board.rotateZ((rng.next()-.5)*.12);
-      board.translate(x + Math.cos(a)*length*.5, y + .025, z + Math.sin(a)*length*.5);
+      board.translate(x + Math.cos(a)*length*.5, y + .055, z + Math.sin(a)*length*.5);
       wood.push(board);
     }
   }
@@ -177,8 +177,8 @@ export function buildWoodProps(ctx, mats, fx, rocks = [], huts = []) {
   for(const [cx,cz] of [[1.2,5.3],[8.0,5.5],[20.2,5.2],[27.7,5.4],[40.3,5.3],[47.5,5.4]]) {
     for(let i=0;i<6;i++) {
       const x=cx+(rng.next()-.5)*1.6,z=cz+(rng.next()-.5)*.65;
-      const board=panel(.4+rng.next()*.65,.075,.13+rng.next()*.09,{mask:()=>[.34,0,0,1]});
-      board.rotateY(rng.next()*2.3);board.translate(x,terrainH(x,z)+.037,z);wood.push(board);
+      const board=panel(.4+rng.next()*.65,.12,.17+rng.next()*.09,{mask:()=>[.34,0,0,1]});
+      board.rotateY(rng.next()*2.3);board.translate(x,terrainH(x,z)+.055,z);wood.push(board);
     }
     // Curved broken pot sections: open arcs with a pale fracture edge, no whole
     // prop/collision in the fighting belt. All shards merge into one draw.

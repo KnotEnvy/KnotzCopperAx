@@ -181,7 +181,7 @@ const METAL_TINT = {                       // [strength, shadow floor, highlight
   weapon_copperax: [0.85, 0.22, 0.6, 0.7],
   weapon_grudgebrand: [0.85, 0.3, 0.5, 0.45],
   weapon_dawn: [0.85, 0.24, 0.55, 0.6],
-  weapon_dusk: [0.5, 0.24, 0.8, 0.6],      // weaker lock + strong highlight desaturation: half the neutral scene-lit colour passes -> grey-violet STEEL with white-ish highlights, not royal blue
+  weapon_dusk: [0.85, 0.22, 0.8, 0.6],      // C2 r7: neutral violet-steel bake held consistently in the stage and select lighting
 };
 const METAL_ENV = { weapon_copperax: 0.4, weapon_grudgebrand: 0.6, weapon_dawn: 0.45, weapon_dusk: 0.45 };
 function markEdgeDark(weapon) {
@@ -203,6 +203,15 @@ function markEdgeDark(weapon) {
         if (m.userData.kcaEdgeDarkU) m.userData.kcaEdgeDarkU.value = EDGE_DARK;   // look already patched (re-attach)
       }
       if (metalTint) {
+        // C2 r7: weapon-only finite soft-box reflection, same program as other actors.
+        const glint = [/[?&]wglint=0(&|$)/.test(q) ? 0 : 1,
+          hero === 'weapon_grudgebrand' ? 1.265 : hero === 'weapon_copperax' ? 0.819 : 0.936,
+          hero === 'weapon_copperax' ? 0.38 : 0.20, hero === 'weapon_copperax' ? 1 : 0];
+        // Release probe: raise the steel response slightly while retaining its dark fuller.
+        // The map still supplies the face-to-bevel gradient; assignment is idempotent on reattach.
+        if (hero === 'weapon_grudgebrand') m.color.setScalar(1.35);
+        m.userData.kcaWeaponGlint = glint;
+        if (m.userData.kcaWeaponGlintU) m.userData.kcaWeaponGlintU.value.fromArray(glint);
         m.userData.kcaMetalTint = tint;
         if (m.userData.kcaMetalTintU) m.userData.kcaMetalTintU.value.fromArray(tint);
         m.userData.kcaMetalEnv = env;

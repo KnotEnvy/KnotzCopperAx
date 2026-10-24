@@ -129,6 +129,9 @@ export class CutIn {
     this.active = { target, element, head: bones && bones.get('head') ? bones.get('head').node : null, t: 0, seconds, side, zoom };
     // freeze the victim mid-reaction for the close-up beat (the Golden Axe "burning face" hold)
     target.hitstop = Math.max(target.hitstop || 0, 16);
+    // Earth impact can KO/remove or blink the subject before the next render. Capture its
+    // current posed face now, while it is still present, and hold that exact reaction.
+    if (element === 'earth') { this.update(0); if (this.active) this.active.snapshot = true; }
   }
 
   hide() { this.active = null; this.mesh.visible = false; }
@@ -138,12 +141,13 @@ export class CutIn {
     if (!a) return;
     a.t += frameDt; // real time: a cut-in holds through slow-mo
     const k = a.t / a.seconds;
-    if (k >= 1 || !a.target || a.target.removed) { this.hide(); return; }
-    const inA = Math.min(1, a.t / 0.12), outA = Math.min(1, (a.seconds - a.t) / 0.14);
+    if (k >= 1 || !a.target || (a.target.removed && !a.snapshot)) { this.hide(); return; }
+    const inA = a.element === 'earth' ? 1 : Math.min(1, a.t / 0.12), outA = Math.min(1, (a.seconds - a.t) / 0.14);
     const U = this.material.uniforms;
     U.uA.value = Math.min(inA, outA); U.uT.value = a.t;
     const r = this.game.renderer;
     U.uGain.value = 1.0 / Math.max(0.5, r.exposureMul ?? 1);
+    if (a.snapshot) { this.mesh.visible = true; return; }
     U.uClip.value.set(this.cam.near, this.cam.far, 0);
     // panel rect in NDC: upper band, on `side`
     U.uRect.value.set(a.side * 0.47, 0.5, 0.9, 0.46);
@@ -152,7 +156,7 @@ export class CutIn {
     // aim: the head bone when it sits where a head should (top 25% of the body), else the body's head height
     const H = a.target.height || 1.8;
     hp.set(a.target.pos.x, a.target.pos.y + H * 0.9, a.target.pos.z);
-    if (a.head) { a.head.getWorldPosition(_hb); if (_hb.y - a.target.pos.y > H * 0.35 || a.target.fsm && !a.target.fsm.is('idle', 'walk', 'hurt', 'hitstun')) hp.copy(_hb); }
+    if (a.head) { a.head.getWorldPosition(_hb); if (a.element === 'earth' || _hb.y - a.target.pos.y > H * 0.35 || a.target.fsm && !a.target.fsm.is('idle', 'walk', 'hurt', 'hitstun')) hp.copy(_hb); }
     hp.y -= 0.12;   // centre between face and chest: the whole head + shoulders + hands read in the panel
     hp.y += 0.04;
     // telephoto zoom along the gameplay view ray (nothing new can occlude; near plane clips what is in front)
@@ -186,7 +190,13 @@ export class CutIn {
     try { const hf = this.game.vfx && this.game.vfx.hitFlash; if (hf && hf.scan) hf.scan(); lookForActors(this.game.world); } catch (e) { /* cosmetic */ }
     // Earth uses a depth-matted comic background already: drawing the whole village again behind its
     // subject only consumed triangles. Keep every light enabled (same program/light budget), hide meshes only.
-    const hidden = [];
+    const hidden = [], shown = [];
+    if (a.element === 'earth') {
+      // Damage invulnerability blinks modelRoot; it must not make an empty reaction card.
+      for (let p = a.target.modelRoot || a.target.view; p && p !== this.game.scene; p = p.parent)
+        if (!p.visible) { shown.push(p); p.visible = true; }
+      a.target.view.updateMatrixWorld(true);
+    }
     if (a.element === 'earth') this.game.scene.traverse(o => {
       if (!o.isMesh || !o.visible) return;
       for (let p = o; p; p = p.parent) if (p === a.target.view) return;
@@ -194,6 +204,7 @@ export class CutIn {
     });
     try { gl.render(this.game.scene, this.cam); } finally {
       for (const o of hidden) o.visible = true;
+      for (const o of shown) o.visible = false;
       this.lastCalls = gl.info.render.calls - before;
       gl.setRenderTarget(prevTarget); gl.autoClear = prevAuto; gl.shadowMap.autoUpdate = prevShadow;
       if (vg) vg.visible = vgVis;

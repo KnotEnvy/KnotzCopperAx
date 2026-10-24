@@ -138,18 +138,34 @@ float boneNz;`)
 }
 /** C2 r12 (board "bone, floor and wall merge in one terracotta band"): grade the baked albedo toward desaturated grey-green ivory and deepen the
  *  crevices (a power curve on the baked value + the baked occlusion map pushed harder) so bone separates from the warm-lit floor by hue AND value. */
-function boneGrade(mat) {
+function boneGrade(mat, hand = {}) {
   if (mat.aoMap) mat.aoMapIntensity = 1.9;
+  // C2 r14: per-hand uniforms (one shared program): value (albedo gain), warmth (brazier-bounce / ivory push), soot (moss + soot mixed in over the AO cavities)
+  const U = { uVal: { value: hand.val ?? 1 }, uWarm: { value: hand.warm ?? 1 }, uSoot: { value: hand.soot ?? 0 } };
+  mat.userData.kcaBoneU = U;
   mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+  uniform float uVal; uniform float uWarm; uniform float uSoot;`);
+    // r14: keep ~0.58 of the bake's chroma (it carries warm aged ivory + per-bone tints; r12-r13 kept 5 % and tinted it green, so every hand read grey)
     sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
   { float lbG = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-    vec3 gG = mix(vec3(lbG), diffuseColor.rgb, 0.05) * vec3(0.84, 1.0, 0.93);
-    diffuseColor.rgb = pow(max(gG, vec3(0.0)), vec3(1.25)) * 1.85; }`);
-    // the warm braziers and the cool moon both land on the bone: grade the LIT result toward neutral so the hands never read as coloured clay
-    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `{ float lbO = dot(outgoingLight, vec3(0.3, 0.59, 0.11)); outgoingLight = mix(vec3(lbO), outgoingLight, 0.42) * vec3(1.06, 1.0, 0.86); }
+    vec3 gG = mix(vec3(lbG), diffuseColor.rgb, 0.58) * vec3(1.0, 1.0, 0.97);
+    gG = pow(max(gG, vec3(0.0)), vec3(1.25)) * 1.72 * uVal;
+  #ifdef USE_AOMAP
+    float cavS = clamp(1.0 - texture2D(aoMap, vAoMapUv).r, 0.0, 1.0);
+    gG = mix(gG, vec3(0.030, 0.034, 0.020) * (0.6 + lbG), clamp(cavS * 1.6 * uSoot, 0.0, 0.85));   // moss / soot settled in the cavities
+  #endif
+    diffuseColor.rgb = gG; }`);
+    // the warm braziers and the cool moon both land on the bone: grade the LIT result toward (warm) neutral so the hands never read as coloured clay
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `{ float lbO = dot(outgoingLight, vec3(0.3, 0.59, 0.11)); outgoingLight = mix(vec3(lbO), outgoingLight, 0.62) * mix(vec3(1.0), vec3(1.05, 1.0, 0.88), uWarm);
+    // r14: a little warm brazier BOUNCE (floor-lit undersides + outer faces catch ember colour) so the bone is ivory, not grey
+    vec3 nWb = inverseTransformDirection(normal, viewMatrix);
+    float bnc = smoothstep(0.35, -0.55, nWb.y) * 0.85 + 0.15;
+    outgoingLight += vec3(0.060, 0.028, 0.010) * bnc * uWarm * (0.35 + 0.65 * lbO / (lbO + 0.25)); }
   #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'kcaBoneGrade12';
+  mat.customProgramCacheKey = () => 'kcaBoneGrade14b';
   mat.needsUpdate = true;
   return mat;
 }
@@ -238,13 +254,17 @@ export async function buildSelectSet(game, heroIds) {
   const glb = await loadHandGLB();
   // C2 r11: a textured sculpt (build_ui_hand_sculpt.py) is used as baked — no tint, grain or desaturation on top (the bake carries
   // the aged-bone value structure); the vertex-colour hands keep the r9 aged-bone recipe.
-  const sculptMat = glb && (glb.mat ? boneGrade(Object.assign(glb.mat, { envMapIntensity: 0.3, vertexColors: false }))
+  // C2 r14 (board r13 "all three hands identical grey"): one material per hand - Brann's older / darker and warmer, the centre hand the base look,
+  // Gorrim's mossier with soot in the cavities
+  const HAND_LOOK = [{ val: 0.86, warm: 1.25, soot: 0.12 }, { val: 1.0, warm: 1.0, soot: 0.0 }, { val: 0.93, warm: 0.8, soot: 0.38 }];
+  const sculptMats = glb && glb.mat ? HAND_X.map((_, i) => boneGrade(i === 0 ? Object.assign(glb.mat, { envMapIntensity: 0.3, vertexColors: false }) : Object.assign(glb.mat.clone(), { envMapIntensity: 0.3, vertexColors: false }), HAND_LOOK[i])) : null;
+  const sculptMat = glb && (glb.mat ? sculptMats[1]
     : agedBone(new THREE.MeshStandardMaterial({ color: BONE_TINT, vertexColors: true, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 })));
   const heapRock = rockMaps(512, 4);
   for (const t of [heapRock.map, heapRock.normalMap]) t.repeat.set(2.2, 1.4);
   const heapMat = new THREE.MeshStandardMaterial({ color: '#6c675f', map: heapRock.map, normalMap: heapRock.normalMap, normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.95 });
   HAND_X.forEach((x, i) => {
-    const m = glb ? new THREE.Mesh(glb[i === 0 ? 0 : 1], sculptMat) : new THREE.Mesh(handGeometry(i === 0 ? -1 : 1, i), boneMat);
+    const m = glb ? new THREE.Mesh(glb[i === 0 ? 0 : 1], sculptMats ? sculptMats[i] : sculptMat) : new THREE.Mesh(handGeometry(i === 0 ? -1 : 1, i), boneMat);
     // Turned 3/4 so palm, curled fingers and thumb overlap like a real hand (a flat front view reads as a candelabrum).
     m.position.set(x, 0, 0); m.rotation.y = [0.55, 0.38, -0.55][i] ?? 0;
     m.castShadow = true; m.receiveShadow = true;
@@ -316,8 +336,12 @@ export async function buildSelectSet(game, heroIds) {
       gm.rotation.x = -Math.PI / 2; gm.position.set(x, 0.02, z + 0.9); gm.renderOrder = 3; group.add(gm); }
     fx.glow([x, 1.85 * BS, z], { size: 2.6, color: '#ff7a2a', intensity: 1.0 });
     fx.sparks([x, 1.7 * BS, z], { count: 10, radius: 0.3, rise: 2.4 });
-    const L = new THREE.PointLight('#ffb070', 2.6, 10, 1.7); L.position.set(x, 2.0, z + 0.3); group.add(L);
-    torches.push({ L, base: 2.6, phase: x });
+    // C2 r14 (board r13 "Brann's flank still washes warm from the brazier, flattening his shadow side"): the two INNER braziers sit between the heroes
+    // and rim the neighbours' inner flanks; their real lights are cut hard (the warm pool is the painted floor decal above) and pulled behind the hero line
+    const inner = Math.abs(x) < 3;
+    const base = inner ? 0.7 : 2.6;
+    const L = new THREE.PointLight(inner ? '#ff9a58' : '#ffb070', base, inner ? 7 : 10, 1.7); L.position.set(x, 2.0, z + (inner ? -0.9 : 0.3)); group.add(L);
+    torches.push({ L, base, phase: x });
   }
   const pm = new THREE.Mesh(mergeGeometries(ped), pedMat); pm.castShadow = true; pm.receiveShadow = true; group.add(pm);
   const im = new THREE.Mesh(mergeGeometries(iron), ironMat); im.castShadow = true; group.add(im);
@@ -336,7 +360,9 @@ export async function buildSelectSet(game, heroIds) {
   // Selection = firelight, not a whitened material (r6): a warm (P1) / cool (P2) rim lamp behind each hand's fingers that fades up
   // when a cursor is on it; the chosen-hand spot is a soft low wash (it used to frost the whole hand pale).
   const rims = HAND_X.map((x) => {
-    const L = new THREE.PointLight('#ff8a3a', 0, 7.5, 1.4); L.position.set(x * 1.04 - 1.7, 4.3, -3.2); group.add(L);   // C2 r13: high + back, so it lights the hand's fingers and the hero's crown, not the neighbour hero's flank
+    // C2 r13: high + back, so it lights the hand's fingers and the hero's crown, not the neighbour hero's flank. C2 r14: a SPOT aimed at its own hero (cone
+    // 0.5 rad, soft penumbra) - the centre hand's point lamp still rimmed Brann's right (shadow) edge from behind-right; the spot cannot reach him.
+    const L = new THREE.SpotLight('#ff8a3a', 0, 8.5, 0.5, 0.75, 1.4); L.position.set(x * 1.04 - 1.7, 4.3, -3.2); L.target.position.set(x, PALM_Y + 1.3, HERO_Z); group.add(L, L.target);
     return { L, a: 0, b: 0 };
   });
   // Contact shadows under the heroes' feet: a wide soft one + a tight dark core per hero.

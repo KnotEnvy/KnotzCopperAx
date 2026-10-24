@@ -49,7 +49,7 @@ export default {
       lead: G.proxy, actors: members, tokens: [G.token], group: G,
       begin() {
         const focus = { get pos() { const a = members.filter((m) => m.alive); return a.length ? { x: a.reduce((s, m) => s + m.pos.x, 0) / a.length, y: 0, z: 0 } : { x: targetX, y: 0, z: 0 }; } };
-        game.track(G.intro({ focus, ticks: 132, announceAt: 62, onBeat(t) {
+        G.run(G.intro({ focus, ticks: 132, announceAt: 62, onBeat(t) {
           if (t === 54) for (const m of members) if (m.alive && m.pause) m.pause(50, { anim: 'light_3', face: true });
           if (t === 70) {
             for (const m of members) if (m.alive && game.vfx && game.vfx.spawn) { const p = { x: m.pos.x + m.facing * 1.1, y: 0.02, z: m.pos.z }; game.vfx.spawn('fx_shockwave', { pos: p, radius: 2.6, element: 'earth', dust: true, debris: 10 }); game.vfx.spawn('fx_crack', { pos: p, radius: 1.3, element: 'earth' }); }

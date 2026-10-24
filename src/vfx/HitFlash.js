@@ -54,7 +54,7 @@ if (kHitW.w > 0.0 && kHitSurface.x > 0.5) {
   float kha = khf * khf * kHitTint.a * (0.22 + 0.78 * khr);
   vec3 khc = gl_FragColor.rgb;
   vec3 khhi = kHitTint.rgb * (0.28 + 0.72 * clamp(diffuseColor.rgb, 0.0, 1.0));
-  vec3 kht = mix(khc, khhi * kHitSurface.y, kha);
+  vec3 kht = khc + khhi * kHitSurface.y * kha * 0.42;
   float khmax = max(kht.r, max(kht.g, kht.b));
   kht *= min(1.0, kHitSurface.y / max(khmax, 1e-5));
   // Never flatten an idle authored emissive just because it lies near a contact.

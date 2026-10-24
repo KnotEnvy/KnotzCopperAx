@@ -268,6 +268,63 @@ def body_unwrap(body_lo, arm, body_W, H, face_density=2.6, head_density=1.2, fac
     return sum(fix_uv_overlaps(body_lo, freg, cfg) for _ in range(3))
 
 
+def fix_degenerate_uvs(ob, res, min_px=0.25):
+    """enemies-art-1 C2 r9 (additive): faces whose UV triangle collapsed to (almost) a point after unwrap / pack
+    (decimation needles at a nose tip) show ONE texel of whatever island lies there (the green thief's nose 'shard').
+    Each such face takes the UV mapping of its best valid edge-neighbour, continued affinely (least-squares 3D -> UV of
+    the neighbour's triangle), so it samples the neighbour's own texels. Returns the number of faces fixed."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    uvl = bm.loops.layers.uv.active
+    if uvl is None:
+        bm.free()
+        return 0
+
+    def uv_area(f):
+        u = [l[uvl].uv for l in f.loops]
+        a = 0.0
+        for i in range(1, len(u) - 1):
+            a += (u[i][0] - u[0][0]) * (u[i + 1][1] - u[0][1]) - (u[i + 1][0] - u[0][0]) * (u[i][1] - u[0][1])
+        return abs(a) * 0.5 * res * res
+
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    bad = {f for f in bm.faces if uv_area(f) < min_px and f.calc_area() > 1e-9}
+    fixed = 0
+    updates = []
+    for f in bad:
+        best, best_a = None, 0.0
+        for e in f.edges:
+            for g in e.link_faces:
+                if g is f or g in bad or len(g.loops) != 3:
+                    continue
+                a = uv_area(g)
+                if a > best_a:
+                    best, best_a = g, a
+        if best is None:
+            continue
+        A, B, C = (np.array(l.vert.co) for l in best.loops)
+        a, b, c = (np.array(l[uvl].uv) for l in best.loops)
+        M = np.stack([B - A, C - A], 1)                      # 3x2
+        new = {}
+        for l in f.loops:
+            st, *_ = np.linalg.lstsq(M, np.array(l.vert.co) - A, rcond=None)
+            new[l.vert.index] = a + st[0] * (b - a) + st[1] * (c - a)
+        updates.append((f.index, new))
+        fixed += 1
+    bm.free()
+    me = ob.data          # write through the mesh API (nothing else in the skinned mesh is rewritten)
+    uvd = me.uv_layers.active.data
+    for fi, new in updates:
+        for li in me.polygons[fi].loop_indices:
+            vi = me.loops[li].vertex_index
+            if vi in new:
+                uvd[li].uv = (float(new[vi][0]), float(new[vi][1]))
+    me.update()
+    return fixed
+
+
 def smart_uv(ob, angle=66.0, density=1.0):
     allf = np.ones(len(ob.data.polygons), bool)
     pipeline.smart_project_faces(ob, allf, angle=angle)

@@ -41,6 +41,10 @@
 //                            (idle / walk) before the first attack, hit = …reeling / down / grabbed (being beaten up); ctlMax / ctlOver6
 //   atkSides                 attack starts per hero from his left / right; minorShare = summed minority side / all (0.5 = even)
 //   atk.outerByType          outer-side attacks (outerPinned) per enemy type + move (chain continuations included)
+//   flank.bins / flank.shots C2 r3 diagnostics: hero frame bin (10 %) → [samples, one-sided]; up to 30 one-sided samples with
+//                            the waiters' [type, id, state, brain mode, dx, dz, slot src, flanker] (AI fields: diagnostics only)
+//   Env AI_TRACE_IDS=a,b     (C2 r3 diagnostics) per-foe rows every 6 ticks in `trace`: [s, id, state, mode, why, af, crossing, token,
+//                            overdue, hero id, dx, dz, hero state, hero frame x, own inset m] — the run stays identical to a plain probe
 //   Env AI_WAVE=k            start measuring at wave k of the start screen (earlier waves are killed off): stage 2 k=1 is the
 //                            skeleton wave. AI_SCREEN is the URL's &screen=.
 import fs from 'node:fs';
@@ -61,7 +65,7 @@ export default async (api) => {
     }
     api.log('AI_WAVE reached ' + JSON.stringify(await E(() => window.__KCA.game.levels.info())));
   }
-  await E((god) => {
+  await E(({ god, trIds }) => {
     const k = window.__KCA, g = k.game;
     if (god && k.debug && k.debug.god) k.debug.god(true);
     const S = (window.__AISTAGE = { frames: 0, framesEE: 0, ee08: 0, ee05: 0, ee08s: 0, ee05s: 0, eeMins: [], framesEH: 0, eh06: 0, eh045: 0, ehAtk06: 0, atk: [], atkTicks: 0, offAtk: 0, foes: {}, flank: { n2: 0, n3: 0, one3: 0, one2: 0, minor: 0 }, pairCats: {}, ehCats: {}, ehRowCats: {}, worst: [], screens: [], clipF: 0, clipFE: 0, fightF: 0, clipStates: {}, clipOuter: 0, clipTypes: {}, clipShots: [], hhF: 0, hh08: 0, hh05: 0, hhRow08: 0, hhMin: [] });
@@ -126,7 +130,8 @@ export default async (api) => {
         if (vis) {
           if (f.firstVis == null) { f.firstVis = tick; f.firstVisAt = tick - t0; }
           f.visTicks++;
-          if (f.firstAtk == null) { const st = e.fsm.is('idle', 'walk') ? 'ctl' : e.fsm.is('hitstun', 'knockdown', 'down', 'getup', 'grabbed', 'thrown', 'block', 'reform', 'bones') ? 'hit' : 'oth'; (f.pre = f.pre || {})[st] = (f.pre[st] || 0) + 1; } // C2 r2: before its first attack, what was it doing
+          if (f.firstAtk == null) { const st = e.fsm.is('idle', 'walk') ? 'ctl' : e.fsm.is('hitstun', 'knockdown', 'down', 'getup', 'grabbed', 'thrown', 'block', 'reform', 'bones') ? 'hit' : 'oth'; (f.pre = f.pre || {})[st] = (f.pre[st] || 0) + 1;
+            if (st === 'ctl') { const tk2 = g.ai && g.ai.tokens, ht = e.target, k2 = ((e.brain && e.brain.mode) || '?') + '/' + (e.aiWhy || '-') + (e.aiCrossing ? '/X' : '') + (tk2 && tk2.has(e) ? '/T' : '') + (e.aiOverdue ? '/od' : '') + (ht && ht.fsm && ht.fsm.is('down', 'getup', 'knockdown') ? '/hDown' : ''); (S.preWhy = S.preWhy || {})[k2] = (S.preWhy[k2] || 0) + 1; } } // C2 r2: before its first attack, what was it doing (C2 r3: + preWhy diagnostics, AI fields)
           // idle time counts only while the foe could act (controllable: idle / walk); being hit isn't idling
           if (e.fsm.is('idle', 'walk')) { f.run++; f.runAct++; if (f.run > 120 && tick % 6 === 0) { const k2 = (e.brain.mode || '?') + '/' + (e.aiWhy || '-'); (f.why = f.why || {})[k2] = (f.why[k2] || 0) + 1; } } // diagnostics: what a long-idle foe is doing
           if (f.run > f.maxRun) { f.maxRun = f.run; f.maxRunAt = tick - t0; }
@@ -211,14 +216,18 @@ export default async (api) => {
         if (ws.length < 2) continue;
         const l = ws.filter((b) => b.cx < hb.cx).length, r = ws.length - l;
         S.flank.n2++; if (!l || !r) S.flank.one2++;
+        { const fb = Math.max(0, Math.min(9, Math.floor(hb.cx / W() * 10))), FB = (S.flankBins = S.flankBins || {}); const o = (FB[fb] = FB[fb] || [0, 0]); o[0]++; if (!l || !r) o[1]++; } // C2 r3 diag: hero frame bin → [samples, one-sided]
+        if ((!l || !r) && (S.flankShots = S.flankShots || []).length < 30 && tick % 60 === 0) S.flankShots.push({ t: +((tick - t0) / 60).toFixed(1), hero: h.id, hf: +(hb.cx / W()).toFixed(2), mate: heroes.filter((o) => o !== h).map((o) => +(body(o, c).cx / W()).toFixed(2)), ws: ws.map((b) => { const e = b.a; return [e.typeId, e.id, e.fsm.name, (e.brain && e.brain.mode) || '', +(e.pos.x - h.pos.x).toFixed(1), +(e.pos.z - h.pos.z).toFixed(1), e.aiSlot ? e.aiSlot.src || '' : '', e.aiFlank ? 1 : 0]; }) }); // C2 r3 diag only
         if (ws.length >= 3) { S.flank.n3++; if (!l || !r) S.flank.one3++; S.flank.minor += Math.min(l, r) / ws.length; }
       }
       if (tick % 6 === 0) for (const e of foes) { if (!e.brain || !e.brain.P || !e.controllable) continue; const b = B.get(e.id); if (!b.on) continue; const k2 = (e.brain.mode || '?') + '/' + (e.aiWhy || '-'); (S.why = S.why || {})[k2] = (S.why[k2] || 0) + 1; } // diagnostics only
+      if (window.__AITRACE && tick % 6 === 0) for (const e of foes) if (window.__AITRACE.includes(e.id)) { const t2 = e.target, tk3 = g.ai && g.ai.tokens; (S.trace = S.trace || []).push([+((tick - t0) / 60).toFixed(1), e.id, e.fsm.name, (e.brain && e.brain.mode) || '', e.aiWhy || '', e.aiAf || '', e.aiCrossing ? 1 : 0, tk3 && tk3.has(e) ? 1 : 0, e.aiOverdue ? 1 : 0, t2 ? t2.id : 0, t2 ? +(e.pos.x - t2.pos.x).toFixed(2) : 0, t2 ? +(e.pos.z - t2.pos.z).toFixed(2) : 0, t2 && t2.fsm ? t2.fsm.name : '', t2 ? +(body(t2, c).cx / W()).toFixed(2) : 0, +(B.get(e.id).inset).toFixed(2)]); } // C2 r3 AI_TRACE_IDS diagnostics (AI fields)
       if (tick % 300 === 0) S.screens.push([tick - t0, g.levels ? g.levels.screenIndex : null, heroes.map((h) => +h.pos.x.toFixed(1)), foes.length]);
     };
     const sys = { name: 'ai-stage-probe', order: 98, update: sample };
+    window.__AITRACE = trIds;
     if (g.addSystem) g.addSystem(sys); else g.systems.push(sys);
-  }, process.env.AI_GOD !== '0');
+  }, { god: process.env.AI_GOD !== '0', trIds: (process.env.AI_TRACE_IDS || '').split(',').filter(Boolean).map(Number) });
   for (let t = 0; t < secs * 1000; t += 5000) await api.advance(5000);
   const r = await E(() => {
     const S = window.__AISTAGE, g = window.__KCA.game;
@@ -239,8 +248,8 @@ export default async (api) => {
       atk: { n: S.atk.length, outerByType: S.atk.filter((a) => a.outer).reduce((o, a) => { const k2 = a.type + ':' + a.move; o[k2] = (o[k2] || 0) + 1; return o; }, {}), gapMin: q(gaps, 0), gapP10: q(gaps, 0.1), gapMed: q(gaps, 0.5), under06: S.atk.filter((a) => a.gap < 0.6).length, notInFrame: S.atk.filter((a) => !a.inFrame).length, pinned: S.atk.filter((a) => a.pinned).length, outerPinned: S.atk.filter((a) => a.outer).length, outerClipped: S.atk.filter((a) => a.outer && a.inset < 1.0).length, bad: S.atk.filter((a) => !a.inFrame || a.outer || a.gap < 0.6).slice(0, 12) },
       offAtkFrames: S.offAtk, atkTicks: S.atkTicks, offAtkPct: pc(S.offAtk, S.atkTicks),
       idle: { n: idle.length, maxLatFirst: idle.reduce((m, f) => Math.max(m, f.latFirst ?? 0), 0), maxStrict: idle.reduce((m, f) => Math.max(m, f.strict), 0), maxAct: idle.reduce((m, f) => Math.max(m, f.act), 0), neverAtk: idle.filter((f) => f.neverAtk && f.vis > 6).length, worst: idle.sort((a, b) => b.strict - a.strict).slice(0, 6) },
-      flank: { n2: S.flank.n2, one2: pc(S.flank.one2, S.flank.n2), n3: S.flank.n3, one3: pc(S.flank.one3, S.flank.n3), minor3: S.flank.n3 ? +(S.flank.minor / S.flank.n3).toFixed(2) : null },
-      heroHitsPerMin: +((S.heroHits || 0) / (S.frames / 3600)).toFixed(1), heroDmgPerMin: +((S.heroDmg || 0) / (S.frames / 3600)).toFixed(1), heroBins: S.heroBins || [], atkPerMin: +(S.atk.length / (S.frames / 3600)).toFixed(1), why: S.why || {}, dstats: Object.fromEntries(Object.entries((g.ai && g.ai.director && g.ai.director.stats) || {}).filter(([, v]) => typeof v === 'number').map(([k2, v]) => [k2, +v.toFixed(2)])),
+      flank: { n2: S.flank.n2, one2: pc(S.flank.one2, S.flank.n2), n3: S.flank.n3, one3: pc(S.flank.one3, S.flank.n3), minor3: S.flank.n3 ? +(S.flank.minor / S.flank.n3).toFixed(2) : null, bins: S.flankBins || {}, shots: S.flankShots || [] },
+      heroHitsPerMin: +((S.heroHits || 0) / (S.frames / 3600)).toFixed(1), heroDmgPerMin: +((S.heroDmg || 0) / (S.frames / 3600)).toFixed(1), heroBins: S.heroBins || [], atkPerMin: +(S.atk.length / (S.frames / 3600)).toFixed(1), why: S.why || {}, preWhy: S.preWhy || {}, trace: S.trace || [], dstats: Object.fromEntries(Object.entries((g.ai && g.ai.director && g.ai.director.stats) || {}).filter(([, v]) => typeof v === 'number').map(([k2, v]) => [k2, +v.toFixed(2)])),
       pairCats: S.pairCats, ehCats: S.ehCats, ehWhy: S.ehWhy || {}, ehRowCats: S.ehRowCats, worst: S.worst, screens: S.screens,
       errors: window.__KCA.info().errors.slice(-6), stage: g.levels && g.levels.info ? g.levels.info() : null,
     };

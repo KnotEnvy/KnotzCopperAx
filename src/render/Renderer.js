@@ -290,6 +290,13 @@ export class Renderer {
   async _onContextRestored() {
     const c = this.context, W = this.webgl, t0 = performance.now();
     c.state = 'restoring'; clearTimeout(this._ctxTimer);
+    // C2 r14 (bosses, additive; perf-1650 r13 follow-up): a Windows GPU reset makes EVERY page on the GPU lose its context at
+    // once and each then relinked ~100 programs in the same second, which may trip the next reset. Let the driver settle and
+    // de-synchronise the pages: wait a random 1.5–6 s before the relink. `&ctxstagger=0` = relink at once (old).
+    if (!/[?&]ctxstagger=0/.test(typeof location !== 'undefined' ? location.search : '')) {
+      await new Promise((r) => setTimeout(r, 1500 + Math.random() * 4500));
+      if (c.state !== 'restoring') return;   // lost again while waiting
+    }
     try {
       if (this.perf && this.perf.onContextRestored) this.perf.onContextRestored(); // fresh timer-query extension + pool
       if (this.guard && this.guard.reset) this.guard.reset(); // every program is gone: nothing is "prepared" any more

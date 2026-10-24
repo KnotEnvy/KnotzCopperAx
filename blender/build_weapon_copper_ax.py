@@ -248,14 +248,18 @@ def p_copper(c, pal):
     pat *= pal.get("copper_patina_amt", 0.4)
     rgb = shaders.mix(rgb, pal["copper_patina"], pat)
     rgb = shaders.mix(rgb, pal["copper_oxide"], 0.8 * oxide)
-    rgb = shaders.mix(rgb, pal["rune"], rune)
+    # C2 r7: recessed teal has a dark inner channel as well as the oxide surround.
+    # Ridge lips catch light; cavity depth darkens both pigment and emission.
+    rune_depth = shaders.smooth01(c.cav, 0.04, 0.30)
+    rune_rgb = np.tile(pal["rune"], (c.n, 1)) * (1.0 - 0.72 * rune_depth)[:, None]
+    rgb = shaders.mix(rgb, rune_rgb, rune)
     rgb = shaders.mix(rgb, pal["copper_spec"], 0.6 * c.ridge * (1 - pat) * (1 - rune) * (1 - side) * (1 - oxide))
     # C2 r5: metal 0.78-0.9 on the cheeks (r2-r4 kept it at 0.5-0.7 because the mirror cheeks reflected the purple dusk
     # sky; the engine's hue lock now keeps those reflections copper), rough 0.30-0.42 so the key prints a real highlight
     # C2 r6: glossier cheeks (0.20-0.30; r5 0.30-0.42 blurred the key into a wash), tarnish rougher
     metal = (0.80 + 0.12 * grad) * (1 - 0.9 * pat) * (1 - 0.95 * rune) * (1 - 0.15 * oxide)
     rough = 0.30 - 0.10 * grad + 0.05 * n1 - 0.08 * c.ridge + 0.4 * pat + 0.12 * side + 0.3 * rune + 0.28 * oxide
-    emit = rune
+    emit = rune * (1.0 - 0.85 * rune_depth)
     return shaders.out(c.n, rgb, np.clip(rough, 0.14, 0.9), np.clip(metal, 0, 1), emit)
 
 

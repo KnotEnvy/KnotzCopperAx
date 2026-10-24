@@ -15,11 +15,11 @@ export function buildCampfire({ group, quality = {}, at }) {
   // Shared authored atlas: one broad hot bed and overlapping asymmetric combustion layers.
   const pool = new FirePool({ capacity: 16, fade: kFade, name: 'camp_authored_fire' });
   pool.clear();
-  for (const [x, z, h, w, phase] of [[0,-.10,1.28,1.65,.0],[-.18,.05,1.55,1.18,.33],[.20,.13,1.12,1.16,.67]]) {
+  for (const [x, z, h, w, phase] of [[0,-.10,2.25,1.85,.0],[-.23,.05,2.60,1.38,.33],[.25,.13,1.95,1.30,.67]]) {
     pool.emit({ clip: 'flame', pos: [x,h*.5,z], size: [w,h], life: .46 + phase*.12,
-      loop: true, phase, core: .12, radiance: 1.05, soft: .12 });
+      loop: true, phase, core: .65, radiance: 1.35, soft: .12 });
   }
-  pool.emit({ clip: 'smoke', pos: [0,2.0,-.12], size: [1.9,2.6], life: 2.3,
+  pool.emit({ clip: 'smoke', pos: [0,2.65,-.12], size: [2.1,3.0], life: 2.3,
     loop: true, core: 0, alpha: .68, spin: -.13 });
   pool.emit({ clip: 'embers', pos: [0,1.2,.10], size: [1.9,2.5], life: 1.5, loop: true, core: .8 });
   const flames = pool.mesh;
@@ -68,9 +68,9 @@ export function buildCampfire({ group, quality = {}, at }) {
     update(fl, scale) {
       const now = shared.uTime.value;
       // Shared slow collapse/regrowth avoids three independent layers averaging to a fixed triangle.
-      const surge = .78 + .22*Math.sin(now*6.7) + .08*Math.sin(now*13.1);
+      const surge = .92 + .12*Math.sin(now*6.7) + .06*Math.sin(now*13.1);
       for (let i=0;i<3;i++) {
-        const o=pool.items[i], height=[1.28,1.55,1.12][i]*(surge+.10*Math.sin(now*8+i*2));
+        const o=pool.items[i], height=[2.25,2.60,1.95][i]*(surge+.10*Math.sin(now*8+i*2));
         o.size[1]=height; o.pos[1]=height*.5;
         o.pos[0]=[0,-.18,.20][i]+.09*Math.sin(now*5+i*2);
       }

@@ -225,12 +225,12 @@ export function bossCam(game, { lead, members, arena, wallLeft = 0.35, wallRight
  *  width, the centre biased toward the boss, the boss ≤ `fill` of the frame height and his feet ≈ 72-75 % down (clear of
  *  the lower-third name card) — through a longer lens from further back (heroes nearer the lens no longer dwarf him),
  *  orbited `yaw`° toward the heroes' side. Blends in/out; d.tick() each sim tick (the intro script calls it). */
-export function revealCam(b, { yaw = 12, fov = 24, fill = 0.54, bias = 0.4, dMin = 11, dMax = 21, lookK = 0.5, lift = 0.15 } = {}) {
+export function revealCam(b, { yaw = 12, fov = 24, fill = 0.54, bias = 0.4, dMin = 11, dMax = 21, lookK = 0.5, lift = 0.15, out = 0.6 } = {}) {
   const g = b.game, rig = g.cameraRig;
   if (!rig || !rig.drama) return null;
   const tf = Math.tan(fov * Math.PI / 360);
   const focus = { x: b.pos.x, y: 0, z: b.pos.z };
-  const o = { focus, distance: 12, height: 2.6, fov, lookHeight: b.height * 0.42, yaw: yaw * (b.facing || -1), in: 0.75, out: 0.6, hold: null, priority: 4 };
+  const o = { focus, distance: 12, height: 2.6, fov, lookHeight: b.height * 0.42, yaw: yaw * (b.facing || -1), in: 0.75, out, hold: null, priority: 4 };
   let init = false;
   const cc = {};
   const d = rig.drama(o);

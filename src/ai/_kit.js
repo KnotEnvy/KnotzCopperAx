@@ -125,7 +125,9 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         if (adx < 1.1 && adz < P.depthTol && hooks.choose && (!d || d.canStrike(t, true, e))) { const m = hooks.choose(c); if (m) { e.attackWith(m, t); retreatUntil = 0; cooldown = cool(aggr); } }
         return;
       }
-      if (e.hp < e.maxHp * P.retreatHp && tick > nextRetreat && e.def.canRetreat !== false) {
+      // C2 r3: a foe that has never swung doesn't back off hurt (board r12: a marauder beaten up on arrival retreated, then crossed —
+      // 9.1 s to its first attack); its first swing comes first
+      if (e.hp < e.maxHp * P.retreatHp && tick > nextRetreat && e.def.canRetreat !== false && (e.aiHasAtk || !d || d.noFirstRush)) {
         nextRetreat = tick + 600;
         if (rng.chance(P.retreatChance) && (!d || d.requestRetreat(e, t, P.retreatTicks))) {
           retreatUntil = tick + P.retreatTicks;
@@ -141,6 +143,11 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
       const G = !!(d && (d.noSpace || d.oldGates));
       const prio = !!(d && d.starved(e)); // C2 r1: overdue (visible too long without a swing) or a starved tank: next in line
       if (prio && cooldown > 4) cooldown = 4;
+      // C2 r3 FIRST RUSH (board r12: first swing up to 8.6–10.1 s after a foe came into view): an overdue foe that has never attacked
+      // swings the moment it is back in control (no cooldown), runs in (any foe that has never swung runs in with its token), never gives its token up on a long walk, and may strike
+      // from a short lunge further out (reach +0.2 m, depth tolerance ×1.5). The token / threat / heat caps still apply.
+      const first = !!(d && e.aiOverdue && !e.aiHasAtk && !d.noFirstDue && !d.noFirstRush);
+      if (first) cooldown = 0;
       const wantsAttack = van || ((cooldown <= 0 || (c.punish && cooldown < 30)) && !c.heroBusy && (!hooks.canAttack || hooks.canAttack(c))
         && !(G && d.frontReady && !prio && !(tk && tk.has(e)) && d.frontReady(e, t))); // r5: front row goes first
       // r6 clear path: never commit to a run that walks through another body's screen column (two silhouettes fused
@@ -163,7 +170,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         // C2 r1 GIVE-UP: a token holder that hasn't reached a strike spot in ~2.5 s (a hero who keeps moving off, a detour
         // round a hero pinned at the frame edge whose depth keeps following it) hands the token on, so the hero's two
         // attack slots don't sit idle on one stuck foe (showcase crowd: 12 attack starts / min).
-        if (!van && d && !d.noSpace && ++atkWalk > (d.giveUpT ?? 150)) {
+        if (!van && d && !d.noSpace && ++atkWalk > (d.giveUpT ?? 150) * (first ? 3 : 1)) {
           atkWalk = 0; if (tk) tk.release(e); cooldown = rng.int(30, 60); e.aiWhy = 'giveUp'; if (d.stats) d.stats.giveUp = (d.stats.giveUp || 0) + 1;
           e.faceToward(t); if (!offFrame(game, e)) e.pause(16, { anim: adx < 2.2 ? 'sidestep' : 'taunt', vx: adx < 2.2 ? -2.2 : 0 }); else e.stopMoving(); return; // a visible beat (hop back / taunt), not a freeze
         }
@@ -177,16 +184,16 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         const lane = d && d.attackSide ? d.attackSide(e, t) : { side: Math.sign(e.pos.x - t.pos.x) || 1, dz: 0 };
         if (lane.yield && (!van || lane.room) && tk) { tk.release(e); cooldown = rng.int(8, 20); e.aiWhy = 'yield'; e.stopMoving(); e.faceToward(t); return; }
         const side = lane.side;
-        const reach = (c.mounted && e.moves.jump_slash ? 1.7 : P.attackRange);
+        const reach = (c.mounted && e.moves.jump_slash ? 1.7 : P.attackRange), lunge = first ? 0.2 : 0, dTol = P.depthTol * (first ? 1.5 : 1);
         const onSide = Math.sign(e.pos.x - t.pos.x) === side;
         // r5 screen-x lanes: a queued 3rd attacker holds one lane back; the strike spot must be free of other bodies
         // (at any depth) so every attacker keeps its own readable silhouette; closer than 0.55 m steps back out first.
         const queued = !van && !!(lane.queue && lane.queue > reach + 0.15);
         const laneOk = van || !G || !d.laneFree || d.laneFree(e, e.pos.x, e.pos.z);
-        if (onSide && !queued && laneOk && adx <= reach + 0.15 && adz < P.depthTol && adx > 0.7) { // C2 r1: 0.55 → 0.7 (the body-space floor holds foes ≥ ~0.8 m off a hero)
+        if (onSide && !queued && laneOk && adx <= reach + 0.15 + lunge && adz < dTol && adx > 0.7) { // C2 r1: 0.55 → 0.7 (the body-space floor holds foes ≥ ~0.8 m off a hero)
           if (c.heroBusy) { e.aiWhy = 'heroBusy'; e.stopMoving(); e.faceToward(t); return; } // standing over the downed hero: no swing until he can act
           // Feint: step in, then hop back out of range (baits a whiff, which the brain then punishes).
-          if (!van && !c.punish && feintCool <= 0 && rng.chance(P.feint * aggr)) {
+          if (!van && !first && !c.punish && feintCool <= 0 && rng.chance(P.feint * aggr)) {
             feintCool = 240; cooldown = rng.int(10, 22);
             e.faceToward(t); e.pause(14, { anim: 'sidestep', vx: -3.2 });
             game.bus.emit('ai:feint', { actor: e, target: t });
@@ -202,7 +209,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
           if (m && e.attackWith(m, t)) { atkWalk = 0; cooldown = cool(aggr); if (tk) tk.release(e); if (van) { e.vanguard = 0; game.bus.emit('ai:vanguard', { actor: e, target: t }); } return; }
           if (m && d && d.attackVeto && d.attackVeto(e, t)) { if (tk) tk.release(e); e.vanguard = 0; cooldown = rng.int(8, 16); e.aiWhy = 'veto'; e.stopMoving(); e.faceToward(t); return; } // C2 r1: half off-frame / pinned hero's outer side
         }
-        if (d && d.stats && d.diagAtk) { const k = 'af_' + (!onSide ? 'side' : queued ? 'queue' : !laneOk ? 'lane' : adx > reach + 0.15 ? 'far' : adz >= P.depthTol ? 'dz' : adx <= 0.7 ? 'close' : 'other'); d.stats[k] = (d.stats[k] || 0) + 1; } // probe diagnostics (director.diagAtk)
+        if (d && d.stats && d.diagAtk) { const k = 'af_' + (!onSide ? 'side' : queued ? 'queue' : !laneOk ? 'lane' : adx > reach + 0.15 + lunge ? 'far' : adz >= dTol ? 'dz' : adx <= 0.7 ? 'close' : 'other'); d.stats[k] = (d.stats[k] || 0) + 1; e.aiAf = k; } // probe diagnostics (director.diagAtk)
         const crossing = !onSide && adx > 0.3;
         e.aiCrossing = crossing;
         // C2 r1: a detour to a pinned hero's inner flank that hasn't got round in 2 s (the hero keeps matching its depth, or
@@ -212,7 +219,10 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         // r5 front-row hand-over: still walking in from an outer ring past a waiting ally's column → pass it the turn.
         const ff = G && !van && !crossing && adx > reach + 0.6 && d.frontFoe ? d.frontFoe(e, t) : null;
         if (ff && tk) { tk.release(e); e.aiWhy = 'handover'; cooldown = rng.int(24, 48); ff.brain.cooldown = 0; game.bus.emit('ai:handover', { actor: e, to: ff }); return; }
-        let ax = t.pos.x + side * (queued ? Math.min(4.2, lane.queue) : reach * 0.85), az = crossing ? crossZ(game, t.pos.z, e.pos.z >= t.pos.z ? 1 : -1, d && !d.v9Cross ? 2.5 : 2.1) : clampZ(game, t.pos.z + lane.dz);
+        // C2 r3 LEAD (probe preWhy: ~60 % of the time before a first swing was a token holder walking after a hero who kept moving):
+        // aim where the hero will be in ~0.3 s while closing in on his own side (director.noLead: off)
+        const lead = d && !d.noLead && !crossing && !queued && adx < 4.5 && t.vel ? 0.3 : 0;
+        let ax = t.pos.x + (lead ? t.vel.x * lead : 0) + side * (queued ? Math.min(4.2, lane.queue) : reach * 0.85), az = crossing ? crossZ(game, t.pos.z, e.pos.z >= t.pos.z ? 1 : -1, d && !d.v9Cross ? 2.5 : 2.1) : clampZ(game, t.pos.z + lane.dz + (lead && t.vel.z ? t.vel.z * lead : 0));
         if (crossing && d && !d.v9Cross && Math.abs(az - e.pos.z) > 0.6 && Math.abs(e.pos.z - t.pos.z) < 2.0) ax = e.pos.x; // c1r10: round the hero depth first
         const sg = d && d.steer && (crossing || queued || !laneOk || adx > reach + 0.6) ? d.steer(e, ax, az) : { x: ax, z: az };
         // r5: passing through another body's column → run so the overlap is a flicker; a body still reeling in the lane
@@ -229,7 +239,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         // r5b: travelling in step with an ally in the same screen column (a group walking in together) → the one behind
         // drops back so the pair splits into a file instead of arriving as one fused body.
         const tail = G && !van && !crossing && adx > reach + 0.6 && d.columnAhead && d.columnAhead(e, sg.x);
-        e.moveTo(sg.x, clampZ(game, sg.z), van ? (adx > reach + 1.6 ? 1.85 : 1.2) : tail ? P.rush * 0.5 : crossing ? Math.max(1.35, P.rush * 1.2) : passing ? Math.max(1.3, P.rush) : P.rush); // flanking runs round briskly
+        e.moveTo(sg.x, clampZ(game, sg.z), van ? (adx > reach + 1.6 ? 1.85 : 1.2) : (first || (d && !d.noFirstRush && !e.aiHasAtk)) && adx > reach + 0.4 ? Math.max(1.45, P.rush * 1.25) : tail ? P.rush * 0.5 : crossing ? Math.max(1.35, P.rush * 1.2) : passing ? Math.max(1.3, P.rush) : P.rush); // flanking runs round briskly
         return;
       }
       mode = 'circle';
@@ -263,7 +273,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         if (Math.abs(kx - t.pos.x) >= 1.6) { slot.side = sideNow; slot.src = 'keep'; gx = kx; d.stats.xKeep = (d.stats.xKeep || 0) + 1; }
       }
       // Going round to the far side: detour in depth instead of walking through the hero.
-      const crossing = Math.sign(e.pos.x - t.pos.x) !== slot.side && adx < ring;
+      const crossing = Math.sign(e.pos.x - t.pos.x) !== slot.side && (adx < ring || !!slot.flank || !!(slot.cross && d && d.coBal && d._nh > 1)); // C2 r3: a flanker (director.flankPass / coBal) goes round from any distance
       if (crossing && !e.aiCrossing && d && d.stats) { const k = 'xStart_' + (slot.src || '?'); d.stats[k] = (d.stats[k] || 0) + 1; }
       e.aiCrossing = crossing;
       // Waiting foes keep prowling: a slow depth drift so the ring breathes instead of parking.
@@ -309,7 +319,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
       // C2 r1: slid aside by the body-space floor a moment ago → don't walk straight back into that neighbour
       if (e.aiPush && tick - e.aiPush.t < 4 && Math.sign(gx - e.pos.x) === -e.aiPush.dir && Math.abs(gx - e.pos.x) < 1.6) gx = e.pos.x;
       const tail = G && !crossing && d.columnAhead && d.columnAhead(e, gx); // r5b: in step behind an ally → drop back
-      if (Math.hypot(gx - e.pos.x, gz - e.pos.z) > (esc ? 0.04 : 0.25)) e.moveTo(gx, gz, outF ? (d && d.outSpeed) || 1.35 : esc ? 1.3 : tail && !free ? 0.45 : adx > P.spacing * 2.6 ? 1.35 : inLane ? 1.3 : !(d && (d.v8Kit || d.v8Walk || d.noRowRush)) && Math.abs(gz - e.pos.z) > 0.6 ? 1.0 : 0.72); // c1r9: off its row → a brisker walk back onto it
+      if (Math.hypot(gx - e.pos.x, gz - e.pos.z) > (esc ? 0.04 : 0.25)) e.moveTo(gx, gz, crossing && slot.flank ? 1.5 : outF ? (d && d.outSpeed) || 1.35 : esc ? 1.3 : tail && !free ? 0.45 : adx > P.spacing * 2.6 ? 1.35 : inLane ? 1.3 : !(d && (d.v8Kit || d.v8Walk || d.noRowRush)) && Math.abs(gz - e.pos.z) > 0.6 ? 1.0 : 0.72); // c1r9: off its row → a brisker walk back onto it
       else {
         e.stopMoving();
         if (tauntCool <= 0 && e.moves && rng.chance(P.taunt)) { tauntCool = rng.int(240, 480); e.pause(40, { anim: 'taunt' }); game.bus.emit('ai:taunt', { actor: e }); return; }

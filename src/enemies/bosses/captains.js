@@ -67,14 +67,14 @@ export default {
       begin() {
         const focus = { pos: { x: cx, y: 0, z: 0 } };
         if (BEAT_OFF) {
-          game.track(G.intro({ focus, ticks: 128, distance: 12.5, announceAt: 58, onBeat(t) {
+          G.run(G.intro({ focus, ticks: 128, distance: 12.5, announceAt: 58, onBeat(t) {
             if (t === 50) for (const m of members) if (m.alive && m.pause) m.pause(50, { anim: 'taunt', face: true });
             if (t === 62 && game.cameraRig && game.cameraRig.shake) game.cameraRig.shake(0.35);
           } }));
           return;
         }
         // the card goes up at t 52 as Patina starts her stride; both beats finish under it; the intro holds to t 172
-        game.track(G.intro({ focus, ticks: 172, distance: 12.5, announceAt: 52, onBeat(t) {
+        G.run(G.intro({ focus, ticks: 172, distance: 12.5, announceAt: 52, onBeat(t) {
           plantBeat(game, members[0], t - 54);
           plantBeat(game, members[1], t - 66);
         } }));

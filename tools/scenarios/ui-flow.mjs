@@ -44,9 +44,15 @@ export default async (api) => {
   await press(2, 'light', 300);
   ok('duplicate pick blocked (TAKEN)', await E(() => document.querySelectorAll('.kca-stamp.s2.on').length === 0 && !!document.querySelector('.kca-toast')));
   await noOverlap('select_duplicate_toast');
+  // C2 r14 (board r13: the "both READY" frame showed 1P READY + a "BRANN IS TAKEN" toast): the duplicate-pick test above stays, but P2 only picks
+  // Seraphine once its toast (1.6 s of UI time) has cleared, and the frame is taken with BOTH stamps on and no toast (select -> map starts ~1.4 s later).
+  ok('duplicate-pick toast clears by itself', await until(() => E(() => !document.querySelector('.kca-toast')), 4000, 100));
   await press(2, 'right'); await press(2, 'light', 300); // P2 readies Seraphine
-  await api.advance(300); await shotOv('04_select_ready');
-  ok('both READY', await E(() => document.querySelectorAll('.kca-stamp.on').length === 2));
+  ok('both READY', await until(() => E(() => document.querySelectorAll('.kca-stamp.on').length === 2), 2000, 50));
+  // the 2P flag / READY plaque land with CSS animations on the browser's WALL clock (the manual game clock does not drive them): without a real wait the
+  // frame caught them still at opacity 0 / scale 2.2 (the r13 board saw only "1P READY"). Wait 1 s of wall time (sim is paused between advance() calls).
+  await api.advance(350); await api.page.evaluate(() => new Promise((r) => setTimeout(r, 1000))); await shotOv('04_select_ready');
+  ok('ready frame is clean (both READY, no toast)', await E(() => document.querySelectorAll('.kca-stamp.on').length === 2 && !document.querySelector('.kca-toast')));
   ok('select → map interlude', await until(async () => (await flow()) === 'map', 8000), await flow());
   await walk(3200); await shotOv('05_map');
   const capK = () => E(() => { const k = document.querySelector('.kca-map .cap .k'); return k ? k.textContent.trim() : null; });

@@ -284,12 +284,5 @@ export function fireballExplode(vfx, comet, c, seed = 0, victim = null, dir = 1)
   // at the standing pose while the launch reaction moved the victim away below it.
   B.visible = false; B.userData.live = false;
   park(B, comet);
-  const origin = {x:c.x,y:c.y,z:c.z};
-  vfx.fire.emit({clip:'smoke',pos:[origin.x+dir*.14,origin.y+.12,origin.z+.18],
-    size:[1.7,1.9],life:.54,delay:.055,fadeIn:.06,core:0,alpha:1,tint:'#b7aaa0',
-    vel:[dir*.22,.75,0],grow:.50});
-  vfx.fire.emit({clip:'fireBurst',pos:[origin.x+dir*.16,origin.y+.10,origin.z+.22],
-    size:[1.85,1.75],life:.36,core:3.4,alpha:1,radiance:1.8,erosion:0,mirror:dir,rot:-dir*.15});
-  vfx.fire.emit({clip:'fireBurst',pos:[origin.x-dir*.10,origin.y-.10,origin.z+.20],
-    size:[1.25,.9],life:.15,core:4.5,alpha:.9,radiance:1.8,erosion:0,mirror:-dir,rot:dir*.70});
+  vfx.fire.emitCombustion({pos:[c.x,c.y,c.z+.18],target:victim,scale:1.2,dir});
 }

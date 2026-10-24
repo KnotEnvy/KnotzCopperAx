@@ -53,7 +53,7 @@ export function buildTerrain(ctx, huts = [], rocks = []) {
     mat.customProgramCacheKey = () => source.customProgramCacheKey() + '|s1DiffuseSoil';
     source.dispose();
   }
-  roadDetail(mat);
+  roadDetail(mat, huts);
   groundFirelight(mat, huts, rocks);
   // Each ground fragment sampled the shared noise atlas at many scales with
   // four-way anisotropy. The shader already fades subpixel detail with fwidth;

@@ -49,6 +49,18 @@ warm_near = np.exp(-(np.hypot(X1 - SUN[0], Y1 - SUN[1]) / 900.0) ** 1.3)
 cloud_col = mix(c3('#1a0714'), c3('#6a2230'), (t * .9)[..., None]) + np.array([1.0, .5, .18], np.float32)[None, None, :] * (under * (.35 + .9 * warm_near))[..., None]
 cloud_col = cloud_col + np.array([1.0, .45, .15], np.float32)[None, None, :] * (dens * warm_near * .22)[..., None]
 img = mix(sky, cloud_col, (dens * .82)[..., None])
+# C2 r14 (board r13 "cheap radial god-ray burst over banded sunset gradients"): the CSS burst (a regular conic wedge ring centred on the banner) is gone. The
+# rays now come from the SUN that lights the throne: irregular shafts (angle noise, varied width / strength), broken by the cloud bands they pass behind,
+# fading with distance, drawn before the ridges so the land occludes them.
+ang = np.arctan2(-(Y1 - SUN[1]), X1 - SUN[0])
+rdist = np.hypot(X1 - SUN[0], Y1 - SUN[1])
+a1_ = fbm(ang * 5.0 + 11.0, np.full_like(ang, 1.7), 4, seed=61)
+a2_ = fbm(ang * 17.0 + 3.0, np.full_like(ang, 4.3), 3, seed=62)
+shaft = smoothstep(.50, .80, a1_ * .72 + a2_ * .42 - .02)
+shaft = shaft * (.45 + .75 * smoothstep(.35, .75, fbm(ang * 40.0, np.full_like(ang, 9.1), 2, seed=63)))
+rfade = np.exp(-(rdist / 1150.0) ** 1.25) * smoothstep(150.0, 330.0, rdist)
+rays = shaft * rfade * (1 - dens * .65) * smoothstep(.0, .22, t)
+img = img + np.array([1.0, .52, .18], np.float32)[None, None, :] * (rays * .24)[..., None]
 
 # ------------------------------------------------------------------------------------------------ ridges (r9: varied crests, no repeated sawtooth)
 XS = (np.arange(W, dtype=np.float32) / S)[None, :]
@@ -361,7 +373,7 @@ if os.path.exists(FR_NPY):
         axx, axy = (TF[0] + ax_['x'] * TF[2]) * S, (TF[1] + ax_['y'] * TH) * S
         x0_, x1_, y0_, y1_ = int(max(0, axx - 90 * S)), int(min(W, axx + 90 * S)), int(max(0, axy - 70 * S)), int(min(H, axy + 70 * S))
         Yg, Xg = np.mgrid[y0_:y1_, x0_:x1_].astype(np.float32)
-        img[y0_:y1_, x0_:x1_] += np.array([1.0, .45, .14], np.float32) * (np.exp(-(np.hypot(Xg - axx, Yg - axy) / (34 * S)) ** 1.4) * (.07 if kj.get('flames') == 'rendered' else .32))[..., None]
+        img[y0_:y1_, x0_:x1_] += np.array([1.0, .45, .14], np.float32) * (np.exp(-(np.hypot(Xg - axx, Yg - axy) / (34 * S)) ** 1.4) * (.03 if kj.get('flames') == 'rendered' else .32))[..., None]
     # low violet-ember mist at the dais foot, over the asset's base, drifting in two layers
     fy0 = int((TF[1] + TH * .62) * S)
     mist_y = (Y1 - (TF[1] + TH * .83)) / 60.0
@@ -409,5 +421,10 @@ img = np.nan_to_num(img)
 img = np.clip(img, 0, 1.6)
 img = 1 - np.exp(-img * 1.25)                                                                  # soft filmic shoulder
 img = np.clip(img, 0, 1)
-save_png(OUT, (img * 255 + .5).astype(np.uint8))
+# C2 r14: ordered-free TPDF dither (two uniform fields, +-1 LSB) before the 8-bit quantise so the long sunset gradients cannot band; the encode step keeps
+# quality >= 92 for the same reason.
+dr = np.random.RandomState(19)
+dith = (dr.rand(H, W).astype(np.float32) + dr.rand(H, W).astype(np.float32) - 1.0)
+q8 = np.clip(np.floor(img * 255 + .5 + dith[..., None] * 1.0), 0, 255).astype(np.uint8)
+save_png(OUT, q8)
 print('wrote', OUT, W, H)

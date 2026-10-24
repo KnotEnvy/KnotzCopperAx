@@ -24,7 +24,7 @@ Design (C2 r1 rebuild to docs/refs/c2/enemies/viper_maiden_v2.png; board C1 r4: 
            knee cops, flat strap sandals on bare feet.
 Value ladder (greyscale must separate the tiers, not only hue): jade LIGHT (light jade scale, pale tabards, bone
 trims), crimson MID (crimson scale, rust tabards, bronze bracer plates), dusk DARK (plum-black scale, charcoal
-tabards, dark half-cape), captain = black-jade + gold trims, spiked gold crest, both mantles, red short cape.
+tabards, dark half-cape), captain = black-jade + gold trims, dark-banded crest with a gold rim, both mantles, red short cape.
 Weapon: weapon_whip_spear.glb.
 """
 import os
@@ -640,10 +640,11 @@ def crest_back_y(z, x=0.0):
 
 def serpent_path(H):
     """The crest serpent's spine (H frame -> world): up the hood's back from just above the ponytail ring, over the
-    apex, rising free above the crown and arching forward into the head over the brow."""
+    apex, then a SHORT thick '?' rise (C2 r7: r6's tall thin neck read as a heron) ending at the head's hinge over
+    the crown."""
     pts = [hood_pt(0, zu, 0.024) for zu in (0.0, 0.05, 0.1, 0.14)]
-    ap = hood_pt(0, HOOD_APEX, 0.012)
-    pts += [ap + V(0, 0.004, 0.02), ap + V(0, -0.006, 0.07), ap + V(0, -0.03, 0.11), ap + V(0, -0.062, 0.128)]
+    ap = hood_pt(0, HOOD_APEX, 0.014)
+    pts += [ap + V(0, 0.008, 0.028), ap + V(0, 0.002, 0.062), ap + V(0, -0.022, 0.084), ap + V(0, -0.05, 0.088)]
     P, _ = anatomy.resample(np.array([H(*p) for p in pts]), step=0.005)
     return P
 
@@ -654,9 +655,8 @@ def crest(H, captain=False):
        inner face with dark cross bands (the cobra's hood markings), a bright rolled rim -- the value contrast that
        makes the shape read against sky and rock; the ponytail threads through a ringed hole low on its back;
     2) the SERPENT: a thick scaled cobra body up the hood's back and over the apex, rising free above the crown and
-       arching forward: its own flared hood just behind the head, a big wedge head over the brow with an OPEN mouth
-       (upper + lower jaw, red mouth, bone fangs), dark bead eyes under bright brow ridges, a pale belly stripe
-       down its front. Captain: gold + a crown of spikes along the hood's upper rim."""
+       arching forward (C2 r7: a short thick '?' neck and a blunt cobra head, see below). Captain: same shape, gold
+       rim only (C2 r7: the r6 spike crown read as a halo / sun disc at 1x)."""
     S = Sculpt(materials=GEAR_MATS, default_mat="scale")
     s = H.s
     Xa, b, u = hood_axes()
@@ -678,90 +678,93 @@ def crest(H, captain=False):
     lo, hi = c - 0.32, c + 0.32
     sheet = Diff(Inter(Shell(E, t), keep, k=0.003), hole, k=0.002)
     S.add(Bounded(BH.ScaleField(sheet, amp=0.0018), lo, hi), 0.0, mat="scale")
-    rim = Inter(Shell(E, t + 0.0026), Diff(outline, Offset(outline, -0.012 * s)), keep, k=0.002)
+    rim = Inter(Shell(E, t + 0.0022), Diff(outline, Offset(outline, -0.009 * s)), keep, k=0.002)   # C2 r7: thinner
     S.add(Bounded(rim, lo, hi), 0.002, mat="trim")
     hb = norm(hole_c - c)
     S.add(Torus(hole_c, 0.023 * s, 0.0045 * s, basis(hb, V(0, 0, 1))[:, [1, 2, 0]]), 0.002, mat="trim")
     # value design: dark outer face, pale inner face with dark hood bands
     S.paint(Bounded(Diff(Offset(sheet, 0.004), E), lo, hi), "outer", soft=0.002, value=1.0)
     inner = Inter(Offset(sheet, 0.004), E)
-    for j, zu in enumerate((-0.1, -0.045, 0.01, 0.065, 0.12)):    # dark hood bands on the scale-coloured inner face
-        S.paint(Bounded(Inter(inner, Slab(c + u * zu * s, u, (0.011 - 0.0012 * j) * s)), lo, hi), "mark2", soft=0.004,
-                value=0.6)
-    S.paint(Bounded(Inter(inner, Diff(outline, Offset(outline, -0.03 * s))), lo, hi), "belly", soft=0.01, value=0.6)
-    # ---- the serpent
+    # C2 r7 (board r6: "jade a pale loop, captain a halo disc at 1x"): the inner face -- the side the game camera
+    # sees -- is now DARK: 3/4 of the way to scale_deep, broad near-black hood bands; only the thin rolled rim (1 px at
+    # 1x) stays light and draws the hood shape.
+    S.paint(Bounded(inner, lo, hi), "outer", soft=0.004, value=0.74)
+    for j, zu in enumerate((-0.1, -0.04, 0.02, 0.08, 0.13)):      # broad dark hood bands
+        S.paint(Bounded(Inter(inner, Slab(c + u * zu * s, u, (0.017 - 0.0016 * j) * s)), lo, hi), "mark2",
+                soft=0.004, value=0.88)
+    # ---- the serpent (C2 r7, board r6 unanimous "a heron/crane, not a cobra": neck 1/5 of the head width, long open
+    # beak jaw). Now a COBRA by the seats' numbers: a THICK neck (r 0.03 H, laterally flattened like a cobra's
+    # spread neck: >= 60 % of the head width) rising straight out of the hood's apex in a short '?' curve, a BLUNT
+    # rounded head (wider than tall, short snout) bent forward-down over her brow, only a small jaw gap with two short
+    # fangs and a red forked tongue, dark bead eyes under bright brow ridges, a DARK back (dorsal) and a mid-value
+    # throat with two dark throat bands. No separate neck flare (r6's read as a disc mouth / lollipop in 3q).
     P = serpent_path(H)
     n = len(P)
     f = np.linspace(0, 1, n)
-    Rb = np.interp(f, [0, 0.08, 0.5, 0.85, 1.0], [0.012, 0.029, 0.028, 0.022, 0.02]) * s
+    Rb = np.interp(f, [0, 0.12, 0.45, 0.75, 1.0], [0.016, 0.028, 0.031, 0.032, 0.03]) * s
     T_ = np.gradient(P, axis=0)
     T_ /= np.linalg.norm(T_, axis=1, keepdims=True)
-    body = Chain(list(P), list(Rb), squash=(0.92, 1.0), ref=(0, -1, 0))
-    S.add(BH.ScaleField(body, amp=0.0014), 0.008 * s, mat="scale")
+    body = Chain(list(P), list(Rb), squash=(1.22, 0.86), ref=(1, 0, 0))      # wider laterally than deep
+    S.add(BH.ScaleField(body, amp=0.0014), 0.01 * s, mat="scale")
     Nf = np.cross(T_, V(1, 0, 0))                    # body 'front' normal (belly side), in the yz plane
     Nf /= np.linalg.norm(Nf, axis=1, keepdims=True)
     Nf *= np.where(Nf[:, 1] < 0, 1, -1)[:, None]     # face forward (-y) / down
     for i in range(1, n - 1):
-        S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.25), HalfSpace(P[i] + Nf[i] * float(Rb[i]) * 0.25, -Nf[i])),
-                        P[i] - 0.05, P[i] + 0.05), "belly", soft=0.003, value=0.95)
-        if f[i] < 0.86:
-            S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.3), HalfSpace(P[i] + Nf[i] * float(Rb[i]) * 0.1, Nf[i])),
-                            P[i] - 0.05, P[i] + 0.05), "outer", soft=0.004, value=0.9)
-    # the cobra's own flared hood just behind its head (cupped back -> a swelling of the neck in profile)
-    i_n = int(n * 0.84)
-    tn = T_[i_n]
-    nb = -Nf[i_n]
-    Mf = np.stack([V(1, 0, 0), nb, tn], axis=1)
-    fl = Ellipsoid(P[i_n] + nb * 0.006 * s, H.r(0.084, 0.022, 0.06), Mf)
-    S.add(BH.ScaleField(fl, amp=0.0012), 0.01 * s, mat="scale")
-    S.paint(Bounded(Inter(Offset(fl, 0.004), HalfSpace(P[i_n], nb)), P[i_n] - 0.1, P[i_n] + 0.1), "belly", soft=0.004,
-            value=0.9)
-    S.paint(Bounded(Inter(Offset(fl, 0.004), HalfSpace(P[i_n] + nb * 0.004 * s, -nb)), P[i_n] - 0.1, P[i_n] + 0.1),
-            "outer", soft=0.004, value=0.9)
-    S.add(Inter(Shell(Offset(fl, 0.0), 0.0022 * s), Diff(Ellipsoid(P[i_n], H.r(0.088, 0.06, 0.064), Mf),
-                                                       Ellipsoid(P[i_n], H.r(0.072, 0.06, 0.05), Mf))), 0.002,
-          mat="trim")
-    # head: a wedge over the brow, mouth OPEN (C2 r6: >= 12 px long at 1x in the stage-2 lineup)
-    k_ = 1.3
-    hd = norm(T_[-1] * 0.6 + V(0, -1, -0.32) * 0.4)
+        S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.4), HalfSpace(P[i] + Nf[i] * float(Rb[i]) * 0.35, -Nf[i])),
+                        P[i] - 0.06, P[i] + 0.06), "belly", soft=0.004, value=0.45)
+        S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.4), HalfSpace(P[i] - Nf[i] * float(Rb[i]) * 0.2, Nf[i])),
+                        P[i] - 0.06, P[i] + 0.06), "outer", soft=0.006, value=1.0)
+    for fb in (0.6, 0.72):                           # dark throat bands (spectacled-cobra throat) on the front
+        i = int(n * fb)
+        S.paint(Bounded(Inter(Slab(P[i], T_[i], 0.0075 * s), Sphere(P[i], float(Rb[i]) * 1.5)), P[i] - 0.06, P[i] + 0.06),
+                "mark2", soft=0.003, value=0.9)
+    # head: blunt and rounded, bent forward-down; built in its own frame (x lateral, y snout, z up). KH: the game
+    # camera is ~97 px/m (r6 crops) -> head ~0.135 H x 1.15 = 13 px long at 1x (board: >= 12 px).
+    KH = 1.15
+    hs = s * KH
+
+    def Hr(*r):
+        return H.r(*r) * KH
+    hd = norm(T_[-1] * 0.35 + V(0, -1, -0.42) * 0.65)
     up = norm(V(0, 0, 1) - hd * float(hd[2]))
     lat0 = norm(np.cross(hd, up))
-    Mh = np.stack([lat0, hd, up], axis=1)                     # x lateral, y forward, z up
-    hinge = P[-1] + hd * 0.004 * s
-    hc = hinge + hd * 0.05 * k_ * s + up * 0.006 * s
-    S.add(Ellipsoid(hc, H.r(0.034, 0.064, 0.021) * k_, Mh), 0.012 * s, mat="scale")              # upper head
-    S.add(Ellipsoid(hc - hd * 0.03 * k_ * s + up * 0.004 * s, H.r(0.04, 0.03, 0.022) * k_, Mh), 0.01 * s,
-          mat="scale")                                                                          # jowls
-    ca, sa = math.cos(math.radians(30)), math.sin(math.radians(30))
+    Mh = np.stack([lat0, hd, up], axis=1)
+    hinge = P[-1]
+    hc = hinge + hd * 0.05 * hs + up * 0.004 * hs
+    S.add(Ellipsoid(hc, Hr(0.043, 0.062, 0.027), Mh), 0.014 * hs, mat="scale")                    # cranium
+    S.add(Ellipsoid(hc - hd * 0.03 * hs - up * 0.004 * hs, Hr(0.049, 0.032, 0.03), Mh), 0.012 * hs,
+          mat="scale")                                                                              # jowls / temples
+    S.add(Ellipsoid(hc + hd * 0.035 * hs - up * 0.005 * hs, Hr(0.033, 0.042, 0.022), Mh), 0.01 * hs,
+          mat="scale")                                                                              # blunt snout
+    ca, sa = math.cos(math.radians(13)), math.sin(math.radians(13))
     jd = norm(hd * ca - up * sa)
     Mj = np.stack([lat0, jd, norm(np.cross(lat0, jd))], axis=1)
-    jc = hinge + jd * 0.04 * k_ * s - up * 0.012 * s
-    S.add(Ellipsoid(jc, H.r(0.026, 0.046, 0.0085) * k_, Mj), 0.006 * s, mat="scale")             # lower jaw
-    mouth = Union(Ellipsoid(hc - up * 0.02 * k_ * s + hd * 0.008 * s, H.r(0.022, 0.05, 0.012) * k_, Mh),
-                  Ellipsoid(jc + Mj[:, 2] * 0.008 * s, H.r(0.018, 0.04, 0.007) * k_, Mj), k=0.006 * s)
-    S.paint(mouth, "mouth", soft=0.004, value=1.0)
-    S.paint(Bounded(Inter(Ellipsoid(hc, H.r(0.05, 0.09, 0.05) * k_, Mh), HalfSpace(hc - up * 0.004 * s, -up)),
-                    hc - 0.12, hc + 0.12), "outer", soft=0.006, value=1.0)
+    jc = hinge + jd * 0.052 * hs - up * 0.02 * hs
+    S.add(Ellipsoid(jc, Hr(0.036, 0.05, 0.0105), Mj), 0.008 * hs, mat="scale")                     # lower jaw
+    gap = Ellipsoid(hinge + hd * 0.075 * hs - up * 0.021 * hs, Hr(0.026, 0.05, 0.0055), Mh)
+    S.sub(gap, 0.003 * hs)                                                                            # short jaw gap
+    S.paint(Offset(gap, 0.003 * hs), "mouth", soft=0.003, value=1.0)
+    S.paint(Bounded(Inter(Ellipsoid(hc, Hr(0.07, 0.11, 0.06), Mh), HalfSpace(hc - up * 0.006 * hs, -up)),
+                    hc - 0.14, hc + 0.14), "outer", soft=0.006, value=1.0)                       # dark dorsal head
+    S.paint(Bounded(Inter(Ellipsoid(jc, Hr(0.05, 0.07, 0.03), Mj), HalfSpace(jc, Mj[:, 2] * -1)), jc - 0.1,
+                    jc + 0.1), "belly", soft=0.004, value=0.55)                                     # pale-ish chin
     for sx in (1, -1):
         lat = lat0 * sx
-        ec = hc + lat * 0.026 * k_ * s - hd * 0.014 * k_ * s + up * 0.008 * k_ * s
-        S.add(Sphere(ec, 0.0085 * k_ * s), 0.002, mat="leather_dark")                        # dark bead eye
-        S.add(Ellipsoid(ec + up * 0.0075 * k_ * s + lat * 0.002 * s, H.r(0.009, 0.016, 0.004) * k_, Mh), 0.003 * s,
-              mat="trim")                                                                       # bright brow ridge
-        tip = hc + hd * 0.05 * k_ * s + lat * 0.012 * k_ * s - up * 0.012 * k_ * s
-        S.add(RoundCone(tip, tip - up * 0.036 * k_ * s + hd * 0.006 * s, 0.0048 * k_ * s, 0.0009), 0.002,
-              mat="bone")                                                                       # fangs
-    if captain:                              # spikes radiating along the hood's upper rim
-        for j in range(9):
-            a = math.radians(-80 + j * 20)
-            if abs(j - 4) < 0.5:
-                continue                     # the serpent rises there
-            d2 = V(math.sin(a), 0, math.cos(a))
-            lx, lz = d2[0] * 0.196, 0.03 + d2[2] * 0.15
-            p = H(*hood_pt(lx, lz, 0.0))
-            dw = norm(Xa * d2[0] + u * d2[2])
-            ln = (0.058 - 0.014 * abs(j - 4) / 4) * s
-            S.add(RoundCone(p - dw * 0.008, p + dw * ln, 0.0085 * s, 0.0016), 0.004, mat="trim")
+        ec = hc + lat * 0.034 * hs - hd * 0.004 * hs + up * 0.009 * hs
+        S.add(Sphere(ec, 0.0105 * hs), 0.002, mat="leather_dark")                                   # dark bead eye
+        S.add(Ellipsoid(ec + up * 0.009 * hs + lat * 0.003 * hs, Hr(0.009, 0.019, 0.0045), Mh), 0.003 * hs,
+              mat="trim")                                                                           # bright brow ridge
+        ft = hc + hd * 0.062 * hs + lat * 0.013 * hs - up * 0.016 * hs
+        S.add(RoundCone(ft, ft - up * 0.022 * hs + hd * 0.004 * hs, 0.0042 * hs, 0.0009), 0.002,
+              mat="bone")                                                                           # short fangs
+    tq = hinge + hd * 0.115 * hs - up * 0.021 * hs                                                    # forked tongue
+    tm = tq + hd * 0.03 * hs - up * 0.006 * hs
+    tongue = Chain([tq - hd * 0.02 * hs, tq, tm], [0.0045 * hs, 0.004 * hs, 0.0032 * hs])
+    for sx in (1, -1):
+        tongue = Union(tongue, RoundCone(tm, tm + hd * 0.022 * hs + lat0 * sx * 0.011 * hs - up * 0.004 * hs,
+                                         0.003 * hs, 0.0012), k=0.002)
+    S.add(tongue, 0.002, mat="scale")
+    S.paint(Offset(tongue, 0.004 * hs), "mouth", soft=0.002, value=1.0)
     return S
 
 
@@ -911,7 +914,7 @@ def cape_post(half):
 
 def gear_bounds(name, L):
     if name.startswith("crest"):
-        return V(-0.3, -0.25, 1.4), V(0.3, 0.32, 2.0)
+        return V(-0.3, -0.25, 1.4), V(0.3, 0.32, 2.08)
     if name.startswith("cape"):
         return V(-0.32, -0.25, 0.9), V(0.32, 0.36, 1.62)
     if name.startswith("plate"):
@@ -964,7 +967,7 @@ def build_gear(S_body, L, H, names, h=0.0028):
     return out
 
 
-GEAR_TRIS = {"crest": 1700, "crest_captain": 1900, "mantle": 540, "plate": 260, "cape_half": 760, "cape_captain": 860}
+GEAR_TRIS = {"crest": 1800, "crest_captain": 1800, "mantle": 540, "plate": 260, "cape_half": 760, "cape_captain": 860}
 SYM_GEAR = ("crest", "cape_captain")
 
 
@@ -973,7 +976,7 @@ SYM_GEAR = ("crest", "cape_captain")
 #   jade    LIGHT : light jade scale ~50 %, pale ochre torn tabards ~70 %, pale wraps, bone trims, mid-brown leggings ~28 %
 #   crimson MID   : crimson scale ~28 %, rust tabards ~38 %, bronze trims + bronze bracer plates, dark leggings ~17 %
 #   dusk    DARK  : plum-black scale ~13 %, charcoal tabards ~18 %, dark half-cape, pewter trims, near-black leggings
-#   captain       : black-jade scale + GOLD trims, red tabards + red short cape, spiked gold crest, both mantles
+#   captain       : black-jade scale + GOLD trims, red tabards + red short cape, gold-rimmed dark crest, both mantles
 # Skin (olive-bronze ~52 %) and the bare arms + belt + wraps are the constant value breaks in every tier.
 PAL = dict(
     skin=shaders.srgb(176, 124, 92), skin_warm=shaders.srgb(190, 104, 82), skin_cool=shaders.srgb(118, 102, 96),

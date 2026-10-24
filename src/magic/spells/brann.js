@@ -4,19 +4,21 @@
 //   T3 Boulder Rain     the sky darkens; three volleys of molten-veined boulders crash down on the foes (cut-in)
 //   T4 Mountain's Wrath the ground quakes, a colossal stone titan's fist descends and smashes the screen (cut-in)
 // Damage stays canon: every foe on screen takes exactly ctx.damage in total (S.strike ledger).
+import { Color } from 'three';
 import { spellKit } from '../SpellKit.js';
 import { rockField, preloadTitanFist, preloadBasalt } from '../meshes.js';
 import { groundRing, dustRing, debris, crackDecal, dustPuffs, embers, coreGlow } from '../../vfx/effects/_lib.js';
 
 const VEIN = '#ffad42';
 let columnSerial = 0;
+const DUST_LIT = new Color().setRGB(5.8, 3.5, 1.8), DUST_COOL = new Color().setRGB(2.8, 2.1, 1.5);
 
 function earthDust(S, x, y, z, n = 4, size = 1.2, dense = false) {
   if (!S.vfx.fire) return dustPuffs(S.vfx, x, y, z, { n, spread: .6, size: [size * .5, size], alpha: .4 });
   for (let i = 0; i < n; i++) S.vfx.fire.emit({ clip: 'smoke',
     pos: [x + S.r.range(-.65, .65), y + size * (dense ? .60 : .2), z + S.r.range(dense ? .45 : -.3, dense ? 1.0 : .4)],
-    size: [size * .92, size * (dense ? 1.25 : 1)], life: S.r.range(dense ? .75 : .8, dense ? 1.05 : 1.2), tint: dense ? '#e0cdb2' : '#a48c72', alpha: dense ? 1 : .42, erosion: dense ? .02 : .15,
-    vel: [S.r.range(-.55, .55), S.r.range(.8, 1.7), S.r.range(-.15, .3)], grow: dense ? .65 : 1.1, core: 0, soft: .14, floor: y,
+    size: [size * .92, size * (dense ? 1.25 : 1)], life: S.r.range(dense ? .42 : .55, dense ? .68 : .85), tint: dense ? DUST_LIT : DUST_COOL, alpha: S.r.range(dense ? .22 : .14, dense ? .40 : .25), erosion: .12,
+    vel: [S.r.range(-.55, .55), S.r.range(.8, 1.7), S.r.range(-.15, .3)], grow: dense ? .9 : 1.1, core: 0, soft: .14, floor: y,
     phase: i * .17, rot: S.r.range(-.4, .4) });
 }
 
@@ -99,10 +101,10 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
     },
     onCrumble: () => {
       // Unequal wedge shards replace the mass throughout its height, then fall and bounce.
-      // The actual ten solid authored cells rotate and fall in the column draw. Small chips add grit.
+      // The actual 28 solid authored cells rotate and fall in the column draw. Small chips add grit.
       stoneFragments(S, rockX, y + h * .45, rockZ, y, 9, .16, false);
       stoneFragments(S, rockX, y + .2, rockZ, y, 9, .075, false);
-      // Compact opaque dust lobes at the base: denser locally without a full-screen alpha sheet.
+      // Warm translucent billows reveal the glowing break faces; staggered lifetimes avoid a dark curtain.
       earthDust(S, rockX, y + .08, rockZ, scenic ? 4 : 12, scenic ? .9 : 1.35, true);
       if (!scenic) earthDust(S, rockX, y + h * .35, rockZ, 3, 1.1, true);
       rockField(S.vfx, 'chip', { glow: VEIN })._tick(0);
@@ -236,15 +238,15 @@ async function mountainsWrath(S) {
   const fist = rockField(vfx, 'fist', { glow: '#ffc060' });
   fist.glow(1.0);
   g.magic?.spellLight({ pos: { x: cx - .5, y: gy + .1, z: cz + .4 }, facing: 1 }, '#ffb35c', 100);
-  const SC = 2.6, y0 = gy + 16, yHit = gy + 0.05;
-  const T_REVEAL = 0.55, T_SLAM = 0.13, tick0 = g.tick;
+  const SC = 2.6, y0 = gy + 9, yHit = gy + 0.05;
+  const T_REVEAL = 0.72, T_SLAM = 0.13, tick0 = g.tick;
   fist.add({ pos: { x: cx, y: y0, z: cz + 0.2 }, scale: [SC, SC * 0.85, SC], yaw: -0.12 * S.F, tilt: [0.03, 0.025 * S.F], rise: 0.001, hold: T_REVEAL + T_SLAM + 0.9, sink: 0.7, sinkDepth: SC * 1.2,
     update: (it) => {
       // driven by the SIM clock (the impact is scheduled on sim ticks; the render clock lags under slow-mo, which
       // made the fist arrive AFTER its own impact in r1 → read as a tower rising out of the spikes)
       const a = (g.tick - tick0) / 60;
-      if (a < T_REVEAL) { const k = a / T_REVEAL; it.y = y0 - (y0 - (gy + 7)) * (1 - (1 - k) ** 2); }
-      else if (a < T_REVEAL + T_SLAM) { const k = (a - T_REVEAL) / T_SLAM; it.y = gy + 7 - (gy + 7 - yHit) * k * k; }
+      if (a < T_REVEAL) { const k = Math.min(1, a / .52); it.y = y0 - (y0 - (gy + 2.8)) * (1 - (1 - k) ** 2); }
+      else if (a < T_REVEAL + T_SLAM) { const k = (a - T_REVEAL) / T_SLAM; it.y = gy + 2.8 - (gy + 2.8 - yHit) * k * k; }
       else it.y = yHit;
     } });
   // falling-debris streaks around the descending fist
@@ -264,7 +266,7 @@ async function mountainsWrath(S) {
   S.fx.pop({ x: P.x, y: gy + 0.4, z: P.z + 1.4 }, 1.1);
   vfx.light({ x: cx, y: gy + 1.4, z: cz + 2.4 }, { color: '#ffc27a', intensity: 6, distance: 2.6, life: 1.3 });   // key-light the knuckles
   fist.glow(1.25);
-  vfx.shape.emit({ shape: 'flare', pos: [P.x, P.y, P.z + 0.5], size: [18, 1.2], life: 0.35, color: ['#fff0b0', S.pal.mid], intensity: 1.8, p0: [0.06, 0.12] });
+  vfx.shape.emit({ shape: 'flare', pos: [P.x, P.y, P.z + 0.5], size: [5.5, .65], life: 0.13, color: ['#fff0b0', S.pal.mid], intensity: 1.8, p0: [0.06, 0.12] });
   for (let k = 0; k < 3; k++) groundRing(vfx, cx, gy, cz, { radius: 5 + k * 3, color: [S.pal.hot, S.pal.tail], intensity: 1.1 - k * 0.25, life: 0.5 + k * 0.15, delay: k * 0.07 });
   crackDecal(vfx, cx, gy, cz, { radius: 5.5, glow: S.pal.mid, glowIntensity: 2.4, life: 3 });
   earthDust(S,cx,gy+.06,cz,10,1.8,true);
@@ -280,8 +282,8 @@ async function mountainsWrath(S) {
     }
   }
   foes.sort((a, b) => Math.abs(a.pos.x - cx) - Math.abs(b.pos.x - cx));
-  for (const e of foes) S.strike(e, 1, { final: true, launch: 11, knockback: 5, hitstop: 12, from: P });
   if (foes[0]) S.cutIn(foes[0], { seconds: 1.2 });
+  for (const e of foes) S.strike(e, 1, { final: true, launch: 11, knockback: 5, hitstop: 12, from: P });
   // boulders shed from the crumbling fist
   await S.wait(40);
   for (let i = 0; i < 8; i++) {

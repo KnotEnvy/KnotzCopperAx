@@ -215,19 +215,21 @@ def p_blade(c, pal):
     sc2 = sdf.fbm(P[:, 0] * 48.0, P[:, 1] * 48.0, P[:, 2] * 3.5, 2, 1.0, seed=75)
     scr_hi = shaders.smooth01(sc1, 0.70, 0.80)
     scr_lo = shaders.smooth01(sc2, 0.72, 0.82)
-    flat = shaders.srgb(186, 180, 168)                                            # warm grey (r4: 230/233/238 icy)
+    flat = shaders.srgb(142, 138, 132)                                            # warm grey (r4: 230/233/238 icy)
     rgb = np.tile(flat, (c.n, 1)) * (1.0 + 0.05 * n1 + 0.03 * n2 + 0.16 * n0)[:, None]
-    rgb = shaders.mix(rgb, shaders.srgb(226, 220, 206), 0.5 * scr_hi)
+    # C2 r7: forged shadow face rising toward the honed bevel; keep the fuller dark.
+    rgb *= (0.48 + 0.70 * shaders.smooth01(u, -0.65, 0.65))[:, None]
+    rgb = shaders.mix(rgb, shaders.srgb(226, 220, 206), 0.3 * scr_hi)
     rgb = shaders.mix(rgb, shaders.srgb(96, 90, 84), 0.45 * scr_lo)
     # ONE narrow dark fuller line (0.20 of the half width), a MID warm-grey satin bevel and a narrow bright polished edge
     bev = shaders.smooth01(au, 1.0 - BEVEL_HI - 0.03, 1.0 - BEVEL_HI + 0.03)      # bevel plane
-    rgb = shaders.mix(rgb, shaders.srgb(128, 120, 110) * (1.0 + 0.1 * n0)[:, None], bev * 0.92)
+    rgb = shaders.mix(rgb, shaders.srgb(200, 196, 186) * (0.55 + 0.45 * shaders.smooth01(au, 0.73, 0.98))[:, None], bev * 0.96)
     edge = shaders.smooth01(au, 0.935, 0.975)                                      # polished edge bevel (narrow, bright)
     rgb = shaders.mix(rgb, shaders.srgb(252, 248, 240), edge)
     fuller = shaders.smooth01(FULLER_HW - au, 0.0, 0.04)
     rgb = shaders.mix(rgb, shaders.srgb(48, 42, 40), fuller * 0.92)
     rgb = shaders.mix(rgb, shaders.srgb(52, 30, 20), rune)                          # scorched groove
-    rough = 0.50 + 0.05 * n1 + 0.08 * n0 - 0.12 * bev - 0.30 * edge + 0.14 * fuller + 0.06 * scr_lo + 0.3 * rune
+    rough = 0.34 + 0.05 * n1 + 0.08 * n0 - 0.12 * bev - 0.30 * edge + 0.14 * fuller + 0.06 * scr_lo + 0.3 * rune
     # C2 r5: metallic again (0.62 flats / 0.85 bevel / 0.95 edge) -- the engine hue lock keeps the reflections neutral-warm
     metal = (0.62 + 0.23 * bev + 0.33 * edge - 0.1 * fuller) * (1.0 - 0.9 * rune)
     return shaders.out(c.n, rgb, np.clip(rough, 0.14, 0.9), np.clip(metal, 0, 1), 0.0)

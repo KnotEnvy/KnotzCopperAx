@@ -106,11 +106,16 @@ const STRIKE_IN = 0.6; // body half-width ~0.4 + margin: the whole body is insid
 const EDGE_FOE = 1.0;
 const EDGE_WALL = 1.15;
 const PIN_VETO = 0.17; // C2 r2: attack-start veto band (probe 'pinned' = 15 %); PIN stays the slot-side reference
-const PIN_SIDE = 0.2;  // C2 r2: attackSide routes attackers to the inner flank inside this band (before the veto applies)
+const PIN_SIDE = 0.18; // C2 r2: attackSide routes attackers to the inner flank inside this band (before the veto applies). C2 r3: 0.2 → 0.18
+                       // (just above PIN_VETO): at 0.2 most co-op bots stood in it and their foes spent 3–5 s on detours round them
 const STRIKE_IN2 = 0.95; // C2 r2: an attacker's centre must be this far inside the frame to start a move (was 0.6)
 const SP_HH = 0.85;   // C2 r2: hero–hero screen gap below which two standing heroes are eased apart (board: co-op heroes stack)
 const SP_HH_STEP = 0.025; // m per tick per hero (≈ 1.5 m/s: a soft body, never fights the stick)
-const FIRST_DUE = 180; // C2 r2: ticks after a foe first stands fully in frame without having attacked → priority (cap ≤ 6 s)
+const FIRST_DUE = 120; // C2 r2: ticks after a foe first stands fully in frame without having attacked → priority (cap ≤ 6 s). C2 r3: 180 → 120
+const FIRST_GAP = 12;
+const LANE_STICK = 120; // C2 r3: ticks a foe going round its hero keeps the side it chose
+const FLANK_MIN = 1.7; // C2 r3: m — the nearest a flank waiter stands to its hero (strike spot ~1.06 m + a body)
+const FLANK_X = 2.3;   // C2 r3: m — a flank waiter's preferred distance from its hero on his open side  // C2 r3: the strike gap an overdue first-timer waits out (r12: 45; the full gap is 50–150 ticks) — never two starts on one frame
 const SLIDE_MODES = ['circle', 'retreat', 'keep']; // r5b: brain modes that may be slid sideways out of a shared screen column
 const NOPUSH = ['thrown', 'grabbed', 'clinch', 'bones', 'rise', 'dead'];
 
@@ -149,7 +154,7 @@ export class CrowdDirector {
       if (t.kind === 'hero') this._pressure.set(t.id, (this._pressure.get(t.id) || 0) * 0.4);
       // C2 r2 AGGRO: a foe struck by a hero turns on that hero (board r11: a skeleton beaten by one hero kept its token on the
       // other one 9 m away and walked there for 25 s without a swing). The co-op balance pass leaves it there for 1.5 s.
-      if (a.kind === 'hero' && t.team === 'enemies' && t.brain && !this.noAggro && a.alive && t.aiTarget !== a) {
+      if (a.kind === 'hero' && t.team === 'enemies' && t.brain && !this.noAggro && a.alive && t.aiTarget !== a && !this.across(t, a)) {
         if (this.ai.tokens && this.ai.tokens.has(t)) this.ai.tokens.release(t);
         t.aiTarget = a; t.aiAggroT = game.tick; this.stats.aggro = (this.stats.aggro || 0) + 1;
       } else if (a.kind === 'hero' && t.team === 'enemies') t.aiAggroT = game.tick;
@@ -176,10 +181,23 @@ export class CrowdDirector {
         if (r && r.id === a.id) this._reserve.delete(a.target.id);
       }
     });
-    this.scope.on(EV.THROW, (ev) => { if (ev.victim && ev.victim.team === 'enemies') this.flying.push({ v: ev.victim, reacted: new Set(), t: game.tick }); });
+    this.scope.on(EV.THROW, (ev) => { if (ev.victim && ev.victim.team === 'enemies') { this.flying.push({ v: ev.victim, reacted: new Set(), t: game.tick }); this.allyDown(ev.victim, ev.thrower || ev.actor || ev.by, 'throw'); } });
+    this.scope.on(EV.KNOCKDOWN, (ev) => this.allyDown(ev.actor, ev.by, 'down')); // C2 r3 crowd reactions
     this.scope.on('ai:breakout', () => this.stats.breakouts++);
     this.scope.on('ai:block', () => this.stats.blocks++);
     this.scope.on('ai:telegraph', () => this.stats.telegraphs++);
+  }
+
+  /** C2 r3: does another standing hero stand between foe e and hero h (in x, on a nearby depth)? Reaching h would mean walking
+   *  through that hero's fight (board r12 trace: a spell from the far hero turned a foe on him; it stood 2 s pressed against the
+   *  partner it had to pass). Used by the aggro rule: no retarget across the partner. */
+  across(e, h) {
+    if (this.noAcross) return false;
+    for (const o of this.heroes()) {
+      if (o === h || Math.abs(o.pos.z - e.pos.z) > 2.4) continue;
+      if ((o.pos.x - e.pos.x) * (h.pos.x - o.pos.x) > 0 && Math.abs(o.pos.x - e.pos.x) > 0.3) return true;
+    }
+    return false;
   }
 
   reset() { if (this._rowSt) this._rowSt.clear(); this._free = null; this._lastGo.clear(); this._want.clear(); this._reserve.clear(); this._heat.clear(); this._pressure.clear(); this.groups.clear(); this.retreats.clear(); this.flying.length = 0; }
@@ -263,14 +281,18 @@ export class CrowdDirector {
     // r8: co-op has two heroes soaking the crowd (twice the attack starts at the same per-hero gap): a wider gap keeps a 2P run in budget
     const gap = this.cfg.strikeGap * (this._nh > 1 ? 1.2 : 1) * last.w * gov * back * (punish && h <= 1 ? 0.5 : 1) * (1 - Math.min(0.3, this.pressure(t) / 120));
     // C2 r2: a foe that has not attacked yet and is due (FIRST_DUE) only waits out a short gap (the heat ceiling still holds)
-    const first = e && e.aiOverdue && !e.aiHasAtk && !this.noFirstDue ? Math.min(gap, 45) : gap;
+    const first = e && e.aiOverdue && !e.aiHasAtk && !this.noFirstDue ? Math.min(gap, this.firstGap ?? FIRST_GAP) : gap;
     if (this.game.tick - last.tick < first) return false;
     // A starved tank's reserved strike: everybody else holds their swing until it commits (or the hold lapses).
     const r = this._reserve.get(t.id);
     if (r && e && r.id !== e.id) {
       const o = this.game.world.byId.get(r.id);
-      if (o && o.alive && !o.removed && this.game.tick < r.until && !(o.fsm && o.fsm.tagged && o.fsm.tagged('stunned'))) return false;
-      this._reserve.delete(t.id);
+      // C2 r3: two overdue first-timers of one wave: the first one's reservation no longer holds the other at its strike spot
+      // (board r12 trace: 110 ticks) — only a starved TANK's reservation does
+      const firstOk = first < gap && o && !this.isTank(o) && !this.noFirstDue;
+      const live = o && o.alive && !o.removed && this.game.tick < r.until && !(o.fsm && o.fsm.tagged && o.fsm.tagged('stunned'));
+      if (live && !firstOk) return false;
+      if (!live) this._reserve.delete(t.id);
     }
     // Hard ceiling: well over the damage budget → nobody starts a new strike on this hero until the heat vents.
     if (h >= HEAT_CEIL) { this.stats.heatHolds = (this.stats.heatHolds || 0) + 1; return false; }
@@ -421,6 +443,9 @@ export class CrowdDirector {
       if (a.fsm && a.fsm.is(...SP_NO)) continue;
       if (a.mountedOn || (hero && a.fsm && a.fsm.is('throw'))) continue; // riders move with their beast
       if (!hero && a.grabbedBy) continue;
+      // C2 r3: a loot thief (def.passive) runs off-screen by design and is no fighter: the frame floor held it at the edge and the
+      // pair floor then pinned a foe walking past it (board r12 probe: a token holder stuck 6 s behind a fleeing thief)
+      if (!hero && a.def && a.def.passive && !this.thiefSpace) continue;
       const vr = viewRange(g, a.pos.z), s = this.sx(a.pos.x, a.pos.z);
       if (!hero && a.fsm && a.fsm.is('enter') && (a.pos.x < vr.xMin || a.pos.x > vr.xMax)) continue; // still walking in off-screen
       let w = 1, cap = this.spStep ?? SP_STEP;
@@ -454,6 +479,7 @@ export class CrowdDirector {
         const vov = (Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0)) / Math.max(1e-6, Math.min(p.y1 - p.y0, q.y1 - q.y0));
         if (this.dzPairs ? dz >= SP_DZMAX : vov < (this.spVov ?? SP_VOV)) continue;
         const eh = p.hero || q.hero;
+        if (!eh && dz >= SP_DZ && (p.a.aiDeep != null || q.a.aiDeep != null)) continue; // C2 r3: a spread-in entrant passes behind / in front
         let needM = dz < SP_DZ ? SP_EE : SP_EE_FAR;
         if (eh) {
           const e = p.hero ? q.a : p.a, h = p.hero ? p.a : q.a;
@@ -464,8 +490,8 @@ export class CrowdDirector {
           // SP_EH_FAR off his column: the board's 'foe within 0.6 m of a hero' was mostly these (a hero walking past a foe on
           // another row, the partner's attacker a band behind him). Detours round him (aiCrossing / squeezed) still pass.
           let far = false;
-          if (dz >= (this.spDzEH ?? SP_DZ_EH) && (e.aiCrossing || (tk && tk.has(e)) || !e.brain || e.brain.mode !== 'circle' || (e.aiSqueeze != null && g.tick - e.aiSqueeze < 40))) {
-            if (this.noEhFar || e.aiCrossing || !e.brain || (e.aiSqueeze != null && g.tick - e.aiSqueeze < 40)) continue;
+          if (dz >= (this.spDzEH ?? SP_DZ_EH) && (e.aiCrossing || e.aiDeep != null || (tk && tk.has(e)) || !e.brain || e.brain.mode !== 'circle' || (e.aiSqueeze != null && g.tick - e.aiSqueeze < 40))) {
+            if (this.noEhFar || e.aiCrossing || e.aiDeep != null || !e.brain || (e.aiSqueeze != null && g.tick - e.aiSqueeze < 40)) continue;
             far = true;
           }
           // the HERO pressing in (walking into the foe, or lunging in a move) is held by ordinary body contact, not a shove
@@ -568,6 +594,7 @@ export class CrowdDirector {
     const g = this.game;
     for (const e of this.engaged()) {
       if (!e.brain || !e.brain.P || !e.fsm) continue;
+      if (e.aiDeep != null && !e.fsm.is('enter')) e.aiDeep = null; // C2 r3 spread-in walk done
       if (e.fsm.is('attack')) { e.aiIdleA = 0; e.aiIdleT = 0; e.aiHasAtk = true; if (e.aiOverdue) { e.aiOverdue = false; this.stats.overdueServed = (this.stats.overdueServed || 0) + 1; } continue; }
       // C2 r2 TIME TO FIRST ATTACK (board r11: 12.3–19.8 s from first sight to the first swing — the idle cap only counted
       // idle / walk ticks, a foe being hit or detouring never got due): FIRST_DUE ticks after it first stands fully in
@@ -893,6 +920,24 @@ export class CrowdDirector {
       const q = (this._entryQ = this._entryQ || {}); q[side] = Math.max(q[side] ?? -1e9, now + this.game.rng.int(34, 56));
       this.stats.vanguards = (this.stats.vanguards || 0) + 1;
     } else if (!wing) {
+      // C2 r3 CO-OP PINCER (board r12: a wave walked in from one edge and stayed on one side of both heroes — flank.one2 69–100 %):
+      // in co-op a generic walk-in enters from the edge with FEWER foes on its half of the frame (GA: foes pour in from both
+      // sides), unless the hero nearest that edge stands within PIN_SIDE + 0.04 of it (he'd be fought from his outer side).
+      // director.noPincer: off.
+      if (!this.noPincer && !this.noFlip && this.heroes().length > 1 && e.brain && e.brain.P) {
+        const n = { 1: 0, '-1': 0 };
+        for (const o of this.engaged()) if (o !== e && o.kind !== 'mount') n[Math.sign(o.pos.x - mid) || 1]++;
+        const opp = -side, w = vr.xMax - vr.xMin;
+        const edgeHero = this.heroes().reduce((m, o) => Math.min(m, opp > 0 ? vr.xMax - o.pos.x : o.pos.x - vr.xMin), Infinity);
+        if (n[side] > n[opp] && edgeHero > w * ((this.pinSide ?? PIN_SIDE) + 0.04)) {
+          const inset = side > 0 ? vr.xMax - t.x : t.x - vr.xMin, off = side > 0 ? e.pos.x - vr.xMax : vr.xMin - e.pos.x;
+          side = opp; inward = -side;
+          e.pos.x = side > 0 ? vr.xMax + off : vr.xMin - off;
+          t.x = side > 0 ? vr.xMax - inset : vr.xMin + inset;
+          e.setFacing(-side);
+          this.stats.entryFlip = (this.stats.entryFlip || 0) + 1; this.stats.pincer = (this.stats.pincer || 0) + 1;
+        }
+      }
       const q = (this._entryQ = this._entryQ || {});
       const delay = Math.max(0, (q[side] ?? -1e9) - now);
       q[side] = now + delay + this.game.rng.int(34, 56);
@@ -946,6 +991,41 @@ export class CrowdDirector {
       if (o !== e && !o.removed && o.fsm && o.fsm.is('enter') && Math.sign(o.pos.x - mid) === side && Math.abs(o.pos.x - mid) > (vr.xMax - vr.xMin) / 2 - 1.5) ahead++;
     }
     if (ahead && !t.delay && !t.run) { e.pos.x += side * Math.min(3, ahead) * 1.3; this.stats.entryStagger = (this.stats.entryStagger || 0) + 1; }
+    // C2 r3 CO-OP SPREAD-IN (board r12: two foes on one hero stood on the same side 69–100 % of the time; r3 probes: the one-sided
+    // samples were the hero's foes all between him and the edge they walked in from, nobody in the gap between the heroes, and
+    // detours round him afterwards were slow and stood in his silhouette). A later arrival (not the vanguard / wing) whose hero —
+    // the one nearest its entry edge — has more foes on his outer side than on his inner side walks in along a depth row
+    // >= 1.8 m off his row (set while it is still off-screen), past behind / in front of him, into the gap between the
+    // two heroes, and joins from there. The walk-in is the 'enter' state (a purposeful entrance, not idling).
+    // director.noSpreadIn: off; spreadGap: the least hero gap (m) it needs.
+    if (!van && !wing && !this.noSpreadIn && e.brain && e.brain.P && !t.fixed) {
+      const hs = this.heroes();
+      if (hs.length > 1) {
+        const srt = hs.slice().sort((a, b) => (side > 0 ? b.pos.x - a.pos.x : a.pos.x - b.pos.x)); // nearest this edge first
+        const nh = srt[0], oh = srt[1], gap = Math.abs(oh.pos.x - nh.pos.x), dirIn = Math.sign(oh.pos.x - nh.pos.x) || inward;
+        if (dirIn === inward && gap >= (this.spreadGap ?? 4.4)) {
+          let nOut = 0, nIn = 0;
+          for (const o of this.engaged()) {
+            if (o === e || o.aiTarget !== nh || !o.fsm || o.fsm.is('dead')) continue;
+            const ox = o.fsm.is('enter') && o.enterTarget ? o.enterTarget.x : o.pos.x;
+            if (Math.sign(ox - nh.pos.x) === -dirIn) nOut++; else nIn++;
+          }
+          if (nOut >= 1 && nOut > nIn) {
+            const band = g.world.band || { zMin: -3, zMax: 3 };
+            let bz = null, bs = -Infinity;
+            for (let zz = band.zMin + 0.4; zz <= band.zMax - 0.4 + 1e-6; zz += 0.25) {
+              const m = Math.abs(zz - nh.pos.z), sc = Math.min(m, 3.0) - Math.abs(zz - (t.z ?? e.pos.z)) * 0.05 + Math.min(1, Math.abs(zz - oh.pos.z)) * 0.3;
+              if (m >= 1.8 && sc > bs) { bs = sc; bz = zz; }
+            }
+            if (bz != null) {
+              t.x = nh.pos.x + dirIn * Math.min(3.0, gap * 0.45); t.z = bz; e.pos.z = bz; // still off-screen: the row change is unseen
+              t.lane = false; t.deep = true; e.aiDeep = nh.id; e.aiTarget = nh;
+              this.stats.spreadIn = (this.stats.spreadIn || 0) + 1;
+            }
+          }
+        }
+      }
+    }
     this.stats.entryLanes = (this.stats.entryLanes || 0) + 1;
     return t;
   }
@@ -965,6 +1045,9 @@ export class CrowdDirector {
    *  fans out to its own entry lane) instead of merging into it. */
   entryHold(e, dirX) {
     if (this.noEntryLanes) return false;
+    // C2 r3 (board r12: a half-cut body at the frame edge on entry): an entrant whose body straddles the frame edge never slows —
+    // it holds back off-screen or walks on until it stands fully inside
+    if (!this.noEdgeWalk) { const vr = viewRange(this.game, e.pos.z); if (e.pos.x > vr.xMin - 0.7 && e.pos.x < vr.xMin + 1.1) return false; if (e.pos.x < vr.xMax + 0.7 && e.pos.x > vr.xMax - 1.1) return false; }
     for (const o of this.game.world.query({ team: 'enemies' })) {
       if (o === e || o.removed || !o.alive || !(o.fsm && o.fsm.is('enter'))) continue;
       const dx = this.sx(o.pos.x, o.pos.z) - this.sx(e.pos.x, e.pos.z);
@@ -1042,9 +1125,26 @@ export class CrowdDirector {
     return [...out];
   }
 
+  /** C2 r3 LANE STICKINESS (board r12 traces: a token holder going round its hero re-decided its side every tick — as it passed
+   *  behind him its 'own' side flipped and so did the answer; detours took 3–5 s and were the largest part of the remaining
+   *  first-attack waits). A foe going round keeps that side for LANE_STICK ticks unless the frame rule (room / pinned) says
+   *  otherwise. director.noLaneStick: off. */
+  attackSide(e, t) {
+    const r = this._attackSide(e, t);
+    if (!this.laneStick || r.yield || r.queue) return r; // A/B only (director.laneStick = true | ticks): measured worse — longer detours, eh06 +3 %
+    const tick = this.game.tick, own = Math.sign(e.pos.x - t.pos.x) || 1, k = e.aiLane;
+    if (k && k.t === t.id && tick - k.at < (this.laneStick === true ? LANE_STICK : this.laneStick) && k.side !== r.side && !r.room && this.pinnedSide(t, this.pinSide ?? PIN_SIDE) !== k.side) {
+      this.stats.laneStick = (this.stats.laneStick || 0) + 1;
+      return { ...r, side: k.side };
+    }
+    if (r.side !== own) { if (!k || k.t !== t.id || k.side !== r.side) e.aiLane = { t: t.id, side: r.side, at: tick }; }
+    else if (k) e.aiLane = null;
+    return r;
+  }
+
   /** Attack lane for a committing foe: the side of the hero no other committed foe is using (surround, never a
    *  pile-up), plus a depth offset when both sides are already taken. → { side, dz } */
-  attackSide(e, t) {
+  _attackSide(e, t) {
     const own = Math.sign(e.pos.x - t.pos.x) || (e.aiSlot && e.aiSlot.side) || 1;
     const busy = { 1: 0, '-1': 0 }, far = { 1: 0, '-1': 0 }, ex = Math.abs(e.pos.x - t.pos.x);
     for (const o of this.committed(t, e)) {
@@ -1073,7 +1173,9 @@ export class CrowdDirector {
       const band = (P) => { const w = vr.xMax - vr.xMin, f = (t.pos.x - vr.xMin) / w; return f < P ? -1 : f > 1 - P ? 1 : 0; };
       const rf = e.aiRoundFail != null && this.game.tick - e.aiRoundFail < 300; // its detour to the inner side failed (kit)
       const ps = this.noVeto || this.pinExempt(e, t) ? 0 : band(this.v11Veto ? (this.pin ?? PIN) + 0.03 : this.pinSide ?? PIN_SIDE); // hard (C2 r2: no exemption against a bot hero, see pinExempt)
-      const pref = this.noVeto || (rf && !t.aiBot) ? 0 : band(Math.max(PIN_PREF, this.v11Veto ? 0 : (this.pinSide ?? PIN_SIDE) + 0.04)); // soft: inner flank preferred while it is free
+      // C2 r3: the soft band is OFF (director.softPin = true restores): with the bots at 18–25 % of the frame it sent most first
+      // attackers round the hero (eh06 ×3); the hard band + the attack veto keep the edge fair
+      const pref = this.noVeto || (rf && !t.aiBot) || !this.softPin ? 0 : band(Math.max(PIN_PREF, this.v11Veto ? 0 : (this.pinSide ?? PIN_SIDE) + 0.04)); // soft: inner flank preferred while it is free
       if (!ins(own) || ps === own) {
         this.stats.sideRoom = (this.stats.sideRoom || 0) + 1;
         if (!busy[-own] && ins(-own) && ps !== -own) return { side: -own, dz: 0, room: true };
@@ -1088,7 +1190,15 @@ export class CrowdDirector {
       const inCol = (sd) => { const sx0 = this.sx(t.pos.x + sd * 1.06, t.pos.z); return this.heroes().some((o) => o !== t && Math.abs(o.pos.z - t.pos.z) < SP_DZMAX && Math.abs(this.sx(o.pos.x, o.pos.z) - sx0) < 0.8 * this.sk(o.pos.z)); };
       if (inCol(own) && !busy[-own] && !inCol(-own)) { this.stats.mateCol = (this.stats.mateCol || 0) + 1; if (Math.abs(e.pos.x - t.pos.x) > 1.6 || Math.abs(e.pos.z - t.pos.z) > 1.0) return { side: -own, dz: 0, room: true }; }
     }
+    // C2 r3 CO-OP FLANK (board r12: two foes on one hero stood on the SAME side 69–100 % of the time): the hero's designated
+    // flanker (flankPass) that gets a token on its way round keeps going round (depth detour) to his open side while it has
+    // frame room and the partner hero isn't on it; every other foe keeps the r5 rule below (A/B v1: letting every second co-op
+    // engager cross cost ~35 % of the attack starts). director.v12Side = r12 rule.
+    if (!this.v12Side && e.aiFlank && e.aiFlank.h === t.id && e.aiFlank.side === -own && !busy[-own] && this.openFlank(t, -own)) { this.stats.flankX = (this.stats.flankX || 0) + 1; return { side: -own, dz: 0, flank: true }; }
     if (!busy[own]) return { side: own, dz: 0 };
+    // C2 r3: an overdue foe that has never swung doesn't go round (a 3–5 s detour) or hand its turn back: it queues one lane back
+    // on its own side and steps in when that flank clears
+    if (e.aiOverdue && !e.aiHasAtk && !this.noFirstDue && !this.noFirstQueue) { this.stats.firstQueue = (this.stats.firstQueue || 0) + 1; return { side: own, dz: 0, queue: far[own] + XSEP }; }
     // Co-op (r5): the space round each hero is shared with the other hero's crowd, and a flanking run crosses one
     // hero's screen column and often the other's too, so with 2+ heroes a foe never crosses: it yields its turn.
     if (!busy[-own] && this.heroes().length > 1) return { side: own, dz: 0, yield: true };
@@ -1109,6 +1219,21 @@ export class CrowdDirector {
     return { side, dz: 0, queue: far[side] + XSEP, yield: true };
   }
 
+  /** C2 r3: can a foe fight hero t from side sd? Its strike spot (1.1 m out) and a waiting spot FLANK_MIN out are inside the frame
+   *  (EDGE_IN), the hero is not pinned on that side (PIN_SIDE: the attack veto would refuse the swing), and no other hero stands
+   *  in that flank (his own fight is there). */
+  openFlank(t, sd, x0 = FLANK_MIN) {
+    const vr = viewRange(this.game, t.pos.z), x = t.pos.x + sd * x0;
+    if (x < vr.xMin + EDGE_IN || x > vr.xMax - EDGE_IN) return false;
+    if (this.pinnedSide(t, this.pinSide ?? PIN_SIDE) === sd) return false;
+    for (const o of this.heroes()) {
+      if (o === t || Math.abs(o.pos.z - t.pos.z) > 2.4) continue;
+      const ox = (o.pos.x - t.pos.x) * sd;
+      if (ox > 0.3 && ox < x0 + 1.6) return false;
+    }
+    return true;
+  }
+
   /** Is side `side` of hero t already used by another committed foe? (token-free specials: leaps, dashes) */
   sideBusy(e, t, side) {
     for (const o of this.committed(t, e)) if (Math.sign(o.pos.x - t.pos.x) === side && Math.abs(o.pos.x - t.pos.x) < 2.0) return true;
@@ -1124,6 +1249,8 @@ export class CrowdDirector {
     const by = new Map(hs.map((h) => [h.id, []]));
     for (const e of es) {
       let t = e.aiTarget && by.has(e.aiTarget.id) ? e.aiTarget : null;
+      // C2 r3: its hero is now across the partner (the heroes moved past each other) → the nearer hero, unless it just got hit
+      if (t && hs.length > 1 && !(e.aiAggroT != null && g.tick - e.aiAggroT < 90) && this.across(e, t) && !(e.fsm && e.fsm.is('attack'))) { if (this.ai.tokens) this.ai.tokens.release(e); t = null; this.stats.acrossRe = (this.stats.acrossRe || 0) + 1; }
       if (!t) { t = hs[0]; for (const h of hs) if (dist(e, h) < dist(e, t)) t = h; }
       e.aiTarget = t; by.get(t.id).push(e);
     }
@@ -1136,7 +1263,7 @@ export class CrowdDirector {
         const lo = g.world.byId.get(loId), hi = g.world.byId.get(hiId);
         hiL.sort((a, b) => (dist(a, lo) - dist(a, hi)) - (dist(b, lo) - dist(b, hi)));
         // r5: never hand over a foe that would have to walk through its old hero's screen column to reach the new one.
-        const k = hiL.findIndex((f) => !((hi.pos.x - f.pos.x) * (lo.pos.x - hi.pos.x) > 0 && Math.abs(hi.pos.x - f.pos.x) > 0.3) && !(f.aiAggroT != null && g.tick - f.aiAggroT < 90 && !this.noAggro));
+        const k = hiL.findIndex((f) => !((hi.pos.x - f.pos.x) * (lo.pos.x - hi.pos.x) > 0 && Math.abs(hi.pos.x - f.pos.x) > 0.3) && !(f.aiAggroT != null && g.tick - f.aiAggroT < 90 && !this.noAggro) && !f.aiFlank);
         if (k < 0) break;
         const mv = hiL.splice(k, 1)[0]; loL.push(mv); mv.aiTarget = lo;
       }
@@ -1232,12 +1359,16 @@ export class CrowdDirector {
       // C2 r1 solo: the camera often clamps the hero at 60–90 % of the frame; at the full stand-off his outer side then had no
       // room at all and every waiter queued on one flank (board: 'five foes on the hero's right … a line-up'). That side's
       // band shrinks (down to SOLO_TIGHT) so a waiter still fits there with a body width to spare inside the frame.
-      if (hs.length === 1 && this.round() && !this.noFlankBal) {
+      // C2 r3 CO-OP: the same shrink, but a cramped outer side holds ONE waiter (all depth rows together, `crN` below): the rest
+      // overflow round into the middle, so a hero near the edge has foes on both sides (board r12 flank.one2 69–100 %; A/B: with
+      // room for one per row the whole crowd parked on the outer sides, one2 79–90 %; with none (r12) it all went to the middle)
+      const cramp = { 1: false, '-1': false };
+      if ((hs.length === 1 ? this.round() : !this.noCramp) && !this.noFlankBal) {
         const vr = viewRange(this.game, h.pos.z), FL = this.sx(vr.xMin + EDGE_IN, h.pos.z), FR = this.sx(vr.xMax - EDGE_IN, h.pos.z);
-        if (FR - c < need + 0.9) hi = c + Math.max(SOLO_TIGHT, Math.min(need, FR - c - 0.9));
-        if (c - FL < need + 0.9) lo = c - Math.max(SOLO_TIGHT, Math.min(need, c - FL - 0.9));
+        if (FR - c < need + 0.9) { hi = c + Math.max(SOLO_TIGHT, Math.min(need, FR - c - 0.9)); cramp[1] = true; }
+        if (c - FL < need + 0.9) { lo = c - Math.max(SOLO_TIGHT, Math.min(need, c - FL - 0.9)); cramp[-1] = true; }
       }
-      B.push({ lo, hi, c, x: h.pos.x, z: h.pos.z, hero: true });
+      B.push({ lo, hi, c, x: h.pos.x, z: h.pos.z, hero: true, h, cramp });
     }
     for (const f of F) {
       const o = f.e, down = o && o.fsm && o.fsm.is('down', 'knockdown', 'getup');
@@ -1254,6 +1385,11 @@ export class CrowdDirector {
     // across the hero is judged against the MIRRORED goal (same ring, other side), so going round wins once a side is
     // two waiters heavier. director.noFlankBal = true: off.
     const solo = hs.length === 1 && this.round() && !this.noFlankBal, hc0 = solo ? this.sx(hs[0].pos.x, hs[0].pos.z) : 0, sideN = { 1: 0, '-1': 0 };
+    // C2 r3 CO-OP FLANK BALANCE (A/B director.coBal): the same balance per hero — its waiters + committed foes counted per side; a
+    // waiter may go round ITS OWN hero only (never the partner), and only to a side openFlank() allows.
+    const co = hs.length > 1 && !!this.coBal && !this.noFlankBal, coN = new Map(hs.map((h) => [h.id, { 1: 0, '-1': 0 }]));
+    const crN = hs.length > 1 && !this.noCramp ? new Map(hs.map((h) => [h.id, { 1: 0, '-1': 0 }])) : null; // C2 r3: waiters placed on a hero's cramped side
+    if (co) for (const f of F) { const o = f.e, h = o && o.aiTarget; if (h && coN.has(h.id) && o.fsm && !o.fsm.is('down', 'knockdown', 'getup')) coN.get(h.id)[Math.sign(o.pos.x - h.pos.x) || 1]++; }
     const placed = [];
     const rowZ = this._free && !this.noRowSwap ? { a: this._free.a, b: this._free.b } : null;
     for (const w of W) {
@@ -1283,21 +1419,23 @@ export class CrowdDirector {
         const za = Math.min(zc, zr), zb = Math.max(zc, zr), span = (z) => (z < za ? za - z : z > zb ? z - zb : 0) < DZS; // any depth the walk passes
         const walls = B.filter((b) => b.hero && span(b.z) && Math.abs(w.cur - b.c) > 0.3);
         const obst = [...B.filter((b) => !b.hero && (span(b.z) || (b.z2 != null && span(b.z2)))), ...W.filter((o) => o !== w && span(o.e.pos.z)).map((o) => ({ c: o.cur }))];
-        const sd = this.sx(this.unsx(w.sd, w.z), zr);
+        const sd = this.sx(this.unsx(w.sd, w.z), zr), hcW = co ? this.sx(w.h.pos.x, w.h.pos.z) : hc0, nW = co ? coN.get(w.h.id) : sideN;
         for (const gp of gaps) {
           let goal = sd;
-          if (solo) {
-            const gs = Math.sign((gp[0] + gp[1]) / 2 - hc0), ss = Math.sign(sd - hc0);
-            if (gs && ss && gs !== ss) goal = 2 * hc0 - sd;
+          if (solo || co) {
+            const gs = Math.sign((gp[0] + gp[1]) / 2 - hcW), ss = Math.sign(sd - hcW);
+            if (gs && ss && gs !== ss) goal = 2 * hcW - sd;
             goal = Math.max(FL, Math.min(FR, goal)); // a ring that doesn't fit in the frame on this side costs nothing extra (it just stands nearer)
           }
           const s = Math.max(gp[0], Math.min(gp[1], goal));
+          if (crN) { const hb = B.find((b) => b.hero && b.h === w.h), sd2 = hb ? Math.sign(s - hb.c) || 1 : 0; if (hb && hb.cramp[sd2] && crN.get(w.h.id)[sd2] >= 1) continue; } // C2 r3: cramped outer side full
           // going round a hero = a depth detour behind / in front of his fight (kit: depth first, ≥ 2.5 m off his row),
           // allowed when this side is crowded (cost wallCost per hero rounded, plus the detour's bodies)
           const nw = walls.filter((b) => Math.sign(s - b.c) !== Math.sign(w.cur - b.c)).length;
-          if (nw && (!this.round() || nw > 1)) continue; // A/B director.roundOk (measured: solo fused 20.6 → 26.3 %, off by default)
+          if (nw && co) { const cr = walls.filter((b) => Math.sign(s - b.c) !== Math.sign(w.cur - b.c)); if (nw > 1 || cr[0].h !== w.h || !this.openFlank(w.h, Math.sign(s - hcW) || 1)) continue; }
+          else if (nw && (!this.round() || nw > 1)) continue; // A/B director.roundOk (measured: solo fused 20.6 → 26.3 %, off by default)
           const pass = nw ? 0 : obst.filter((o) => (o.c - w.cur) * (o.c - s) < 0 && Math.abs(o.c - w.cur) > 0.3).length;
-          const sg = Math.sign(s - hc0) || 1, bal = solo ? (this.flankBal ?? FLANK_BAL) * Math.max(0, sideN[sg] - sideN[-sg]) : 0;
+          const sg = Math.sign(s - hcW) || 1, bal = solo || co ? (this.flankBal ?? FLANK_BAL) * Math.max(0, nW[sg] - nW[-sg]) : 0;
           const c = Math.abs(s - goal) + (this.passCost ?? 2.5) * pass + rw.pen + nw * (this.wallCost ?? 3.0) + bal;
           if (c < bc) { bc = c; best = s; bz = rw; w.round = nw > 0; }
         }
@@ -1307,14 +1445,17 @@ export class CrowdDirector {
       if (best == null) { // no free spot on its side in the frame on either row: the nearest free spot on its row (it goes round)
         const zr = w.z, FL = this.sx(w.vr.xMin + EDGE_IN, zr), FR = this.sx(w.vr.xMax - EDGE_IN, zr);
         bz = rows[0];
-        for (const gp of this.noPlaceCross ? [] : g0) { const x = Math.max(gp[0], Math.min(gp[1], w.sd)), c = Math.abs(x - w.cur); if (c < bc) { bc = c; best = x; } }
+        const hbF = crN ? B.find((b) => b.hero && b.h === w.h) : null, full = (x) => !!(hbF && hbF.cramp[Math.sign(x - hbF.c) || 1] && crN.get(w.h.id)[Math.sign(x - hbF.c) || 1] >= 1); // C2 r3
+        for (const gp of this.noPlaceCross ? [] : g0) { const x = Math.max(gp[0], Math.min(gp[1], w.sd)), c = Math.abs(x - w.cur); if (full(x)) continue; if (c < bc) { bc = c; best = x; } }
         if (best != null) { w.cross = true; st.placeCross = (st.placeCross || 0) + 1; }
         else { best = Math.max(Math.min(FL, FR), Math.min(Math.max(FL, FR), w.sd)); st.placeOvf = (st.placeOvf || 0) + 1; }
       }
       if (bz.row !== row0) { st.rowSwap = (st.rowSwap || 0) + 1; w.z = bz.z; w.e.aiSlot = { ...w.e.aiSlot, row: bz.row, z: bz.z, dz: bz.z - w.h.pos.z }; }
       w.s = best;
       placed.push({ s: best, z: w.z, zc, x: this.unsx(best, w.z) });
+      if (crN && best != null) { const hb = B.find((b) => b.hero && b.h === w.h); if (hb) crN.get(w.h.id)[Math.sign(best - hb.c) || 1]++; }
       if (solo) sideN[Math.sign(best - hc0) || 1]++;
+      else if (co) coN.get(w.h.id)[Math.sign(best - this.sx(w.h.pos.x, w.h.pos.z)) || 1]++;
     }
     for (const w of W) {
       const r = this.unsx(w.s, w.z) - w.h.pos.x;
@@ -1334,7 +1475,7 @@ export class CrowdDirector {
     for (const e of g.world.query({ team: 'enemies' })) {
       if (e.removed || !e.alive || e.kind === 'boss' || e.pos.y > 0.8 || (e.fsm && e.fsm.is(...NOPUSH))) continue;
       const h = e.aiTarget, sl = e.aiSlot;
-      const waiting = es.includes(e) && h && sl && sl.x != null && !(tk && tk.has(e)) && !(e.fsm && e.fsm.is('attack', 'hitstun', 'knockdown', 'down', 'getup', 'block', 'enter'));
+      const waiting = es.includes(e) && h && sl && sl.x != null && !(tk && tk.has(e)) && !(e.fsm && e.fsm.is('attack', 'hitstun', 'knockdown', 'down', 'getup', 'block', 'enter')) && !e.aiFlank; // C2 r3: a flanker's goal is flankPass's
       // r6: a waiter holding its spot (its walk was blocked) is a fixed body for this pass, not a movable goal
       // (c1r9: unless it is holding off-frame — it then walks in, so its goal stays movable)
       if (!waiting && !this.v9Pack && e.fsm && e.fsm.is('enter') && offFrame(g, e, 0)) continue; // c1r10: an arrival still off-screen reserves no screen column
@@ -1345,7 +1486,7 @@ export class CrowdDirector {
       const ps = Math.sign(e.pos.x - h.pos.x), side = !this.v9Cross && !this.round() && ps && Math.abs(e.pos.x - h.pos.x) > 0.35 ? ps : sl.side;
       W.push({ e, h, z, vr, sd: this.sx(h.pos.x + side * sl.x, z) });
     }
-    if (!this.v9Pack) { this.place(W, F, hs, GAP); return; }
+    if (!this.v9Pack) { this.place(W, F, hs, GAP); this.flankPass(es, hs); return; }
     let worst = Infinity;
     if (W.length) {
       const need = this.wx(); // r6: clear of the attackers' strike columns (~1.1 m), not just the hero's
@@ -1440,6 +1581,84 @@ export class CrowdDirector {
       }
     }
     }
+
+  /** C2 r3 FLANK WAITERS (co-op; board r12: with two foes on one hero they stood on the same side 69–100 % of the time — every
+   *  waiter keeps the side of its hero it stands on, and in co-op the crowd gathers between the heroes). When all of a hero's
+   *  standing foes are on one side and his other side has frame room (openFlank: not pinned there, partner not on it), ONE waiter
+   *  goes round behind / in front of his fight (kit: depth detour first, then across) to stand FLANK_X out on the open side —
+   *  the hero is sandwiched, the rest keep circling on their rows. The role ends on arrival (it is then an ordinary waiter on
+   *  that side; a token on the way keeps it — attackSide sends it on round), after 5 s, or if the flank closes. Solo play has place()'s flank balance. director.noFlank: off. */
+  flankPass(es, hs) {
+    if (!this.flankPass || this.noFlank || hs.length < 2) { for (const e of es) if (e.aiFlank) e.aiFlank = null; return; } // A/B only (director.flankPass = true): measured worse — 1 of 6 flankers arrived, eh06 2.2 → 7.5 % (detours inside the hero's column)
+    const g = this.game, tk = this.ai.tokens, tick = g.tick, st = this.stats;
+    for (const h of hs) {
+      const mine = es.filter((e) => e.aiTarget === h && e.fsm && !e.fsm.is(...NOPUSH, 'enter', 'down', 'knockdown', 'getup') && Math.abs(e.pos.x - h.pos.x) < 9 && !offFrame(g, e, 0.3));
+      const fl = es.find((e) => e.aiFlank && e.aiFlank.h === h.id);
+      if (fl) {
+        const sd = fl.aiFlank.side, arrived = Math.sign(fl.pos.x - h.pos.x) === sd && Math.abs(fl.pos.x - h.pos.x) > 1.2;
+        const open = this.openFlank(h, sd);
+        if (open) fl.aiFlank.shut = null; else if (fl.aiFlank.shut == null) fl.aiFlank.shut = tick;
+        const drop = arrived || fl.aiTarget !== h || tick - fl.aiFlank.t > 480 || !fl.alive || (!open && tick - fl.aiFlank.shut > 45); // a token on the way keeps the role (attackSide); a flank shut for 0.75 s ends it
+        if (!drop) { this.flankSlot(fl, h, sd); continue; }
+        if (arrived) st.flankArrive = (st.flankArrive || 0) + 1; else { fl.aiFlankNo = tick; st.flankDrop = (st.flankDrop || 0) + 1; }
+        fl.aiFlank = null;
+      }
+      if (mine.length < 2) continue;
+      const nL = mine.filter((e) => e.pos.x < h.pos.x - 0.3).length, nR = mine.filter((e) => e.pos.x > h.pos.x + 0.3).length;
+      if (nL && nR) continue;
+      const sd = nL ? 1 : -1;
+      if (!this.openFlank(h, sd)) continue;
+      // the flanker: a waiter of this hero (circling, in control, not just failed a flank), the one with the shortest way round
+      let best = null, bc = Infinity;
+      for (const e of mine) {
+        if ((tk && tk.has(e)) || !e.controllable || !e.fsm.is('idle', 'walk') || !e.brain || e.brain.mode !== 'circle' || (e.aiFlankNo != null && tick - e.aiFlankNo < 300) || e.aiFlank) continue;
+        const c = Math.abs(e.pos.x - h.pos.x) + (Math.abs(e.pos.z - h.pos.z) < 1.2 ? 1.5 : 0); // already off his row: a shorter detour
+        if (c < bc) { bc = c; best = e; }
+      }
+      if (!best) continue;
+      best.aiFlank = { h: h.id, side: sd, t: tick };
+      st.flankGo = (st.flankGo || 0) + 1;
+      this.flankSlot(best, h, sd);
+    }
+  }
+  /** C2 r3: a flanker's waiting goal on side sd of hero h (as far as FLANK_X, never nearer than FLANK_MIN, EDGE_IN inside the frame). */
+  flankSlot(e, h, sd) {
+    const z = e.aiSlot && e.aiSlot.z != null ? e.aiSlot.z : h.pos.z, vr = viewRange(this.game, z);
+    const room = (sd > 0 ? vr.xMax - EDGE_IN - h.pos.x : h.pos.x - vr.xMin - EDGE_IN) - 0.1;
+    e.aiSlot = { ...(e.aiSlot || { ring: 1, dz: 0 }), side: sd, x: Math.max(FLANK_MIN, Math.min(FLANK_X, room)), cross: true, flank: true, src: 'flank' };
+  }
+
+  /** C2 r3 CROWD REACTIONS (board r12: reacts / dodges / braces 0 in both 2P stage probes — nobody flinched when an ally was
+   *  floored or thrown; DESIGN crowd spec + the SoR4 reference): when a hero knocks down or throws a foe, up to two nearby allies
+   *  in control react for a beat (C2 r3 final: up to 3 within 6 m; a token holder still walking in > 2.2 m out gets a short flinch / brace), nearest first — next to the body (< 2 m): FLINCH (guard up, half a step back) or STEP BACK;
+   *  further out: BRACE (guard up), STEP BACK or RALLY (a roar / brandish). Each then re-engages fired up (its attack cooldown
+   *  drops to a few ticks). Never a token holder, a swinger or a foe still owed its first attack (first-attack latency stays
+   *  first), at most once per foe per 4 s. 'ai:react' { actor, order, from }. director.noAllyReact: off. */
+  allyDown(v, by, why) {
+    if (this.noAllyReact || !v || v.team !== 'enemies' || v.kind === 'boss' || (v.def && v.def.passive) || !by || by.kind !== 'hero') return;
+    const g = this.game, tk = this.ai.tokens, rnd = () => (g.rng.next ? g.rng.next() : g.rng.range(0, 1));
+    // token holders walking in (still > 2.2 m from their hero) react too, with a short beat (flinch / brace only)
+    const busyTk = (e) => tk && tk.has(e) && !(e.target && Math.abs(e.target.pos.x - e.pos.x) > 2.2);
+    const list = this.engaged().filter((e) => e !== v && e.controllable && e.fsm && e.fsm.is('idle', 'walk') && e.grounded !== false && e.pos.y < 0.1
+      && !busyTk(e) && !(e.aiOverdue && !e.aiHasAtk) && !(e.aiReactT != null && g.tick - e.aiReactT < 180)
+      && Math.abs(e.pos.x - v.pos.x) < 6 && Math.abs(e.pos.z - v.pos.z) < 3.2 && !offFrame(g, e, 0.8))
+      .sort((a, b) => Math.abs(a.pos.x - v.pos.x) - Math.abs(b.pos.x - v.pos.x));
+    let n = 0;
+    for (const e of list) {
+      if (n >= (this.reactMax ?? 3)) break;
+      n++; e.aiReactT = g.tick;
+      const near = Math.abs(e.pos.x - v.pos.x) < 2.0, r = rnd(), walking = tk && tk.has(e);
+      const order = walking ? (near ? 'flinch' : 'brace') : near ? (r < 0.6 ? 'flinch' : 'back') : r < 0.45 ? 'brace' : r < 0.75 ? 'back' : 'rally';
+      e.faceToward(by);
+      if (order === 'flinch') e.pause(13, { anim: 'blocked', face: false, vx: -1.3 });
+      else if (order === 'brace') { e.braced = Math.max(e.braced || 0, 30); e.pause(walking ? 12 : 18, { anim: 'blocked', face: false }); }
+      else if (order === 'back') e.pause(14, { anim: 'sidestep', face: false, vx: -2.3 });
+      else e.pause(e.animator && e.animator.has && e.animator.has('taunt') ? 30 : 14, { anim: e.animator && e.animator.has && e.animator.has('taunt') ? 'taunt' : 'blocked', face: false });
+      if (e.brain) e.brain.cooldown = Math.min(e.brain.cooldown ?? 99, 4 + Math.floor(rnd() * 10)); // re-engage fired up
+      this.stats.reacts++; this.stats['react_' + order] = (this.stats['react_' + order] || 0) + 1; if (order === 'brace') this.stats.braces++;
+      g.bus.emit('ai:react', { actor: e, order, from: v, by, why });
+    }
+  }
 
   /** Allies in a thrown enemy's flight path dodge aside in depth or brace for the impact. */
   reactToThrows() {

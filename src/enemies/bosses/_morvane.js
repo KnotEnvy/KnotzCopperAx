@@ -38,16 +38,21 @@ const WH_R12 = typeof location !== 'undefined' && /[?&]witchfire=r12/.test(locat
 // off the top and rise, a tighter brighter palm core glow, and a flickering green point light — one reused slot of the
 // VfxSystem's pooled pop lights (the scene's point-light count never changes → no new programs).
 // [dx along facing, dy, dz toward camera, w, h, cycle s, phase, mirror, lean, additive, core, tint]
-const BODY = [0.08, 1.5, 0.5], CORE = [0.9, 2.6, 1.3];   // r13 resume: body r 0.28 → 0.08 (the atlas' red tongue tips read orange)
+const HAND_R13 = typeof location !== 'undefined' && /[?&]witchhand=r13/.test(location.search);
+// r14 (board r13, Sol: "the casting hand competes with the brighter green braziers"): the braziers are pale mint, so the hand
+// separates by VALUE CONTRAST inside the flame — a deeper, saturated emerald body around a hotter near-white core — and a
+// little more size (body 0.40×1.02 → 0.46×1.16, core 0.17×0.50 → 0.21×0.62), + a stronger light on his own gauntlet.
+const BODY = HAND_R13 ? [0.08, 1.5, 0.5] : [0.04, 1.2, 0.3], CORE = HAND_R13 ? [0.9, 2.6, 1.3] : [1.5, 3.2, 1.9];   // r13 resume: body r 0.28 → 0.08 (the atlas' red tongue tips read orange)
+const HS = HAND_R13 ? 1 : 1.14;
 const TONGUES = WH_R12 ? [
   [0.10, 0.02, 0.42, 0.21, 0.56, 0.62, 0.0, 1, -0.10, true, 1.6, null],
   [0.0, 0.0, 0.48, 0.16, 0.44, 0.53, 0.37, -1, 0.16, true, 1.6, null],
   [0.18, -0.02, 0.36, 0.14, 0.38, 0.47, 0.71, 1, 0.26, true, 1.6, null],
 ] : [
-  [0.06, 0.0, 0.40, 0.40, 1.02, 0.58, 0.0, 1, -0.04, false, 0.42, BODY],    // body tongue
-  [-0.10, -0.04, 0.44, 0.24, 0.66, 0.49, 0.41, -1, 0.34, false, 0.35, BODY], // back lick (leans off the fist)
-  [0.20, -0.06, 0.36, 0.22, 0.58, 0.44, 0.73, 1, -0.30, false, 0.35, BODY],  // front lick
-  [0.06, 0.0, 0.50, 0.17, 0.50, 0.37, 0.19, 1, 0.0, true, 1.9, CORE],       // hot inner core (additive)
+  [0.06, 0.0, 0.40, 0.40 * HS, 1.02 * HS, 0.58, 0.0, 1, -0.04, false, 0.42, BODY],    // body tongue
+  [-0.10, -0.04, 0.44, 0.24 * HS, 0.66 * HS, 0.49, 0.41, -1, 0.34, false, 0.35, BODY], // back lick (leans off the fist)
+  [0.20, -0.06, 0.36, 0.22 * HS, 0.58 * HS, 0.44, 0.73, 1, -0.30, false, 0.35, BODY],  // front lick
+  [0.06, 0.0, 0.50, 0.17 * HS * 1.08, 0.50 * HS * 1.08, 0.37, 0.19, 1, 0.0, true, HAND_R13 ? 1.9 : 2.3, CORE],       // hot inner core (additive)
 ];
 const GREEN = [0.14, 1.85, 0.7];   // r12 additive tint (the authored red tongue edges stayed orange-red at r 0.3)
 function dropTongues(b) {
@@ -100,7 +105,7 @@ function witchHand(b, force = false) {
     if (L) {
       const fl = 0.78 + 0.22 * Math.sin(t * 0.43) * Math.sin(t * 0.171 + 1.3) + (Math.random() - 0.5) * 0.12;
       L.light.position.set(fx0, p.y + 0.3, p.z + cz * 0.55); L.light.color.set(0x4dff7a);
-      L.light.distance = 2.6; L.base = 4.2 * fl; L.t = 0; L.life = 0.12; L.hold = 0.1; L.light.intensity = L.base;
+      L.light.distance = 2.6; L.base = (HAND_R13 ? 4.2 : 5.2) * fl; L.t = 0; L.life = 0.12; L.hold = 0.1; L.light.intensity = L.base;
       b._whLight = L;
     }
     // detached licks: a small flame breaks off the crown and rises / fades
@@ -118,6 +123,7 @@ function witchHand(b, force = false) {
 // C2 r12 reveal camera: _camera.js revealCam (boss + both heroes framed, 24° lens, orbit toward the heroes' side).
 const REVEAL_OFF = typeof location !== 'undefined' && /[?&]bossreveal=0/.test(location.search);
 const REVEAL_YAW = 0.66;   // body cheat toward the camera during the reveal (rad; fight value 0.32)
+const INTRO_R13 = typeof location !== 'undefined' && /[?&]morvaneintro=r13/.test(location.search);   // A/B: r13 intro length
 function standoff(b, t) { if (!REVEAL_OFF) introStandoff(b, t, 3.4); }
 
 export function morvaneScript() {
@@ -166,7 +172,7 @@ export function morvaneScript() {
         // C2 r12 (board r11: back/side to the camera behind the name card, heroes half-cropped, a 5.4 m camera snap
         // from punch(0.6)): a reveal camera that frames him AND both heroes (revealCam), a slight orbit toward the
         // heroes' side, and he turns 3/4 to the camera while he rises — face, claw and axe all read before the card.
-        cam = REVEAL_OFF ? (g.cameraRig && g.cameraRig.drama ? g.cameraRig.drama({ focus: b, distance: 9, height: 2.7, fov: 30, lookHeight: H * 0.5, in: 0.5, hold: null, priority: 4 }) : null) : revealCam(b, { yaw: 12 });
+        cam = REVEAL_OFF ? (g.cameraRig && g.cameraRig.drama ? g.cameraRig.drama({ focus: b, distance: 9, height: 2.7, fov: 30, lookHeight: H * 0.5, in: 0.5, hold: null, priority: 4 }) : null) : revealCam(b, { yaw: 12, out: INTRO_R13 ? 0.6 : 1.1 });   // r14: slower hand-back to the fight camera (clipcheck: 6 spike frames on the 0.6 s release)
         cheat0 = b.cheatYaw;
         swarm = snakeSwarm(fx, { x: b.pos.x, y: H * 0.88, z: b.pos.z }, { n: 20, radius: 3.6 });
         if (g.audio && g.audio.play) g.audio.play('roar', { volume: 0.5, pitch: 0.6 });
@@ -184,6 +190,13 @@ export function morvaneScript() {
       if (t < 92) b.view.visible = false;
       // the turn: profile (cheatYaw 0.32 rad) → 3/4 front while he rises, settled before the reveal pose and the card
       if (t >= 96 && t <= 140 && !REVEAL_OFF) { const k = (t - 96) / 44; b.cheatYaw = cheat0 + (REVEAL_YAW - cheat0) * k * k * (3 - 2 * k); }
+      // r14 (board r13: "frame the snake-swarm formation" — dark scales on the dark throne steps read as a clump): a witchfire
+      // glow pools under the converging swarm and green motes spiral up into it (pooled shape/add emitters, 0 draws)
+      if (!INTRO_R13 && swarm && t > 4 && t < 118 && g.vfx && g.vfx.shape) {
+        const k = Math.min(1, t / 110), sx = b.pos.x, sz = b.pos.z;
+        if (t % 4 === 0) g.vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [sx, 0.03, sz], size: [3.6 - 2.2 * k, 3.6 - 2.2 * k], life: 0.5, color: [WITCH.mid, WITCH.tail], intensity: 1.2 + 1.6 * k });
+        if (t % 2 === 0) { const a = t * 0.37, r = 3.2 * (1 - k) + 0.3; g.vfx.add.emit({ pos: [sx + Math.cos(a) * r, 0.15 + k * H * 0.6, sz + Math.sin(a) * r * 0.8], vel: [-Math.cos(a) * 1.4, 1.2, -Math.sin(a) * 1.1], life: 0.6, size: [0.07, 0.012], color: [WITCH.hot, WITCH.mid], intensity: 4, shape: 'spark', stretch: 0.02, gravity: -0.8, drag: 1.2 }); }
+      }
       if (t === 118 && swarm) { swarm.dispose(); swarm = null; }
       if (t === 138) b.play('intro_reveal', { restart: true, fade: 0.12, fallback: ['taunt', 'idle'] });
       if (t === 150) {
@@ -191,7 +204,9 @@ export function morvaneScript() {
         if (g.cameraRig && g.cameraRig.shake) g.cameraRig.shake(0.45);
         if (g.cameraRig && g.cameraRig.punch) g.cameraRig.punch(0.045, 14);   // was 0.6: a 5.4 m one-frame dolly snap
       }
-      if (t >= 215) { if (b.modelRoot) b.modelRoot.position.y = 0; if (cam) { cam.release(); cam = null; } return true; }
+      // C2 r14 (board r13: "the final boss gets the shortest card — 85 ticks / 55 full vs ~140 / 111 elsewhere"): the card is
+      // dismissed when the intro ends, so the intro now holds the reveal until card + 140 ticks (was t 215 = card + 65).
+      if (t >= (INTRO_R13 ? 215 : 290)) { if (b.modelRoot) b.modelRoot.position.y = 0; if (cam) { cam.release(); cam = null; } return true; }
       return false;
     },
     phaseShift(b, t) {

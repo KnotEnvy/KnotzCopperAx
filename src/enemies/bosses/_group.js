@@ -84,6 +84,15 @@ export function groupBoss(game, { name, title, typeId, members = [], element = '
   });
   return {
     proxy, token, members: list, add, ensureCam,
+    // C2 r14: run a tick-driven intro script WITHOUT game.track(). Tracked, it deadlocked every scripted capture: Game.advance()
+    // first awaits pending promises (8 s), but this promise only progresses when ticks advance → each advance() of the
+    // stage 1–3 boss intros/fights cost 8 s + 2 s wall time (r13 board captures: 900–1300 s for 6 s of intro, and the stages
+    // with the unexplained context losses). Real rAF play never awaited it. `&introtrack=1` = old.
+    run(p) {
+      if (typeof location !== 'undefined' && /[?&]introtrack=1/.test(location.search)) return game.track(p);
+      p.catch((e) => reportError('groupBoss.intro', e));
+      return p;
+    },
     async intro({ focus, ticks = 150, distance = 11, height = 3.2, lookHeight = 1.4, announceAt = 60, onBeat, frameAll = true } = {}) {
       ensureCam();
       let cam = null;

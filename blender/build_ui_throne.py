@@ -263,29 +263,44 @@ def scale_shader(nt):
     wz2 = N(nt, 'ShaderNodeTexNoise'); wz2.inputs['Scale'].default_value = 0.8; wz2.inputs['Detail'].default_value = 2.0
     nt.links.new(voff.outputs[0], wz2.inputs['Vector'])
     X = m('ADD', X0, m('MULTIPLY', m('SUBTRACT', wz1.outputs['Fac'], 0.5), 1.1))
-    Y = m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 0.55))
+    Y = m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 0.95))
     row = m('FLOOR', Y)
     par = m('MODULO', row, 2.0)
     xs = m('ADD', X, m('MULTIPLY', par, 0.5))
-    fx = m('SUBTRACT', m('FRACT', xs), 0.5)
-    fy = m('SUBTRACT', 1.0, m('FRACT', Y))                                   # 0 at the scale's rooted edge .. 1 at the free tip
-    tipy = m('ADD', 0.66, m('MULTIPLY', 0.34, m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', fx, fx), 4.0))))
-    rel = m('DIVIDE', fy, tipy)
-    hr = ramp(nt, [(0.0, (0.0, 0, 0, 1)), (0.30, (0.45, 0.45, 0.45, 1)), (0.80, (0.9, 0.9, 0.9, 1)), (0.93, (1, 1, 1, 1)), (0.985, (0.25, 0.25, 0.25, 1)), (1.0, (0.0, 0, 0, 1))])
-    nt.links.new(rel, hr.inputs['Fac'])
+    # C2 r14 (board r13 "hood scales = uniform stamped scallop rows with identical arc highlights, plastic-smooth"): every scale owns three independent
+    # hashes (cell colour channels): h1 tone / highlight gain, h2 size + warm tint, h3 tilt + where its arc highlight sits.
     cells = N(nt, 'ShaderNodeCombineXYZ')
     nt.links.new(m('FLOOR', xs), cells.inputs['X'])
     nt.links.new(row, cells.inputs['Y'])
     wn = N(nt, 'ShaderNodeTexWhiteNoise', noise_dimensions='3D')
     nt.links.new(cells.outputs[0], wn.inputs['Vector'])
+    hsp = N(nt, 'ShaderNodeSeparateColor')
+    nt.links.new(wn.outputs['Color'], hsp.inputs['Color'])
+    h1, h2, h3 = hsp.outputs['Red'], hsp.outputs['Green'], hsp.outputs['Blue']
+    fxr = m('SUBTRACT', m('FRACT', xs), 0.5)
+    fyr = m('SUBTRACT', 1.0, m('FRACT', Y))
+    fx = m('ADD', fxr, m('MULTIPLY', m('MULTIPLY', m('SUBTRACT', h3, 0.5), 0.70), fyr))      # per-scale tilt: the free tip drifts sideways
+    fy = m('ADD', fyr, m('MULTIPLY', m('SUBTRACT', h2, 0.5), 0.26))                           # per-scale length
+    sizev = m('ADD', 0.70, m('MULTIPLY', h2, 0.55))                                           # per-scale tip-size
+    tipy = m('MULTIPLY', m('ADD', 0.66, m('MULTIPLY', 0.34, m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', fx, fx), 4.0)))), sizev)
+    rel0 = m('DIVIDE', fy, tipy)
+    rel = m('MULTIPLY', rel0, m('ADD', 0.93, m('MULTIPLY', h3, 0.12)))                         # the bright rim band slides per scale
+    hr = ramp(nt, [(0.0, (0.0, 0, 0, 1)), (0.30, (0.45, 0.45, 0.45, 1)), (0.80, (0.9, 0.9, 0.9, 1)), (0.93, (1, 1, 1, 1)), (0.985, (0.25, 0.25, 0.25, 1)), (1.0, (0.0, 0, 0, 1))])
+    nt.links.new(rel, hr.inputs['Fac'])
+    # per-scale highlight gain (0.38..1.0) so the arcs are not identical stamps; the groove (value 0) is untouched
+    hrg = N(nt, 'ShaderNodeMath', operation='MULTIPLY')
+    nt.links.new(hr.outputs[0], hrg.inputs[0])
+    nt.links.new(m('ADD', 0.38, m('MULTIPLY', h1, 0.62)), hrg.inputs[1])
     big = N(nt, 'ShaderNodeTexNoise')
     big.inputs['Scale'].default_value = 0.35
     big.inputs['Detail'].default_value = 3.0
     nt.links.new(uv.outputs['UV'], big.inputs['Vector'])
-    tonef = m('ADD', m('MULTIPLY', wn.outputs['Value'], 0.55), m('MULTIPLY', big.outputs['Fac'], 0.9))
+    tonef = m('ADD', m('MULTIPLY', h1, 0.80), m('MULTIPLY', big.outputs['Fac'], 0.9))
     sk = ramp(nt, [(0.0, (0.002, 0.003, 0.003, 1)), (0.55, (0.010, 0.015, 0.010, 1)), (1.0, (0.034, 0.040, 0.018, 1))])      # r12: lifted + warmer (olive-brown), was near-black green
     nt.links.new(tonef, sk.inputs['Fac'])
-    shade = mix(nt, hr, (0.0015, 0.004, 0.003, 1), sk)                          # grooves dark, scale body = tone
+    warmf = m('MINIMUM', m('MAXIMUM', m('MULTIPLY', m('SUBTRACT', h2, 0.40), 1.3), 0.0), 0.75)     # r14: ~half the scales drift toward warm umber, the rest stay olive
+    body = mix(nt, warmf, sk.outputs[0], (0.060, 0.036, 0.014, 1))
+    shade = mix(nt, hr, (0.0015, 0.004, 0.003, 1), body)                          # grooves dark, scale body = tone
     pale = mix(nt, hr, (0.006, 0.007, 0.004, 1), mix(nt, wn.outputs['Value'], (0.085, 0.085, 0.040, 1), (0.16, 0.15, 0.075, 1)))
     sp = N(nt, 'ShaderNodeSeparateColor')
     nt.links.new(col_attr.outputs['Color'], sp.inputs['Color'])
@@ -300,19 +315,26 @@ def scale_shader(nt):
     spec = mix(nt, hr, (0.018, 0.012, 0.006, 1), spec_body)
     fin3 = mix(nt, 0.0, fin2, spec)
     nt.links.new(sp.outputs['Blue'], fin3.inputs[0])
-    b = principled(nt, rough=0.42, spec=0.35)
+    b = principled(nt, rough=0.42, spec=0.20)                                    # r14: matte keratin (was a wet 0.35 spec / 0.42 rough)
     b.inputs['Coat Weight'].default_value = 0.0
     b.inputs['Coat Roughness'].default_value = 0.25
     nt.links.new(fin3.outputs[2], b.inputs['Base Color'])
     SD.update({'fin': fin, 'fin2': fin2, 'fin3': fin3, 'spec': spec, 'sp': sp, 'b': b, 'bron': bron})
     b.inputs['Metallic'].default_value = 0.0
     nt.links.new(m('MULTIPLY', sp.outputs['Green'], 0.65), b.inputs['Metallic'])
-    rg = m('ADD', 0.62, m('MULTIPLY', hr.outputs[0], -0.30))
+    rg = m('ADD', 0.80, m('MULTIPLY', hrg.outputs[0], -0.20))
     nt.links.new(m('ADD', rg, m('MULTIPLY', sp.outputs['Green'], -0.22)), b.inputs['Roughness'])
+    # keratin micro-grain: fine striations running along the scale (stretched noise) so a lit scale is not a smooth plastic dome
+    stv = N(nt, 'ShaderNodeVectorMath', operation='MULTIPLY')
+    nt.links.new(uv.outputs['UV'], stv.inputs[0])
+    stv.inputs[1].default_value = (46.0, 150.0, 1.0)
+    stn = N(nt, 'ShaderNodeTexNoise'); stn.inputs['Scale'].default_value = 1.0; stn.inputs['Detail'].default_value = 3.0; stn.inputs['Roughness'].default_value = 0.6
+    nt.links.new(stv.outputs[0], stn.inputs['Vector'])
+    hbump = m('ADD', hrg.outputs[0], m('MULTIPLY', m('SUBTRACT', stn.outputs['Fac'], 0.5), 0.34))
     bump = N(nt, 'ShaderNodeBump')
     bump.inputs['Strength'].default_value = 1.0
     bump.inputs['Distance'].default_value = 0.05
-    nt.links.new(hr.outputs[0], bump.inputs['Height'])
+    nt.links.new(hbump, bump.inputs['Height'])
     nt.links.new(bump.outputs['Normal'], b.inputs['Normal'])
     return b
 
@@ -506,19 +528,32 @@ def flame_sheet_shader(nt, hot=0.0):
     tip = ramp(nt, [(0.0, (1, 1, 1, 1)), (0.40, (0.85, 0.85, 0.85, 1)), (0.80, (0.25, 0.25, 0.25, 1)), (1.0, (0, 0, 0, 1))])
     nt.links.new(Yv, tip.inputs['Fac'])
     base_ = mathn(nt, 'MULTIPLY', ed, tip)
-    # turbulence eats the edges / tip: alpha = clamp((base - 0.55*noise + 0.15) * 2.4)
-    a0 = mathn(nt, 'SUBTRACT', base_, mathn(nt, 'MULTIPLY', nz, 0.55))
-    a1 = mathn(nt, 'MULTIPLY', mathn(nt, 'ADD', a0, 0.30), 1.35, clamp=True)
-    col = ramp(nt, [(0.0, (1.0, 1.0, 0.70, 1) if hot else (0.80, 1.0, 0.45, 1)), (0.18, (0.45, 1.0, 0.18, 1)), (0.55, (0.08, 0.85, 0.06, 1)), (1.0, (0.01, 0.30, 0.03, 1))])
+    # C2 r14 (board r13 "witchfire = solid neon-green gradient blobs, hard white core, no tongues, no translucency"): the turbulence now carves
+    # real gaps (a vertical-streak noise splits each sheet into licks and detaches the tips), alpha tops out < 1 so the tongues are translucent
+    # and overlap into depth, and the core is a pale lime that stays inside the green family (no white, no flat clip).
+    cmb2 = N(nt, 'ShaderNodeCombineXYZ')
+    nt.links.new(mathn(nt, 'MULTIPLY', X, 9.0).outputs[0], cmb2.inputs['X'])
+    nt.links.new(mathn(nt, 'MULTIPLY', Yv, 0.8).outputs[0], cmb2.inputs['Y'])
+    cmb2.inputs['Z'].default_value = 7.7
+    nz2 = N(nt, 'ShaderNodeTexNoise')
+    nz2.inputs['Scale'].default_value = 1.6
+    nz2.inputs['Detail'].default_value = 3.0
+    nz2.inputs['Roughness'].default_value = 0.55
+    nt.links.new(cmb2.outputs[0], nz2.inputs['Vector'])
+    tur = mathn(nt, 'ADD', mathn(nt, 'MULTIPLY', nz, 0.50), mathn(nt, 'MULTIPLY', nz2, 0.62))
+    a0 = mathn(nt, 'SUBTRACT', base_, tur)
+    a1 = mathn(nt, 'MULTIPLY', mathn(nt, 'ADD', a0, 0.40), 2.1, clamp=True)
+    a2 = mathn(nt, 'MULTIPLY', a1, 0.92)
+    col = ramp(nt, [(0.0, (0.42, 1.0, 0.30, 1) if hot else (0.34, 1.0, 0.22, 1)), (0.22, (0.20, 0.95, 0.12, 1)), (0.60, (0.05, 0.70, 0.07, 1)), (1.0, (0.008, 0.22, 0.04, 1))])
     # inner streaks: brighter / dimmer filaments rising along the tongue, so it reads as layered fire, not a flat green card
     nt.links.new(Yv, col.inputs['Fac'])
     e = N(nt, 'ShaderNodeEmission')
-    stk = mathn(nt, 'ADD', 0.45, mathn(nt, 'MULTIPLY', nz, 1.5))
-    nt.links.new(mathn(nt, 'MULTIPLY', stk, 1.9 if not hot else 3.6).outputs[0], e.inputs['Strength'])
+    stk = mathn(nt, 'ADD', 0.35, mathn(nt, 'MULTIPLY', nz2, 1.5))
+    nt.links.new(mathn(nt, 'MULTIPLY', stk, 2.0 if not hot else 2.0).outputs[0], e.inputs['Strength'])
     nt.links.new(col.outputs[0], e.inputs['Color'])
     t = N(nt, 'ShaderNodeBsdfTransparent')
     m = N(nt, 'ShaderNodeMixShader')
-    nt.links.new(a1.outputs[0], m.inputs[0])
+    nt.links.new(a2.outputs[0], m.inputs[0])
     nt.links.new(t.outputs[0], m.inputs[1])
     nt.links.new(e.outputs[0], m.inputs[2])
     return m
@@ -552,10 +587,10 @@ def flame_vol_mat():
     nt.links.new(nz.outputs['Fac'], wsp.inputs['Fac'])
     dens = mathn(nt, 'MULTIPLY', mathn(nt, 'MULTIPLY', rad, zr_), mathn(nt, 'ADD', wsp, 0.10))
     pv = N(nt, 'ShaderNodeVolumePrincipled')
-    nt.links.new(mathn(nt, 'MULTIPLY', dens, 2.2).outputs[0], pv.inputs['Density'])
+    nt.links.new(mathn(nt, 'MULTIPLY', dens, 0.8).outputs[0], pv.inputs['Density'])
     pv.inputs['Color'].default_value = (0.1, 0.5, 0.08, 1)
     pv.inputs['Emission Color'].default_value = (0.20, 1.0, 0.12, 1)
-    nt.links.new(mathn(nt, 'MULTIPLY', dens, 3.2).outputs[0], pv.inputs['Emission Strength'])
+    nt.links.new(mathn(nt, 'MULTIPLY', dens, 0.9).outputs[0], pv.inputs['Emission Strength'])
     nt.links.new(pv.outputs['Volume'], out.inputs['Volume'])
     return m
 
@@ -580,7 +615,7 @@ M = {
     'flame_sheet': mk_mat('flame_sheet', lambda nt: flame_sheet_shader(nt)),
     'flame_hot': mk_mat('flame_hot', lambda nt: flame_sheet_shader(nt, hot=1.0)),
     'rune': mk_mat('rune', lambda nt: emit_shader(nt, (0.2, 1.0, 0.15, 1), 0.32)),
-    'ember': mk_mat('ember', lambda nt: emit_shader(nt, (1.0, 0.45, 0.10, 1), 6.0)),
+    'ember': mk_mat('ember', lambda nt: emit_shader(nt, (1.0, 0.36, 0.08, 1), 2.4)),
 }
 
 
@@ -1038,29 +1073,57 @@ def axe():
         alb = tex_['albedo'].outputs['Color']
         bw = N(nt_, 'ShaderNodeRGBToBW')
         nt_.links.new(alb, bw.inputs['Color'])
-        tone = ramp(nt_, [(0.04, (0.060, 0.020, 0.010, 1)), (0.22, (0.36, 0.13, 0.055, 1)), (0.45, (0.80, 0.34, 0.15, 1)), (0.80, (1.0, 0.64, 0.40, 1))])
-        nt_.links.new(bw.outputs[0], tone.inputs['Fac'])
         sp_ = N(nt_, 'ShaderNodeSeparateColor')
         nt_.links.new(alb, sp_.inputs['Color'])
-        teal = mathn(nt_, 'MULTIPLY', mathn(nt_, 'SUBTRACT', sp_.outputs['Blue'], sp_.outputs['Red'], clamp=True), 2.2, clamp=True)
-        base = mix(nt_, mathn(nt_, 'MULTIPLY', teal, 0.35), tone, (0.10, 0.42, 0.34, 1))      # verdigris only where the art is teal
+        # C2 r14 (board r13 "broad orange blades + bright cyan rune circles read as a flat graphic emblem / decals"): dimensional copper. The painted
+        # teal / emissive rune map is now a CARVED recess (dark oxide floor, normal pushed in, only a dull ember glow deep inside), a cavity-AO node
+        # darkens every crease to oxide, a convex-edge AO node + a bevelled shading normal put a polished copper highlight on every rim, and the tone
+        # ramp is less saturated (oxide shadow -> mid copper -> pale polished edge) so the cheeks have a value range instead of one orange plane.
+        teal = mathn(nt_, 'MULTIPLY', mathn(nt_, 'SUBTRACT', sp_.outputs['Blue'], sp_.outputs['Red'], clamp=True), 2.6, clamp=True)
+        if 'emissive' in tex_:
+            ebw = N(nt_, 'ShaderNodeRGBToBW')
+            nt_.links.new(tex_['emissive'].outputs['Color'], ebw.inputs['Color'])
+            rune = mathn(nt_, 'MAXIMUM', teal, mathn(nt_, 'MULTIPLY', ebw, 1.6, clamp=True), clamp=True)
+        else:
+            rune = teal
+        aoc = N(nt_, 'ShaderNodeAmbientOcclusion'); aoc.inputs['Distance'].default_value = 0.30; aoc.samples = 10
+        aoe = N(nt_, 'ShaderNodeAmbientOcclusion'); aoe.inputs['Distance'].default_value = 0.10; aoe.inside = True; aoe.samples = 10
+        cav = ramp(nt_, [(0.25, (0.18, 0.18, 0.18, 1)), (0.85, (1, 1, 1, 1))])
+        nt_.links.new(aoc.outputs['AO'], cav.inputs['Fac'])
+        edgem = ramp(nt_, [(0.55, (0, 0, 0, 1)), (0.95, (1, 1, 1, 1))])
+        nt_.links.new(aoe.outputs['AO'], edgem.inputs['Fac'])
+        t0_ = mathn(nt_, 'MULTIPLY', bw, cav)
+        t1_ = mathn(nt_, 'ADD', t0_, mathn(nt_, 'MULTIPLY', edgem, 0.34))
+        t2_ = mathn(nt_, 'MULTIPLY', t1_, mathn(nt_, 'SUBTRACT', 1.0, mathn(nt_, 'MULTIPLY', rune, 0.82)))      # rune floor drops to oxide
+        tone = ramp(nt_, [(0.02, (0.030, 0.012, 0.008, 1)), (0.20, (0.17, 0.062, 0.036, 1)), (0.42, (0.46, 0.19, 0.10, 1)), (0.70, (0.78, 0.40, 0.24, 1)), (0.95, (0.98, 0.68, 0.50, 1))])
+        nt_.links.new(t2_.outputs[0], tone.inputs['Fac'])
+        base = mix(nt_, mathn(nt_, 'MULTIPLY', rune, 0.30), tone, (0.020, 0.012, 0.010, 1))          # rune recess = dark oxide, not cyan / verdigris paint
         pb = principled(nt_, rough=0.3, metal=1.0, spec=0.6)
         nt_.links.new(base.outputs[2], pb.inputs['Base Color'])
         pb.inputs['Metallic'].default_value = 1.0
+        rbase = mathn(nt_, 'ADD', 0.18, mathn(nt_, 'MULTIPLY', rune, 0.42))
         if 'orm' in tex_:
             osp = N(nt_, 'ShaderNodeSeparateColor')
             nt_.links.new(tex_['orm'].outputs['Color'], osp.inputs['Color'])
-            rr_ = mathn(nt_, 'ADD', 0.20, mathn(nt_, 'MULTIPLY', osp.outputs['Green'], 0.45), clamp=True)
-            nt_.links.new(rr_.outputs[0], pb.inputs['Roughness'])
+            rbase = mathn(nt_, 'ADD', rbase, mathn(nt_, 'MULTIPLY', osp.outputs['Green'], 0.40), clamp=True)
+        nt_.links.new(rbase.outputs[0], pb.inputs['Roughness'])
+        bev = N(nt_, 'ShaderNodeBevel'); bev.inputs['Radius'].default_value = 0.035; bev.samples = 8
         if 'normal' in tex_:
             nm_ = N(nt_, 'ShaderNodeNormalMap')
-            nm_.inputs['Strength'].default_value = 1.4
+            nm_.inputs['Strength'].default_value = 1.6
             tex_['normal'].image.colorspace_settings.name = 'Non-Color'
             nt_.links.new(tex_['normal'].outputs['Color'], nm_.inputs['Color'])
-            nt_.links.new(nm_.outputs['Normal'], pb.inputs['Normal'])
+            nt_.links.new(nm_.outputs['Normal'], bev.inputs['Normal'])
+        bmp = N(nt_, 'ShaderNodeBump')                                                                  # runes sunk below the cheek surface
+        bmp.inputs['Strength'].default_value = 1.0
+        bmp.inputs['Distance'].default_value = 0.05
+        bmp.invert = True
+        nt_.links.new(rune.outputs[0], bmp.inputs['Height'])
+        nt_.links.new(bev.outputs['Normal'], bmp.inputs['Normal'])
+        nt_.links.new(bmp.outputs['Normal'], pb.inputs['Normal'])
         if 'emissive' in tex_:
-            nt_.links.new(tex_['emissive'].outputs['Color'], pb.inputs['Emission Color'])
-            pb.inputs['Emission Strength'].default_value = 3.0
+            pb.inputs['Emission Color'].default_value = (1.0, 0.36, 0.10, 1)
+            nt_.links.new(mathn(nt_, 'MULTIPLY', rune, 0.9).outputs[0], pb.inputs['Emission Strength'])      # dull ember glow only inside the recess
         nt_.links.new(pb.outputs[0], out_.inputs['Surface'])
     head_c = ctr.copy()
     head_c[ax_h] = ctr[ax_h] + sg_h * ext[ax_h] * 0.30
@@ -1127,8 +1190,8 @@ for k, (bx, by) in enumerate(BR):
     zf = DAIS_TOP - 1.4 + 2.85
     YAWS = [-76, -58, -40, -24, -9, 6, 20, 36, 52, 70, 100, -104, -88, 84]
     for t, yaw in enumerate(YAWS):
-        H_ = fr_.uniform(1.5, 3.5) * (1.15 if t == 5 else 1.0)
-        W_ = fr_.uniform(0.55, 1.25)
+        H_ = fr_.uniform(1.8, 4.2) * (1.15 if t == 5 else 1.0)
+        W_ = fr_.uniform(0.42, 0.95)
         ang = fr_.uniform(0, 6.283)
         rad_ = fr_.uniform(0.0, 0.62)
         flame_sheet(f'flame{k}_{t}', (bx + rad_ * math.cos(ang), by + rad_ * math.sin(ang), zf), H_, W_, math.radians(yaw + fr_.uniform(-8, 8)),
@@ -1542,7 +1605,7 @@ wo = link(bpy.data.objects.new('warm', warm))
 wo.rotation_euler = (-Vector((-0.78, -0.42, 0.40)).normalized()).to_track_quat('-Z', 'Y').to_euler()
 
 axl = bpy.data.lights.new('axeglow', 'POINT')
-axl.energy = 900.0
+axl.energy = 560.0
 axl.color = (1.0, 0.45, 0.14)
 axl.shadow_soft_size = 0.4
 ao_ = link(bpy.data.objects.new('axeglow', axl))
@@ -1561,7 +1624,7 @@ def reflector(name, loc, size, col, strength, aim):
     return ob_
 
 
-reflector('refl_warm', (-9.0, -9.0, 8.5), (7.0, 3.0), (1.0, 0.55, 0.22, 1), 7.0, (AXE_HEAD.x, AXE_HEAD.y, AXE_HEAD.z))
+reflector('refl_warm', (-9.0, -9.0, 8.5), (7.0, 3.0), (1.0, 0.55, 0.22, 1), 4.2, (AXE_HEAD.x, AXE_HEAD.y, AXE_HEAD.z))
 reflector('refl_green', (8.5, -7.0, 7.0), (4.0, 7.0), (0.30, 1.0, 0.20, 1), 6.0, (AXE_HEAD.x, AXE_HEAD.y, AXE_HEAD.z))
 reflector('refl_cool', (0.0, -14.0, 13.0), (14.0, 3.0), (0.60, 0.50, 1.0, 1), 2.0, (AXE_HEAD.x, AXE_HEAD.y, AXE_HEAD.z))
 

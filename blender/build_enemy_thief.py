@@ -896,6 +896,14 @@ def build(args):
         charkit.drop_islands(body_hi, h_body)
         head_hi = pipeline.sculpt_mesh(S, "head_hi", h_head, HEAD_BOX[0] - 0.01, HEAD_BOX[1] + 0.01, keep_box=HEAD_BOX)
         his["body"] = [body_hi, head_hi]
+        # C2 r9 (r8 known issue: a coarse LO triangle beside the green thief's nose tip baked HOOD texels -- olive
+        # albedo + a wrong normal): the face's skin faces get their own bake job from a hood-free copy of the head HI
+        head_nh = meshutil.duplicate(head_hi, "head_hi_nohood")
+        me = head_nh.data
+        fm = np.empty(len(me.polygons), np.int32)
+        me.attributes["fmat"].data.foreach_get("value", fm)
+        pipeline.delete_faces(head_nh, fm == MATERIALS.index("hood"))
+        his["face"] = [head_nh]
         for s in ("L", "R"):
             w = L["wrist_" + s]
             his["hand_" + s] = [pipeline.sculpt_mesh(Sh[s], "hand_hi_" + s, h_hand, w - 0.1, w + 0.1)]
@@ -980,11 +988,32 @@ def build(args):
         charkit.smart_uv(los[nm], 62.0, 0.8)
     order = common + list(G)
     report["uv_fill"] = pipeline.pack_atlas_shape([los[k] for k in order], margin_px=6 if not fast else 4, res=res)
+    # C2 r9: the green 'nose shard' = two nose-tip triangles whose UVs collapsed onto ONE texel (of the sack island)
+    report["uv_degenerate_fixed"] = {k: charkit.fix_degenerate_uvs(los[k], res) for k in order}
+    pipeline.log(f"degenerate UV faces fixed: {report['uv_degenerate_fixed']}")
     pipeline.log(f"UV atlas {time.time()-t:.1f}s")
 
     extra_p = dict(eyes=info["head"]["eyes"], eye_r=info["head"]["eye_r"], z_knee=L["knee_L"][2],
                    z_chest=L["chest"][2])
-    sculpt_of = {"body": S, "hand_L": Sh["L"], "hand_R": Sh["R"], "kilt": Sk, "cloak": Sc, "teeth": St}
+    sculpt_of = {"body": S, "face": S, "hand_L": Sh["L"], "hand_R": Sh["R"], "kilt": Sk, "cloak": Sc, "teeth": St}
+    # C2 r9: split the body LO (bake only; export keeps los['body']) -> skin / eye / brow / nail faces inside the
+    # head box bake from the hood-free head HI, everything else (incl. the hood) as before
+    Cf = pipeline.face_centers(body_lo)
+    fmat, _ = pipeline.eval_attrs_mat_only(S, Cf)
+    face_sel = in_head(Cf) & np.isin(fmat, [MATERIALS.index(m) for m in ("skin", "eye", "brow", "nail")])
+    # nose zone: the coarse LO faces round the nose tip (the most forward face point) get long rays (see jobs)
+    tip = Cf[face_sel][np.argmin(Cf[face_sel][:, 1])]
+    nose_sel = face_sel & (np.linalg.norm(Cf - tip, axis=1) < 0.026) & (Cf[:, 2] > tip[2] - 0.012)   # not the grin below
+    face_sel = face_sel & ~nose_sel
+    body_face = meshutil.duplicate(body_lo, "body_lo_face")
+    pipeline.delete_faces(body_face, ~face_sel)
+    body_nose = meshutil.duplicate(body_lo, "body_lo_nose")
+    pipeline.delete_faces(body_nose, ~nose_sel)
+    body_rest = meshutil.duplicate(body_lo, "body_lo_rest")
+    pipeline.delete_faces(body_rest, face_sel | nose_sel)
+    report["face_bake_faces"] = [int(face_sel.sum()), int(nose_sel.sum())]
+    pipeline.log(f"face bake split: {int(face_sel.sum())} face + {int(nose_sel.sum())} nose LO faces bake from the "
+                 f"hood-free head (nose tip {tip.round(3).tolist()})")
     sculpt_of.update(G)
     for k, lst in his.items():
         for o in lst:
@@ -996,13 +1025,19 @@ def build(args):
         tt = time.time()
         pal = var_pal(v)
         parts = common + VARIANTS[v]
-        for k in parts:
+        for k in parts + ["face"]:
             for o in his[k]:
                 shaders.paint_mesh(o, sculpt_of[k].materials, L, pal, extra_p, painters=PAINTERS)
-        for o in all_hi + list(los.values()):
+        for o in all_hi + list(los.values()) + [body_face, body_nose, body_rest]:
             pipeline.set_ray_visibility(o, False)
-        jobs = [(los[k], his[k]) + ext.get(k, (0.006, 0.016)) for k in parts]
-        B = pipeline.Baker(res, jobs, shaders.set_pass, [los[k] for k in parts], [o for k in parts for o in his[k]])
+        jobs = [((body_rest if k == "body" else los[k]), his[k]) + ext.get(k, (0.006, 0.016)) for k in parts]
+        jobs.append((body_face, his["face"]) + ext["body"])
+        # the nose job's source has no hood, so its rays can be long: the coarse LO triangle beside the nose tip sits
+        # well off the thin HI nose and its 2 cm rays MISSED (the empty texels were then dilated from a neighbouring
+        # hood island = the olive shard); a 1.4 cm cage + 5 cm rays reach the nose
+        jobs.append((body_nose, his["face"], 0.014, 0.05))
+        B = pipeline.Baker(res, jobs, shaders.set_pass, [los[k] for k in parts if k != "body"] + [body_face, body_nose, body_rest],
+                           [o for k in parts + ["face"] for o in his[k]])
         maps = B.run(passes=[("albedo", "EMIT", 4), ("prm", "EMIT", 2), ("ao", "EMIT", 24 if fast else 48),
                              ("normal", "NORMAL", 4 if fast else 8)])
         prefix = f"{ASSET}_{v}"

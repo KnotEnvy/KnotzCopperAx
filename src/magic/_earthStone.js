@@ -59,9 +59,10 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
       shader.uniforms.uStoneGain = heatGain;
       shader.vertexShader = `attribute float aStoneHeat; attribute float aStoneBounce; attribute float aStoneEnergy;
         attribute vec3 aStonePivot; attribute float aStoneSeed; attribute vec2 aStoneCollapse;
-        varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy;
+        varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy; varying float vStoneFall;
         mat3 stoneRotation() {
-          float t = aStoneCollapse.x, seed = aStoneSeed * 2.399;
+          float t = aStoneCollapse.x; if (t <= 0.) return mat3(1.);
+          float seed = aStoneSeed * 2.399;
           float x = t * sin(seed) * 3.8, z = t * cos(seed * 1.7) * 3.4;
           mat3 rx = mat3(1.,0.,0., 0.,cos(x),sin(x), 0.,-sin(x),cos(x));
           mat3 rz = mat3(cos(z),sin(z),0., -sin(z),cos(z),0., 0.,0.,1.);
@@ -69,8 +70,9 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
         }\n` + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n objectNormal = stoneRotation() * objectNormal;');
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-        vStoneHeat = aStoneHeat; vStoneBounce = aStoneBounce; vStoneEnergy = aStoneEnergy;
+        vStoneHeat = aStoneHeat; vStoneBounce = aStoneBounce; vStoneEnergy = aStoneEnergy; vStoneFall = aStoneCollapse.x;
         float fall = aStoneCollapse.x;
+        if (fall > 0.) {
         vec3 sz = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
         sz = max(sz, vec3(.001));
         transformed = aStonePivot + (stoneRotation() * ((position - aStonePivot) * sz)) / sz;
@@ -78,19 +80,28 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
         float floorDrop = aStoneCollapse.y + .16 - (instanceMatrix[3].y + aStonePivot.y * sz.y);
         float dy = fall > 0. ? max(floorDrop, -7.5 * fall * fall + sin(seed) * .25 * fall) : 0.;
         transformed += vec3(cos(seed) * fall * 1.3 / sz.x, dy / sz.y, sin(seed) * fall * .9 / sz.z);
+        }
       `);
-      shader.fragmentShader = 'uniform float uStoneGain; varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy;\n' + shader.fragmentShader;
+      shader.fragmentShader = 'uniform float uStoneGain; varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy; varying float vStoneFall;\n' + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float heat = vStoneHeat * vStoneEnergy;
-        // Texture and fracture-normal shading survive emission: broken interiors never become flat red cards.
+        float heat = max(0.,vStoneHeat) * vStoneEnergy;
         float mineral = clamp(texture2D(map, vMapUv).r * 1.8, .35, 1.);
-        float facet = .58 + .42 * max(0., dot(normalize(normal), normalize(vec3(-.4,.7,1.))));
-        vec3 magma = mix(vec3(.055,.001,.0001), vec3(2.2,.055,.001), smoothstep(.14,.48,heat));
-        magma = mix(magma, vec3(24.,9.,1.6), smoothstep(.37,.72,heat));
-        magma = mix(magma, vec3(38.,25.,10.), smoothstep(.67,.91,heat));
+        float facet = .50 + .50 * max(0., dot(normalize(normal), normalize(vec3(-.4,.7,1.))));
+        // A recessed basin carries a narrow ivory kernel, orange shoulders and dark red crust.
+        // Heat is authored lower toward the crown; only base pockets reach the ivory range.
+        vec3 magma = mix(vec3(.10,.001,.0001), vec3(2.8,.16,.003), smoothstep(.08,.48,heat));
+        magma = mix(magma, vec3(9.,2.2,.12), smoothstep(.48,.84,heat));
+        magma = mix(magma, vec3(16.,9.,3.), smoothstep(.86,.99,heat));
         totalEmissiveRadiance = magma * heat * uStoneGain * mineral * facet;
-        totalEmissiveRadiance += vec3(.32,.075,.009) * pow(vStoneBounce,1.35) * vStoneEnergy * mineral * uStoneGain;
-        totalEmissiveRadiance += diffuseColor.rgb * .22;
+        // Negative heat marks interior cross-sections. Cold cavity walls remain dark while intact;
+        // newly exposed breaks light from within, then cool orange -> red over half a second.
+        float fracture = max(0.,-vStoneHeat) * step(.0001,vStoneFall);
+        float coal = fracture * exp(-vStoneFall*3.2);
+        vec3 broken = mix(vec3(.8,.022,.001),vec3(5.,1.15,.075),smoothstep(.10,.65,coal));
+        totalEmissiveRadiance += broken * coal * mineral * uStoneGain;
+        totalEmissiveRadiance += vec3(.55,.12,.015) * pow(vStoneBounce,1.35) * vStoneEnergy * mineral * uStoneGain;
+        // Rock-coloured ambient fill keeps falling shaded facets readable against the ground.
+        totalEmissiveRadiance += diffuseColor.rgb * (.28 + .65*step(.0001,vStoneFall)*exp(-vStoneFall*2.));
       `);
     }
     if (basalt) shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -103,7 +114,7 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
     `);
 
   };
-  mat.customProgramCacheKey = () => `earth_stone_c2_r12_${protect ? 'protected' : 'solid'}_${basalt ? 'basalt' : 'rock'}`;
+  mat.customProgramCacheKey = () => `earth_stone_c2_r13_${protect ? 'protected' : 'solid'}_${basalt ? 'basalt' : 'rock'}`;
   return mat;
 }
 

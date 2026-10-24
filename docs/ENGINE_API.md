@@ -392,7 +392,7 @@ fire.update(dt);
 ```
 
 `emit()` returns a mutable instance handle (or null when capacity is full). Options: clip, centre `pos`,
-`size:[width,height]` in metres, `life` seconds, `loop`, normalized loop `phase`, screen-plane `rot` radians,
+`size:[width,height]` in metres, `life` seconds, `loop`, normalized `phase` (loop phase; fireBurst initial frame offset), screen-plane `rot` radians,
 `tint` hex, `alpha`, HDR `core` multiplier, lifetime `erosion`, `vel:[x,y,z]`, growth fraction `grow`, optional `growY` (defaults to grow) and `spin` radians/second,
 `additive` (default false; zero destination attenuation for hot arcs/combustion), `rooted` (default false; dark red/orange base fading into a roof attachment), `fadeIn` seconds (default0; smooth onset for soot),
 `delay` seconds, analytic ground softness `soft` metres and `floor` world Y. Ground softness assumes an
@@ -419,8 +419,21 @@ weapon-tip velocity projected onto the camera basis. Other rows retain eight fra
 Incandescent physical chips use `vfx.debris.emit({kind:'metal', ...})`; only magic-earth
 may use stone. Both kinds share the existing pool/program.
 `contactFill(root, worldPoint, {radius,strength,life,heavy})` in `render/characterLook.js`
-drives per-material warm fill and an optional 28ms heavy white rim. VfxSystem advances
+drives per-material warm fill and an optional restrained 28ms warm heavy rim. VfxSystem advances
 and clears this render-clock state; defaults have zero gain and all uniforms warm at load.
-Rooted non-bed flame cards widen 1.45x / height 1.08x around the supplied floor anchor;
-looping smoke widens 1.28x and gains 1.15x alpha (capped at one). No cross-aperture
-geometry, lights, passes, extra pools or implicit smoke emitters are added.
+Rooted non-bed flame cards widen 1.95x / height 1.38x around the supplied floor anchor;
+looping smoke widens 1.38x and gains 1.45x alpha (capped at one), with neutralized tint for dusk contrast. No cross-aperture
+geometry, lights, passes, extra pools or implicit smoke emitters are added. Tall looping
+smoke cards (height>=4m) also rise by22% of their original height and extend18%,
+so the dense part clears a roof crest while the separate low wisp stays in the hole.
+
+C2 r8: `fire.emitCombustion({pos:[x,y,z],target,scale=1,dir=1})` emits three unequal
+fireBurst instances plus independently advected soot in the same pool/draw. The flame
+centres follow target's posed chest bone (modelRoot/actor position fallback), with
+independent phase/mirror/skew and 280/310/355ms lifetimes. Handles are returned for the
+three flames; capacity remains bounded. `emit({follow:()=>deltaVector3,...})` accepts a
+world-space displacement from the emission point; it is evaluated each render update,
+including update(0). Flames release node references when they expire/clear/dispose.
+Use a world-aligned pool for these world attachments. No terrain/bone geometry is
+modified. Eight fireBurst poses now change shape, opening holes and burning away;
+phase offsets advance toward the last pose without wrapping to ignition.

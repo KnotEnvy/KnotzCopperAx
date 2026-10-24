@@ -77,6 +77,7 @@ export default async (api) => {
   await api.evalGame(() => window.__KCA.debug.cast(1, 2));
   const preRollMs = clip ? 330 : 0;
   if (preRollMs) await api.advance(preRollMs);
+  const crumbleOffsets = new Set();
   const samples = []; let bestHold = 0, peakSample = -1, hottest = 0, hotSample = -1, mostChips = 0, crumbleSample = -1, measuredHold = false, measuredCrumble = false, unlitShot = false;
   for (let i = 0; i < frameCount; i++) {
     await api.frames(1, step, 'earth');
@@ -116,8 +117,23 @@ export default async (api) => {
         await api.evalGame(gains=>{window.__KCA.game.vfx.group.traverse(m=>{const a=gains.find(a=>a[0]===m.uuid);if(a)m.material.userData.stoneHeatGain.value=a[1];});window.__KCA.game.renderer.render(0);},gains);
       }
     }
+    if (process.env.EARTH_DETAIL === '1' && i === (clip ? 29 : 19)) {
+      await api.shot('channel-bloom-on');
+      const intensity = await api.evalGame(() => {
+        const r=window.__KCA.game.renderer, bloom=r.post.bloom;
+        const saved=bloom.intensity; bloom.intensity=0; r.render(0); return saved;
+      });
+      await api.shot('channel-bloom-off');
+      await api.evalGame(intensity => {const r=window.__KCA.game.renderer;r.post.bloom.intensity=intensity;r.render(0);},intensity);
+    }
     const falling = samples.at(-1).rocks.flatMap(r=>r.collapse || []);
     const maxFall = Math.max(0,...falling);
+    if (process.env.EARTH_DETAIL === '1') for (const ms of [100,200,300]) {
+      if (!crumbleOffsets.has(ms) && maxFall*1000>=ms && maxFall*1000<ms+step+17) {
+        crumbleOffsets.add(ms); await api.shot('crumble-plus-'+ms+'ms');
+        fs.writeFileSync(path.join(api.outDir,'crumble-plus-'+ms+'ms.json'),JSON.stringify({tick:samples.at(-1).tick,maxFall,requestedMs:ms}));
+      }
+    }
     if (samples.at(-1).chips > mostChips && maxFall > .12 && maxFall < .4) {
       mostChips = samples.at(-1).chips; crumbleSample = i; await api.shot('crumble');
     }

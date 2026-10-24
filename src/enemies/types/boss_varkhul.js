@@ -17,7 +17,8 @@ export default {
   title: 'Warden of the Serpent Keep',
   asset: 'boss_varkhul',
   animCharacter: 'boss_varkhul',
-  anim: { grip: { twoHand: false }, blade: { R: 0.6, pommel: 0.3 }, weight: 1.6 },
+  // C2 r14: looser kilt/cape chains (stiff 1 → 0.62): the GLB cape on the kilt joints lags and swings through (board r13: "a rigid curtain")
+  anim: { grip: { twoHand: false }, blade: { R: 0.6, pommel: 0.3 }, weight: 1.6, springs: { stiff: /[?&]varkhulturn=0/.test(typeof location !== 'undefined' ? location.search : '') ? 1 : 0.62 } },
   height: 3.15,  // r4 (critic r3: buried behind heroes at 2.6 → 1.43× Brann); 3.0 → ~3.2 m silhouette, 1.6×. C2 r12: 3.15 + bodyScale
   bodyScale: [0.88, 0.9],   // C2 r12: a tall, narrow iron column (Morvane is the broad, hunched one) — _Boss.js
   hp: 470,

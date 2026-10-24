@@ -23,8 +23,8 @@ function roadTile() {
     const k = (y * N + x) * 4;
     const a = noise[0](x, y), b = noise[1](x, y), c = noise[2](x, y);
     const ash = Math.max(0, (a - .48) * 2.8);
-    data[k] = .29 + b * .16 + c * .38 + (rng.next()-.5)*.18;
-    data[k + 1] = .3 + b * .08 + c * .23;
+    data[k] = .15 + a * .28 + b * .16 + c * .38 + (rng.next()-.5)*.18;
+    data[k + 1] = .18 + a * .28 + b * .08 + c * .23;
     data[k + 2] = ash;
   }
   // All stamps wrap at the tile boundary. Different silhouettes and split faces
@@ -74,10 +74,17 @@ function roadTile() {
   return tex;
 }
 
-export function roadDetail(material) {
+export function roadDetail(material, huts = []) {
   const w = 2048, h = 512, bytes = new Uint8Array(w * h * 4);
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-    const z = groundZones(-40 + (i + .5) / w * 150, -28 + (j + .5) / h * 46);
+    const x = -40 + (i + .5) / w * 150, depth = -28 + (j + .5) / h * 46;
+    const z = groundZones(x, depth);
+    let scorch = 0;
+    for (const hut of huts) {
+      const d = ((x-hut.x)/2.7)**2 + ((depth-hut.z-2.2)/1.65)**2;
+      if (d < 8) scorch = Math.max(scorch, Math.exp(-d)*(.65+z.track*.35)*(hut.burning || 0));
+    }
+    z.char = Math.max(z.char, scorch);
     bytes.set([z.track, z.ash, z.char, z.clump].map(v => Math.round(v * 255)), (j * w + i) * 4);
   }
   // Unique, incomplete foot scuffs in the fight lane; authored in world metres
@@ -111,7 +118,7 @@ export function roadDetail(material) {
       .replace('#include <common>', `#include <common>
 uniform sampler2D s1SoilMap;
 uniform sampler2D s1Zones;
-vec4 s1Soil; float s1Reflectance; float s1Ash;`)
+vec4 s1Soil; float s1Reflectance; float s1Ash; float s1Shoulder;`)
       // Replace the complete shared painterly albedo section locally. Keeping
       // its broad stretched flow field under a fine layer still looked muddy.
       .replace(/  vec2 p = vKW.xz;[\s\S]*?diffuseColor.rgb \*= col;/, `
@@ -121,23 +128,32 @@ vec4 s1Soil; float s1Reflectance; float s1Ash;`)
   // detail samples hide the tile; macro variation is unique across the stage.
   s1Soil = texture2D(s1SoilMap, p / 4.1);
   vec4 soilB = texture2D(s1SoilMap, mat2(.6,-.8,.8,.6)*p / 3.17 + .37);
-  vec4 macro = kN(p*.0097 + .217);
   float detail = s1Soil.r*.68 + soilB.r*.32;
-  s1Reflectance = clamp(.25 + detail*.95, .30, .95);
-  s1Ash = zone.g*(1.-zone.b*.55);
-  float wear = .25+.75*smoothstep(.38,.65,texture2D(s1Zones,(p+vec2(41.,28.))/vec2(150.,46.)).g);
-  float lateral = abs(p.y-.1+sin(p.x*.11)*.16)-.92;
-  float rut = exp(-lateral*lateral/.017)*wear;
-  float shoulder = exp(-pow(abs(lateral)-.11,2.)/.003)*wear;
+  // Break broad masks with decimetre clods already packed in the soil map.
+  // Sharply chipped edges avoid soft airbrushed cloud bands at game distance.
+  zone.r = smoothstep(.16,.84,zone.r+(soilB.b-.35)*.42);
+  zone.b = smoothstep(.12,.82,zone.b+(s1Soil.b-.35)*.32);
+  s1Ash = smoothstep(.13,.70,zone.g+(soilB.b-.4)*.28)*(1.-zone.b*.65);
+  // Separate wet compacted earth, dry raised clods and pale ash in BOTH
+  // pigment and bounced light. The former constant bounce hid the mask.
+  float soilValue = mix(.43,1.30,zone.r) * (1.-zone.b*.68);
+  s1Reflectance = clamp((.12+detail*1.25)*soilValue + s1Ash*.33,.13,1.08);
+  float wear = smoothstep(.18,.65,zone.r+zone.b*.5);
+  float centre = .1 + sin(p.x*.17)*.26 + sin(p.x*.43+1.7)*.09;
+  float lateral = abs(p.y-centre)-(.88+sin(p.x*.27)*.06);
+  float rut = exp(-lateral*lateral/.026)*wear;
+  float shoulder = exp(-pow(lateral-.20,2.)/.009)*wear;
+  float rimShade = exp(-pow(lateral+.17,2.)/.006)*wear;
+  s1Shoulder=shoulder;
   kgRoad=zone.r; kgRut=rut; kgBurn=zone.b; kgPuddle=0.;
-  vec3 col=mix(vec3(.074,.070,.065),vec3(.115,.102,.083),zone.r);
-  col=mix(col,vec3(.155,.151,.137),s1Ash*.65);
-  col*= (.91+macro.r*.18)*(1.-zone.b*.36)*(1.-zone.a*.20);
-  col*=.68*(s1Reflectance*(1.-rut*.28)+shoulder*.035);
-  kgH=(s1Soil.g*.65+soilB.g*.35)*.022-rut*.014;
+  vec3 col=mix(vec3(.054,.045,.036),vec3(.145,.122,.087),zone.r);
+  col=mix(col,vec3(.16,.151,.128),s1Ash*.8);
+  col*=1.-zone.b*.60;
+  col*=.72*(.28+detail*.95)*(1.-rut*.53-rimShade*.15)+shoulder*.18;
+  kgH=(s1Soil.g*.65+soilB.g*.35)*.038-rut*.055+shoulder*.037;
   diffuseColor.rgb*=col;`);
 
   };
-  material.customProgramCacheKey = () => key.call(material) + '|s1RoadDetail-r14';
+  material.customProgramCacheKey = () => key.call(material) + '|s1RoadDetail-r15';
   material.addEventListener('dispose', () => { tex.dispose(); zones.dispose(); });
 }

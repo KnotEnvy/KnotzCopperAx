@@ -229,8 +229,8 @@ def blade_painter(kind):
         # C2 r6 (board r5 "flat lavender plastic / neon royal blue, no value step against the ground"): violet STEEL --
         # greyer darker face, dark fuller side -> lighter bevel side gradient, bevel ramps to a BRIGHT lavender line
         # fast1: (92, 84, 128) printed dark NAVY under the stage-1 blue shadow grade -> more red in every violet
-        flat, bev, fuller, edge, temper = (104, 86, 130), (218, 200, 246), (48, 32, 84), (248, 242, 255), (126, 104, 166)
-        bev_in, flat_lo, flat_hi = (132, 112, 174), (62, 46, 90), (142, 120, 176)
+        flat, bev, fuller, edge, temper = (126, 118, 140), (218, 210, 234), (64, 58, 78), (248, 245, 255), (136, 124, 154)
+        bev_in, flat_lo, flat_hi = (146, 136, 162), (86, 78, 100), (160, 150, 178)
         metal0, rough0 = 0.84, 0.32
 
     def p_blade(c, pal):

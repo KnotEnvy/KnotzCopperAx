@@ -142,21 +142,51 @@ export class FirePool {
       size:[width*1.7,height*.34],phase:phase+.31,core:.08,alpha:alpha*.85});
     return {bed,tongue};
   }
+  /** Coherent impact combustion. Flame centres follow the posed chest through knockback;
+   * unequal frame offsets, dimensions and lifetimes avoid repeated floating stamps. */
+  emitCombustion({pos=[0,1,0],target=null,scale=1,dir=1}={}) {
+    const node=target?.modelRoot?.getObjectByName('chest') || target?.modelRoot;
+    let follow=null;
+    if(node) {
+      const initial=node.getWorldPosition(new THREE.Vector3()), current=new THREE.Vector3();
+      follow=()=>node.getWorldPosition(current).sub(initial);
+    } else if(target?.pos) {
+      const initial=target.pos.clone(),current=new THREE.Vector3();
+      follow=()=>current.copy(target.pos).sub(initial);
+    }
+    const handles=[];
+    for(const [x,y,w,h,phase,life,mirror,skew] of [
+      [0,0,1.20,1.40,0,.355,dir,-.17],
+      [-.24,-.15,.72,.86,.23,.280,-dir,.26],
+      [.24,.09,.58,1.02,.44,.310,dir,.12]]) {
+      handles.push(this.emit({clip:'fireBurst',pos:[pos[0]+x*dir*scale,pos[1]+y*scale,pos[2]+.025],
+        size:[w*scale,h*scale],phase,life,mirror,skew,follow,core:1.8,radiance:1.8,
+        erosion:0,rot:dir*(phase-.15)*.34,grow:-.12,growY:.08}));
+    }
+    this.emit({clip:'smoke',pos:[pos[0],pos[1]+.12,pos[2]-.08],size:[1.45*scale,1.8*scale],
+      life:.54,delay:.075,fadeIn:.06,core:0,alpha:.85,vel:[dir*.18,.55,0],grow:.45});
+    return handles;
+  }
   emit({ clip = 'flame', pos = [0,0,0], size = [1,1], life = .4, loop = false, phase = 0,
     rot = 0, tint = '#ffffff', alpha = 1, core = .65, erosion = .15, vel = [0,0,0], grow = 0, soft = 0, floor = 0, delay = 0, spin = 0, growY = grow,
-    additive = false, rooted = false, spread = true, emberBed = false, fadeIn = 0, radiance = 0, mirror = 1, skew = 0 } = {}) {
+    additive = false, rooted = false, spread = true, emberBed = false, fadeIn = 0, radiance = 0, mirror = 1, skew = 0, follow = null } = {}) {
     if (!(clip in FIRE_CLIPS)) throw new Error(`Unknown fire clip: ${clip}`);
     if (this.items.length >= this.capacity) return null;
     // Existing roof anchors keep their floor/contact. Fill the burning edge with
-    // a wider four-tongue cluster; no interpolation/geometry across the aperture.
+    // a wider three-lobe cluster; no interpolation/geometry across the aperture.
     if (rooted && clip==='flame' && !emberBed) {
-      size=[size[0]*1.45,size[1]*1.08];
+      size=[size[0]*1.95,size[1]*1.38];
       pos=[pos[0],pos[1]+size[1]*.025,pos[2]];
     }
-    if (loop && clip==='smoke') { size=[size[0]*1.28,size[1]]; alpha=Math.min(1,alpha*1.15); }
+    if (loop && clip==='smoke') {
+      // The tall roof plume must crest the roofline; its lower companion stays in the hole.
+      if(size[1]>=4) { pos=[pos[0],pos[1]+size[1]*.22,pos[2]]; size=[size[0],size[1]*1.18]; }
+      size=[size[0]*1.38,size[1]]; alpha=Math.min(1,alpha*1.45);
+    }
     const c = new THREE.Color(tint);
+    if(loop && clip==='smoke') c.lerp(new THREE.Color('#ffffff'),.65);
     const o={ row: FIRE_CLIPS[clip], pos:[...pos], size:[...size], life:Math.max(.001,life), loop, phase:((phase%1)+1)%1, rot,
-      tint:[c.r,c.g,c.b], alpha, core, erosion, vel:[...vel], grow, growY, spin, soft, floor, additive, rooted, emberBed, fadeIn, radiance, mirror, skew:Math.max(-.4,Math.min(.4,skew)), age:-delay };
+      tint:[c.r,c.g,c.b], alpha, core, erosion, vel:[...vel], grow, growY, spin, soft, floor, additive, rooted, emberBed, fadeIn, radiance, mirror, follow, origin:follow ? [...pos] : null, skew:Math.max(-.4,Math.min(.4,skew)), age:-delay };
     this.items.push(o);
     // Existing roof consumers already supply the exact frayed edge's floor/anchor.
     // Give each a low combustion bed without requiring stage-source changes.
@@ -176,7 +206,11 @@ export class FirePool {
       if(o.age<0) continue;
       const t=o.loop ? ((o.age/o.life+o.phase)%1) : Math.min(1,o.age/o.life);
       const impact=o.row===FIRE_CLIPS.slash || o.row===FIRE_CLIPS.blunt;
-      const frame=o.loop ? t*8 : impact ? Math.min(3,o.age/.033) : Math.min(6.999,t*7);
+      const frame=o.loop ? t*8 : impact ? Math.min(3,o.age/.033) : Math.min(6.999,(o.row===FIRE_CLIPS.fireBurst ? o.phase+(1-o.phase)*t : t)*7);
+      if(o.follow) {
+        const delta=o.follow();
+        if(delta) for(let axis=0;axis<3;axis++) o.pos[axis]=o.origin[axis]+delta.getComponent(axis);
+      }
       const growth=1+o.grow*t;
       A.iPosition.setXYZW(n,o.pos[0]+o.vel[0]*o.age,o.pos[1]+o.vel[1]*o.age,o.pos[2]+o.vel[2]*o.age,o.rot+o.spin*o.age);
       A.iFrame.setXYZW(n,o.size[0]*growth,o.size[1]*(1+o.growY*t),Math.min(7.999,frame),o.row);

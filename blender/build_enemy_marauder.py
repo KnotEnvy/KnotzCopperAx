@@ -67,15 +67,17 @@ MARAUDER = dict(
 )
 STYLE = dict(muscle=1.22, defin=0.6, fat=0.55, chest=1.16, lats=1.1, traps=1.38, waist=1.16, delts=1.2, arm=1.16,
              forearm=1.32, neck=1.32,
-             brow=1.45, jaw=1.34, scowl=1.35, cheek=1.12, chin=1.2, nose_len=1.0, nose_w=1.45, nose_bump=1.9,
-             lip=1.02, mouth_w=1.06, eye=1.0, squint=1.15, skull_w=1.05, skull_h=0.97, ear=1.04, fem=0.0)
+             brow=1.35, jaw=1.34, scowl=1.35, cheek=1.12, chin=1.2, nose_len=1.0, nose_w=1.45, nose_bump=1.9,
+             lip=1.02, mouth_w=1.12, eye=1.16, squint=0.92, skull_w=1.05, skull_h=0.97, ear=1.04, fem=0.0)
+# C2 r9 (board r8, Fable: 'faces unreadable at the game camera on every tier'): brow 1.45 -> 1.35 (less overhang
+# shadow), eye 1.0 -> 1.16 + squint 1.15 -> 0.92 (more sclera = a light dot per eye at ~12 px), mouth_w 1.06 -> 1.12
 MATERIALS = ["skin", "eye", "nail", "brow", "cloth", "cloth_trim", "pants", "leather", "leather_dark", "fur",
              "bronze", "iron", "sole"]
 GEAR_MATS = ["tleather", "leather_dark", "iron", "steel", "bone", "horn", "cloth", "fur", "bronze", "pelt"]   # r8: +pelt
 # C2 r8: steel -> 'plate' (no MICRO entry = no node-side bump / roughness noise). The 'iron' kind's hammered voronoi
 # bump (1 cm cells) on low-roughness metal was the board's 'crumpled chrome foil' sparkle.
 KINDS = {"cloth": "homespun", "cloth_trim": "homespun", "pants": "cloth", "tleather": "leather", "steel": "plate", "bone": "nail",
-         "horn": "nail", "pelt": "fur"}
+         "horn": "nail", "pelt": "fur", "brow": "mane_clean"}   # C2 r9: brow = no node-side strand ribbing
 WRIST_CUT_T = 0.90
 HAND_CUT_T = 0.84
 GRIP_R = 0.021
@@ -265,11 +267,34 @@ def raider_arm(S, L, side, ai):
                            at2(0.42, -0.07, 0.01)], 0.002, depth=0.0012, k=0.0015)
 
 
+# C2 r9 (board r8: eyes never read at the game camera; the r8 close-up showed sclera slits ~2 mm tall): open each
+# eye with a wider almond cut through the lids in front of the eyeball, then re-add the ball (hard union, 'eye') so
+# the sclera shows top and bottom of the iris. (w, h, depth) half-sizes in metres, tilt (deg, outer corner up), k.
+EYE_OPEN = dict(w=0.0164, h=0.0071, d=0.011, tilt=7.0, k=0.0016, out=0.0028)   # out: shift toward the outer corner
+
+
+def open_eyes(S, hi):
+    H = hi["H"]
+    eo = EYE_OPEN
+    for ec in hi["eyes"]:
+        sx = 1.0 if ec[0] > 0 else -1.0
+        er = float(hi["eye_r"])
+        c = ec + V(sx * eo["out"], -er * 0.92, 0.0004)      # wraps a little round the side (profile read)
+        S.sub(Ellipsoid(c, H.r(eo["w"], eo["d"], eo["h"]), rot(0, sx * -eo["tilt"], 0)), eo["k"])
+        S.add(Sphere(ec, er), 0.0, mat="eye")
+        # the cut lid walls inside the almond are painted sclera ('eyewhite' on skin): the game mesh coarsens the
+        # lids over the ball, and the white almond has to survive that bake at ~12 px heads
+        S.paint(Ellipsoid(c, H.r(eo["w"] * 0.98, eo["d"] * 1.15, eo["h"] * 1.0), rot(0, sx * -eo["tilt"], 0)),
+                "eyewhite", soft=0.0012, value=1.0)
+
+
 def brute_face(S, L, hi):
     """Ashen raider face: heavy brows, shaved stubbled scalp + jaw, soot war-paint mask across the eyes."""
     H = hi["H"]
     s = H.s
-    anatomy.eyebrows(S, H, scowl=1.25, thick=1.2)        # C2 r8: was 1.35 / 1.35 (brow shadow over the eyes)
+    open_eyes(S, hi)
+    # C2 r9: thick 1.2 -> 1.6 = one bold dark brow bar per eye (flat paint, no strands) above the lit lids
+    anatomy.eyebrows(S, H, scowl=1.25, thick=1.8)
     S.paint(Union(Ellipsoid(H(0, -0.045, -0.105), H.r(0.074, 0.07, 0.045)),
                   Ellipsoid(H(0, -0.06, -0.075), H.r(0.06, 0.05, 0.02)), k=0.01), "stubble", soft=0.012, value=0.85)
     # C2: scalp stubble stays behind the hairline (the old ellipsoid reached the brow ridge + nose bridge = 'grime
@@ -281,10 +306,12 @@ def brute_face(S, L, hi):
     # Eye sockets, brow ridge and nose stay skin so the face reads at game distance. Colour per tier (p_raider_skin).
     # C2: two thin swipes per cheek, raked back from under the eye toward the ear (pale ash on straw / iron read as
     # tusks when they were vertical ovals)
+    # C2 r9 (board r8: rust / violet eyes = 'a single dark bar' at the game camera -- the stripes sat right under
+    # the eyes and merged with the socket): one swipe per cheek, lower (cheekbone -> jaw corner) and further back
     stripes = []
     for sx in (1, -1):
-        for z0, rz in ((-0.044, 0.004), (-0.06, 0.0036)):
-            stripes.append(Ellipsoid(H(sx * 0.078, -0.05, z0), H.r(0.022, 0.07, rz),
+        for z0, rz in ((-0.07, 0.0042),):
+            stripes.append(Ellipsoid(H(sx * 0.084, -0.042, z0), H.r(0.02, 0.06, rz),
                                      basis(V(sx, 0.0, 0.3), V(0, -1, 0))))
     # C2: no forehead stripe (it ran down to the nose bridge); cheek stripes sit a touch lower, off the eye
     S.paint(Union(*stripes), "warpaint", soft=0.003, value=1.0)
@@ -293,6 +320,15 @@ def brute_face(S, L, hi):
     dzm = hi["mouth_dz"]
     S.paint(Union(Ellipsoid(H(0, -0.099, -0.0995 + dzm), H.r(0.024, 0.009, 0.0045)),
                   Ellipsoid(H(0, -0.097, -0.1078 + dzm), H.r(0.021, 0.009, 0.0055)), k=0.003), "lips", soft=0.003)
+    # C2 r9: a dark MOUTH LINE along the lip seam, wider than the lips and bowed down at the corners (a scowl) --
+    # 'mouth' paint channel (near-black red in p_raider_skin); the stubble clears round it (mouth_c) so it sits on skin
+    mw = hi.get("mouth_w", 1.0)
+    S.paint(Chain([H(-0.036 * mw, -0.0855, -0.1095 + dzm), H(-0.03 * mw, -0.0905, -0.1075 + dzm), H(-0.017 * mw, -0.097, -0.1044 + dzm),
+                   H(0, -0.1015, -0.1036 + dzm), H(0.017 * mw, -0.097, -0.1044 + dzm),
+                   H(0.03 * mw, -0.0905, -0.1075 + dzm), H(0.036 * mw, -0.0855, -0.1095 + dzm)],
+                  [0.003, 0.0039, 0.0049, 0.0052, 0.0049, 0.0039, 0.003]),
+            "mouth", soft=0.0018, value=1.0)
+    hi["mouth_c"] = H(0, -0.097, -0.104 + dzm)
 
 
 def trousers(S, snap):
@@ -641,8 +677,10 @@ def helm_iron(snapH, H):
                                 for f in np.linspace(0, 1, 16)]), offset=0.0)
     S.add(Chain(list(crest), 0.008, squash=(0.55, 1.0), ref=(1, 0, 0)), 0.004, mat="steel")
     for sx in (1, -1):
-        c = H(sx * 0.094, -0.05, -0.052)
-        S.add(RoundBox(c, H.r(0.0055, 0.03, 0.05), rot(0, sx * 7, sx * -10), r=0.004 * s), 0.008, mat="steel")
+        # C2 r9 (board r8: iron face = a near-black blob under the brim): cheek plates 1.4 cm further back and 1 cm
+        # shorter, so the 3/4 game camera sees the cheek, eye and mouth instead of a steel plate edge
+        c = H(sx * 0.094, -0.036, -0.047)
+        S.add(RoundBox(c, H.r(0.0055, 0.026, 0.042), rot(0, sx * 7, sx * -10), r=0.004 * s), 0.008, mat="steel")
         for dz in (0.03, -0.035):
             S.add(Sphere(c + V(sx * 0.006, -0.012, dz) * s, 0.0045), 0.001, mat="iron")
         b0 = S.project(np.array([H(sx * 0.1, 0.0, 0.05)]), offset=-0.004)[0]
@@ -829,27 +867,69 @@ def harness(snapF, L):
     return S
 
 
+# C2 r9 (board r8, Sol + Muse: 'two smooth hemispherical chest domes with a centre cleavage seam -- a moulded bodice /
+# bra-like cuirass'): the shell used to follow the sculpted pecs. Now it follows a FACETED FORM = the body unioned
+# with a front wedge of flat planes (metres, body frame, front = -Y): a vertical medial keel (KEEL_A = how fast each
+# half falls back from the centre line -> a shallow V in plan), an upper pectoral plane tilted to face the sky, a
+# lower belly plane tilted down (they meet at the forward-most crease CREASE_Z), a steep collar plane up to the
+# throat and a side bevel turning into the flanks. One plate per facet -> broad flat specular shapes + value steps.
+CUIRASS_FORM = dict(yk=-0.203, zc=1.30, a=0.24, tu=0.12, tl=0.12, cy=-0.165, cz=1.44, ct=1.2, sx=0.12, sy=-0.172,
+                    st=1.1, k_ul=0.012, k_side=0.01, k_co=0.015)
+
+
+def cuirass_planes(X, Y, Z):
+    """Signed distances (< 0 = behind / inside) to the r9 cuirass front facets: (upper, lower, collar, side)."""
+    f = CUIRASS_FORM
+    ax = np.abs(X)
+    up = (f["yk"] + f["a"] * ax + f["tu"] * (Z - f["zc"]) - Y) / math.sqrt(1 + f["a"] ** 2 + f["tu"] ** 2)
+    lw = (f["yk"] + f["a"] * ax + f["tl"] * (f["zc"] - Z) - Y) / math.sqrt(1 + f["a"] ** 2 + f["tl"] ** 2)
+    co = (f["cy"] + f["a"] * ax + f["ct"] * (Z - f["cz"]) - Y) / math.sqrt(1 + f["a"] ** 2 + f["ct"] ** 2)
+    sd = (f["sy"] + f["st"] * (ax - f["sx"]) - Y) / math.sqrt(1 + f["st"] ** 2)
+    return up, lw, co, sd
+
+
+def cuirass_form(snapF, L):
+    """Body + the faceted front wedge (smooth union): the surface the r9 cuirass shell is offset from."""
+    nk = L["neck"]
+
+    def wedge(X, Y, Z):
+        f = CUIRASS_FORM
+        up, lw, co, sd = cuirass_planes(X, Y, Z)
+        # the keel V stays crisp (|x| inside each plane); the pec / belly crease and the bevels are rounded
+        d = sdf.smax(sdf.smax(sdf.smax(up, lw, f["k_ul"]), co, f["k_co"]), sd, f["k_side"])
+        # front half only, and never wider than the waist (the bevel plane would run out past the flanks as a sliver)
+        d = sdf.smax(d, np.maximum(Y + 0.06, np.abs(X) - 0.165), 0.02)
+        d = np.maximum(d, np.maximum(BELT_Z - 0.04 - Z, Z - (float(nk[2]) + 0.02)))
+        return d
+    W = Func(wedge, V(-0.3, -0.3, BELT_Z - 0.06), V(0.3, 0.06, float(nk[2]) + 0.04))
+    lo, hi = snapF.lo, snapF.hi
+    return Bounded(Union(snapF, W, k=0.02), lo, hi)
+
+
 def cuirass(snapF, L):
-    """Steel cuirass (iron tier): front + back plates at a standoff, raised medial ridge, riveted edges; faulds."""
+    """Steel cuirass (iron tier): front + back plates at a standoff, raised medial ridge, riveted edges; faulds.
+    C2 r9: offset from the faceted cuirass_form (flat pectoral / belly / collar planes + keel), not the sculpted pecs."""
     S = Sculpt(materials=GEAR_MATS, default_mat="steel")
     nk = L["neck"]
+    CF = cuirass_form(snapF, L)
     NC = neck_cutter(L, r0=0.09)
     cuts = [NC] + [armhole_cutter(L, s, grow=0.012) for s in ("L", "R")]
     top = HalfSpace(V(0, 0, float(nk[2]) + 0.06), V(0, 0, 1))
-    reg = Diff(Inter(shell(snapF, 0.03, 0.017), top, HalfSpace(V(0, 0, BELT_Z + 0.06), V(0, 0, -1)), k=0.004),
+    reg = Diff(Inter(shell(CF, 0.03, 0.017), top, HalfSpace(V(0, 0, BELT_Z + 0.06), V(0, 0, -1)), k=0.004),
                Union(*cuts), k=0.004)
     lo, hi = V(-0.6, -0.45, BELT_Z - 0.05), V(0.6, 0.45, float(nk[2]) + 0.14)
     S.add(Bounded(reg, lo, hi), 0.0, mat="steel")
     # r4: lame seams across the lower plate + a seam round the chest plate: 4 mm deep grooves in the OUTER skin only
     # (never cut through the 13 mm shell) so the cavity/ridge bake gives dark seams with bright worn bevels
-    outer = Diff(Offset(snapF, 0.04), Offset(snapF, 0.026))
+    outer = Diff(Offset(CF, 0.04), Offset(CF, 0.026))
     for z in CUIRASS_SEAMS:
         S.sub(Bounded(Inter(outer, Slab(V(0, 0, z), V(0, 0, 1), 0.0028)), lo, hi), 0.0015)
-    ridge = [V(0, -0.2, z) for z in np.linspace(BELT_Z + 0.09, float(nk[2]) - 0.08, 8)]
-    P = np.array([S_proj(snapF, V(0, 0.0, p[2]), V(0, -1, 0)) + V(0, -0.028, 0) for p in ridge])
-    S.add(Chain(list(P), 0.009, squash=(0.6, 1.0), ref=(1, 0, 0)), 0.01, mat="steel")
+    # medial keel: a raised sternum ridge down the centre line, from the collar plane to the lower lame
+    ridge = [V(0, -0.2, z) for z in np.linspace(CUIRASS_SEAMS[1] + 0.02, float(nk[2]) - 0.06, 10)]
+    P = np.array([S_proj(CF, V(0, 0.0, p[2]), V(0, -1, 0)) + V(0, -0.029, 0) for p in ridge])
+    S.add(Chain(list(P), 0.0085, squash=(0.55, 1.0), ref=(1, 0, 0)), 0.008, mat="steel")
     band = Diff(Offset(NC, 0.012), NC)
-    S.add(Bounded(Inter(shell(snapF, 0.034, 0.02), band, top, k=0.002), lo, hi), 0.002, mat="steel")
+    S.add(Bounded(Inter(shell(CF, 0.034, 0.02), band, top, k=0.002), lo, hi), 0.002, mat="steel")
     S.add(gorget_ring(snapF, L), 0.01, mat="steel")                         # C2 r7 raised collar
     for z in (BELT_Z + 0.075,):
         for az in np.linspace(-2.6, 2.6, 13):
@@ -1080,7 +1160,8 @@ PAL = dict(
     skin_olive=shaders.srgb(118, 104, 74), skin_burn=shaders.srgb(160, 82, 60), ash=shaders.srgb(92, 88, 84),
     stubble=shaders.srgb(40, 34, 32), scar=shaders.srgb(178, 122, 104),
     lips=shaders.srgb(110, 62, 54), skin_rough=0.7, tattoo=shaders.srgb(24, 20, 22),
-    iris=shaders.srgb(156, 120, 58), sclera=shaders.srgb(238, 230, 214),     # C2 r8: eyes read at the game camera
+    iris=shaders.srgb(176, 136, 64), sclera=shaders.srgb(248, 244, 234),     # C2 r9: brighter (light eye dots)
+    mouth=shaders.srgb(44, 18, 16),
     brow=shaders.srgb(26, 22, 20), brow_hi=shaders.srgb(70, 60, 54), brow_hi_amt=0.04, brow_rough=0.85,
     hair=shaders.srgb(26, 22, 20),
     leather=shaders.srgb(70, 46, 30), leather_worn=shaders.srgb(128, 94, 66),
@@ -1098,24 +1179,37 @@ PAL = dict(
 TIER_PAL = {
     # r5 tier ladder (S1 torso band >= 10 pts apart): straw = ash-whitened body + bleached tunic (brightest),
     # iron = worn steel (natural skin), rust = natural skin + red cloth/leather, violet = woad-dark body (darkest)
-    "straw": dict(cloth=shaders.srgb(228, 206, 132), cloth_trim=shaders.srgb(140, 112, 62),
+    # C2 r9 ladder (board r8: rust / violet the same midtone, steps >= 12 wanted; iron can't go much below ~9 % in game
+    # because the actor key floors dark-metal reflectance) -> straw and rust step UP, violet's mantle goes dark, and
+    # every rank gets its own trouser colour (board: 'identical dark trousers on all four tiers')
+    "straw": dict(cloth=shaders.srgb(246, 228, 162), cloth_trim=shaders.srgb(140, 112, 62),
+                  pants=shaders.srgb(98, 76, 50),
+                  skin=shaders.srgb(188, 140, 112), skin_warm=shaders.srgb(196, 122, 96), skin_burn=shaders.srgb(194, 126, 100),
+                  skin_olive=shaders.srgb(150, 132, 100),
                   wash=shaders.srgb(194, 186, 172), wash_amt=0.0,    # C2: no wash -- streaked paint (PAINT)
                   tleather=shaders.srgb(132, 92, 56), tleather_worn=shaders.srgb(180, 140, 96),
                   horn=shaders.srgb(206, 190, 150), horn_tip=shaders.srgb(80, 64, 48)),
     # C2 r7 re-ladder (board r6: iron must be the DARKEST torso): straw lightest > rust > violet > iron. Rust + violet
     # step UP (warmer orange jerkin, lighter violet dye + woad) so dark gunmetal iron can sit at the bottom.
-    "rust": dict(cloth=shaders.srgb(198, 86, 38), cloth_trim=shaders.srgb(112, 44, 20),
-                 wash=shaders.srgb(104, 44, 30), wash_amt=0.1,
-                 tleather=shaders.srgb(160, 74, 38), tleather_worn=shaders.srgb(204, 128, 78),
+    "rust": dict(cloth=shaders.srgb(236, 128, 64), cloth_trim=shaders.srgb(124, 54, 26),
+                 leather_dark=shaders.srgb(58, 40, 30), leather_dark_worn=shaders.srgb(112, 84, 62),   # r9 harness
+                 wash=shaders.srgb(104, 44, 30), wash_amt=0.0,
+                 tleather=shaders.srgb(230, 132, 74), tleather_worn=shaders.srgb(240, 178, 124),
+                 pants=shaders.srgb(86, 34, 22),
                  iron_patina_amt=0.8),
-    "violet": dict(cloth=shaders.srgb(92, 56, 128), cloth_trim=shaders.srgb(52, 30, 72),
-                   wash=shaders.srgb(84, 74, 128), wash_amt=0.85, wash_mott=0.14,   # fast: a touch less neon, +value
+    "violet": dict(cloth=shaders.srgb(104, 64, 142), cloth_trim=shaders.srgb(56, 32, 78),
+                   wash=shaders.srgb(110, 98, 156), wash_amt=0.85, wash_mott=0.14,   # fast: a touch less neon, +value
+                   pants=shaders.srgb(46, 30, 60),
                    tleather=shaders.srgb(72, 46, 82), tleather_worn=shaders.srgb(120, 90, 126),
                    iron=shaders.srgb(58, 56, 64), iron_patina=shaders.srgb(60, 40, 70), iron_patina_amt=0.35,
                    bronze=shaders.srgb(120, 118, 128),
                    wash_form=0.32,   # C2 r8: woad shaded by the body forms (board r7: 'violet torso cloth flat')
-                   fur=shaders.srgb(58, 47, 42), fur_root=shaders.srgb(14, 11, 11), fur_tip=shaders.srgb(124, 108, 94)),
+                   # C2 r9 (board r8: the mantle read light grey-tan and inverted against the cloth): dark pelt
+                   fur=shaders.srgb(40, 33, 30), fur_root=shaders.srgb(11, 9, 9), fur_tip=shaders.srgb(108, 94, 82)),
     "iron": dict(cloth=shaders.srgb(36, 40, 52), cloth_trim=shaders.srgb(20, 22, 30),
+                 pants=shaders.srgb(30, 33, 42),
+                 # C2 r9: soot-blackened bare skin (shoulders, arms above the bracers) -> the darkest rank by value
+                 wash=shaders.srgb(44, 39, 38), wash_amt=0.72, wash_mott=0.2, wash_end=0.8,
                  # C2 r7: DARK GUNMETAL (board r6: 'chalky white-painted cloth'; ref marauder_iron_dusk.png): blackened
                  # steel albedo, high metalness + low roughness -> crisp bright specular on edges / dome, value from
                  # the reflections, not from a pale base colour
@@ -1206,6 +1300,16 @@ def p_tunic(c, pal, key="cloth"):
     bunch = shaders.smooth01(P[:, 2], BELT_Z + 0.03, BELT_Z + 0.05) * (1 - shaders.smooth01(P[:, 2], BELT_Z + 0.1, BELT_Z + 0.14))
     rgb *= (1.0 - (0.2 * drape + 0.3 * bunch * shaders.smooth01(-g, 0.0, 0.9)) * torso
             + 0.08 * bunch * shaders.smooth01(g, 0.3, 1.0) * torso)[:, None]
+    if tier == "straw" and key != "cloth_trim":
+        # C2 r9 (board r8: 'the straw vest is a flat untextured yellow slab' -- the weave is 5-8 mm, invisible at the
+        # game camera): value shapes 5-25 cm across -- deeper drape valleys, two broad ragged soot / sweat stains,
+        # a darker dirty band toward the hem, sun-bleached shoulders
+        rgb *= (1.0 - 0.18 * drape * torso)[:, None]
+        st1 = shaders.smooth01(c.noise(3.2, 3, 178) + 0.25 * c.noise(14.0, 2, 179), 0.18, 0.42)
+        rgb = shaders.mix(rgb, rgb * np.array([0.58, 0.5, 0.4]), 0.46 * st1 * torso)
+        band = 1 - shaders.smooth01(P[:, 2] + 0.03 * c.noise(9.0, 2, 180), BELT_Z + 0.06, BELT_Z + 0.16)
+        rgb = shaders.mix(rgb, rgb * np.array([0.66, 0.58, 0.48]), 0.45 * band * torso)
+        rgb = shaders.mix(rgb, np.minimum(rgb * 1.1 + 0.03, 1), 0.4 * up)
     # fold cavities (geometry): strong
     rgb = shaders.mix(rgb, rgb * np.array([0.38, 0.34, 0.32]), np.clip(1.4 * c.cav, 0, 0.9))
     rgb = shaders.mix(rgb, np.minimum(rgb * 1.2 + 0.02, 1), 0.25 * c.ridge)
@@ -1311,7 +1415,7 @@ def p_pelt(c, pal):
     tipm = np.clip(c.paint("furtip"), 0, 1)
     drift = c.noise(5.0, 2, 141)
     rgb = np.tile(mid, (c.n, 1)) * (1.0 + 0.08 * drift)[:, None]
-    rgb = shaders.mix(rgb, tip, 0.7 * tipm)
+    rgb = shaders.mix(rgb, tip, 0.5 * tipm ** 1.5)          # C2 r9: pale only right at the tips
     rgb = shaders.mix(rgb, root, np.clip(1.6 * c.cav, 0, 0.9))
     rgb = shaders.mix(rgb, root, 0.35 * shaders.smooth01(-c.N[:, 2], 0.2, 0.9) * (1 - tipm))   # under-planes
     rough = np.clip(0.86 - 0.06 * tipm, 0.6, 0.95)
@@ -1363,7 +1467,7 @@ def p_steel(c, pal):
     s0, s1 = CUIRASS_SEAMS
     half = shaders.smooth01(P[:, 0], -0.012, 0.012)     # breastplate halves (split on the medial ridge)
     front = P[:, 1] < 0.0
-    chest = np.where(front, 0.9 + 0.1 * half, 0.86)
+    chest = np.where(front, 0.84 + 0.16 * half, 0.86)     # C2 r9: the two keel planes a clear value step apart
     panel = np.where(on & (z >= s1), chest, panel)
     panel = np.where(on & (z < s1), 0.74, panel)        # upper lame: the darkest band
     panel = np.where(on & (z < s0), 0.88, panel)
@@ -1382,6 +1486,11 @@ def p_steel(c, pal):
     # soft top-light gradient inside each piece: upper faces a touch lighter, under-planes darker
     up = shaders.smooth01(N[:, 2], -0.6, 0.8)
     rgb = rgb * (0.86 + 0.2 * up)[:, None]
+    # C2 r9 (board r8, Fable: 'iron has no rim separation against dark crates / barrels'): the game camera sees the
+    # ranks side-on, so the plate faces turning AWAY from it (front of the chest, back, shoulder tops: small |N.x|)
+    # form the silhouette -> a cool lighter steel there, the faces toward the camera stay dark gunmetal
+    sil = 1 - shaders.smooth01(np.abs(N[:, 0]), 0.1, 0.32)
+    rgb = shaders.mix(rgb, np.minimum(rgb * np.array([1.3, 1.38, 1.55]) + np.array([0.01, 0.013, 0.02]), 1), 0.35 * sil)
     # ---- quiet surface wear (broad, low contrast): cool oxide, faint brown runs down the plate
     ox = shaders.smooth01(c.noise(3.0, 2, 91), 0.05, 0.6)
     rgb = shaders.mix(rgb, rgb * np.array([0.82, 0.84, 0.9]), 0.3 * ox)
@@ -1488,7 +1597,7 @@ WARPAINT = {"straw": shaders.srgb(178, 176, 172), "rust": shaders.srgb(120, 28, 
             "violet": shaders.srgb(36, 26, 70), "iron": shaders.srgb(30, 30, 36)}
 # C2 r7: face stripe strength per tier -- straw's pale ash swipes read as a grey smudge on the cheek / temple beside
 # the eye (board r6), so the straw face is clean skin (its paint lives on the arms); iron's are soot-dark
-WARPAINT_AMT = {"straw": 0.0, "rust": 0.85, "violet": 0.85, "iron": 0.45}   # C2 r8: iron 0.7 -> 0.45 (face too dark)
+WARPAINT_AMT = {"straw": 0.0, "rust": 0.85, "violet": 0.85, "iron": 0.3}    # C2 r8: iron 0.7 -> 0.45, r9 -> 0.3
 
 
 def war_paint(c, pal):
@@ -1530,9 +1639,9 @@ def war_paint(c, pal):
 
 
 PAINT = {   # C2 body war paint per tier: (colour, strength); straw = the Ashen marauder's pale ash (brightest tier)
-    "straw": (shaders.srgb(166, 160, 152), 0.86), "rust": (shaders.srgb(124, 34, 20), 0.85),   # C2 r7: straw ash
+    "straw": (shaders.srgb(190, 184, 172), 0.9), "rust": (shaders.srgb(176, 70, 40), 0.6),   # C2 r9: lighter
     # a little greyer + thinner so the left-deltoid handprint stops reading as a white patch at game distance
-    "violet": (shaders.srgb(132, 128, 150), 0.0), "iron": (shaders.srgb(70, 72, 82), 0.8)}
+    "violet": (shaders.srgb(132, 128, 150), 0.0), "iron": (shaders.srgb(34, 32, 36), 0.8)}
 
 
 def _arm_coords(P, L, side):
@@ -1589,7 +1698,8 @@ def body_paint(c, pal):
                 skip = shaders.smooth01(c.noise(26.0, 2, 386 + i) + 0.6 * prog, 0.25, 0.55)
                 core = core * (1 - 0.85 * skip)
             m = np.maximum(m, _brush(core, c, 380 + i, edge=0.22) * on)
-        if sd == "L" and tier != "iron":   # handprint gripping the left deltoid, fingers up over the shoulder
+        # C2 r9 (board r8: 'the pale hand-print reads as a texture smear at game distance'): handprint off
+        if False and sd == "L" and tier != "iron":   # handprint gripping the left deltoid, fingers up over the shoulder
             tl = T * Larm
             pc_t, pc_s = 0.205 * Larm, -0.004
             palm = np.sqrt(((tl - pc_t) / 0.044) ** 2 + ((sarc - pc_s) / 0.04) ** 2)
@@ -1702,7 +1812,8 @@ def p_raider_skin(c, pal):
             arm = (d < 0.14) & (np.abs(P[:, 0]) > 0.14)
             # C2: dry-brushed, ragged end above the bracer (board r5: a hard 'cuff' line read as a sleeve)
             tend = t + 0.09 * c.noise(9.0, 2, 331) + 0.05 * c.noise(45.0, 2, 335)
-            wm = np.where(arm, wm * (1 - shaders.smooth01(tend, 0.5, 0.66)), wm)
+            we = pal.get("wash_end", 0.5)          # C2 r9: iron's soot runs down to the bracers (0.84)
+            wm = np.where(arm, wm * (1 - shaders.smooth01(tend, we, we + 0.16)), wm)
         wm *= shaders.smooth01(P[:, 2], BELT_Z + 0.02, BELT_Z + 0.12)
         md = pal.get("wash_mott", 0.18)          # straw: deeper mottling = daubed ash, skin shows through (not a sleeve)
         mott = (1 - md) + md * shaders.smooth01(c.noise(14.0, 3, 332) + 0.5 * c.noise(40.0, 2, 334), -0.4, 0.5)
@@ -1766,15 +1877,25 @@ def p_raider_skin(c, pal):
         rgb = shaders.mix(rgb, rgb_clean * 0.84, 0.75 * clear)
     # stubble: dark, speckled shaved scalp + jaw (the head's darkest value after the soot mask)
     st = c.paint("stubble") * ((1 - 0.85 * clear) if ex else 1.0)
+    mc = c.x.get("mouth") if c.x else None
+    mzone = np.zeros(c.n)
+    if mc is not None:      # C2 r9: lips + a ring round them stay skin, so the dark mouth line has a light frame
+        dm = np.linalg.norm((P - V(*mc)) / V(0.036, 0.03, 0.019), axis=1)
+        mzone = 1 - shaders.smooth01(dm, 0.75, 1.25)
+        st = st * (1 - 0.8 * mzone)
     speck = shaders.smooth01(c.noise(700.0, 1, 13), -0.1, 0.5)
     rgb = shaders.mix(rgb, pal["stubble"], np.clip(st * (0.6 + 0.3 * speck), 0, 0.92))
     rgb = shaders.mix(rgb, pal["lips"], 0.75 * c.paint("lips"))
+    rgb = shaders.mix(rgb, np.minimum(rgb * 1.12 + 0.02, 1), 0.5 * mzone * (1 - c.paint("lips")))
     scar = c.paint("scar")
     rgb = shaders.mix(rgb, pal.get("scar", shaders.srgb(176, 120, 104)), 0.7 * np.clip(scar * 1.2, 0, 1))
     bp = c.paint("browpaint")
-    if bp.any():
-        strands = 0.5 + 0.5 * np.sin(P[:, 0] * 900.0 + 40.0 * P[:, 2] + 3.0 * c.noise(120.0, 2, 14))
-        rgb = shaders.mix(rgb, pal["brow"], np.clip(bp * (0.55 + 0.4 * strands), 0, 0.92))
+    if bp.any():          # C2 r9: one flat dark bar (the 900/m strand stripes broke it into grey at the game camera)
+        rgb = shaders.mix(rgb, pal["brow"], np.clip(bp * 0.95, 0, 0.95))
+    ew = np.clip(c.paint("eyewhite"), 0, 1)      # C2 r9: sclera on the cut lid walls of the almond opening
+    rgb = shaders.mix(rgb, pal["sclera"] * 0.94, 0.92 * ew)
+    mo = np.clip(c.paint("mouth"), 0, 1)
+    rgb = shaders.mix(rgb, pal.get("mouth", shaders.srgb(44, 18, 16)), 0.95 * mo)
     tat = c.paint("tattoo")
     rgb = shaders.mix(rgb, pal["tattoo"], 0.9 * tat)
     wp = c.paint("warpaint") * (0.55 + 0.45 * shaders.smooth01(c.noise(90.0, 2, 379), -0.35, 0.3))   # C2 dry-brushed
@@ -1790,7 +1911,7 @@ def p_raider_skin(c, pal):
     dry = ext
     rough = pal["skin_rough"] + 0.06 * st - 0.14 * c.paint("lips") + 0.06 * n2 + 0.2 * bp + 0.1 * ash + wr * wm + \
         0.1 * wp - 0.16 * tz - 0.14 * sweat + 0.1 * dry + 0.06 * c.noise(90.0, 1, 362) + 0.22 * pm
-    rough = rough + 0.12 * c.cav
+    rough = rough + 0.12 * c.cav + 0.3 * mo      # C2 r9: no lip sheen over the dark mouth line
     return shaders.out(c.n, rgb, np.clip(rough, 0.3, 0.92))
 
 
@@ -1831,8 +1952,15 @@ def _face_lit(fn, lift=0.0, socket=0.0):
     return p
 
 
-PAINTERS = {"skin": _face_lit(p_raider_skin, 0.2, 0.45), "eye": _face_lit(shaders.PAINTERS["eye"]),
-            "brow": _face_lit(shaders.PAINTERS["brow"]), "cloth": p_tunic, "cloth_trim": lambda c, pal: p_tunic(c, pal, "cloth_trim"),
+def p_brow_flat(c, pal):
+    """C2 r9 (thief r8 pattern): one flat near-black brow bar with a faint broad drift -- strands broke the bar into
+    grey at the game camera."""
+    rgb = np.tile(pal["brow"], (c.n, 1)) * (1.0 + 0.08 * c.noise(40.0, 2, 15))[:, None]
+    return shaders.out(c.n, rgb, np.full(c.n, pal.get("brow_rough", 0.85)))
+
+
+PAINTERS = {"skin": _face_lit(p_raider_skin, 0.28, 0.6), "eye": _face_lit(shaders.PAINTERS["eye"]),
+            "brow": _face_lit(p_brow_flat), "cloth": p_tunic, "cloth_trim": lambda c, pal: p_tunic(c, pal, "cloth_trim"),
             "pants": keyed(shaders.p_cloth, "pants", "cloth"),
             "tleather": p_tleather,
             "steel": p_steel, "bone": p_bone, "horn": p_horn, "pelt": p_pelt,
@@ -1951,6 +2079,38 @@ def skin_body(args, arm, L, H, S, body_lo, hands_lo):
     return body_W
 
 
+def kilt_pieces_one_chain(kilt_lo, arm, kp, n):
+    """C2 r9 (two agents' stage lineups: 2-6 stretched tris on kilt_B_1<->kilt_L_1 / kilt_F_1<->kilt_R_1 in walk):
+    charkit.skin_kilt shares every vertex between the two nearest kilt chains (cosine partition) -- right for a
+    continuous skirt, wrong for the marauder's loincloth, which is SEPARATE pieces (front / back panel, 4 tassets):
+    a tasset between the L and B chains was sheared when the two springs swung apart. Each connected piece now
+    follows ONE chain (the side nearest its centroid): the per-level chain weight is summed onto that chain; the
+    hips / thigh blend down the height (skirt_weights) is kept. Returns {piece: side}."""
+    names = [b.name for b in arm.data.bones if b.use_deform]
+    W = skin.read_groups(kilt_lo, names)
+    P = meshutil.get_verts(kilt_lo)
+    out = {}
+    for g in skin.rigid_components(kilt_lo, np.ones(len(P), bool)):
+        c = P[g].mean(0)
+        th = math.atan2(float(c[0]), -(float(c[1]) - kp["cy"]) / kp["squash"])
+        side = min((("F", 0.0), ("L", math.pi / 2), ("B", math.pi), ("R", -math.pi / 2)),
+                   key=lambda sa: abs(math.atan2(math.sin(th - sa[1]), math.cos(th - sa[1]))))[0]
+        for i in range(1, n + 1):
+            tgt = names.index(f"kilt_{side}_{i}")
+            for sd in "FLBR":
+                nm = f"kilt_{sd}_{i}"
+                if sd == side or nm not in names:
+                    continue
+                j = names.index(nm)
+                W[g, tgt] += W[g, j]
+                W[g, j] = 0.0
+        out[len(out)] = (side, len(g))
+    W, _ = skin.top_k(W, 4)
+    skin.write_groups(kilt_lo, names, W)
+    skin.bind(kilt_lo, arm)
+    return out
+
+
 def transfer_weights(dst, src, body_W, arm, k=8, smooth=True):
     """Conforming torso gear takes the body's own weights (nearest body verts, inverse-distance) so it deforms
     exactly like the skin under it (no poke-through at the spine/shoulders)."""
@@ -1971,6 +2131,33 @@ def transfer_weights(dst, src, body_W, arm, k=8, smooth=True):
     out, _ = skin.top_k(out, 4)
     skin.write_groups(dst, names, out)
     skin.bind(dst, arm)
+
+
+# C2 r9 (board r8, Fable: 'iron has no rim separation against dark crates / barrels'): per-tier glTF material extras
+# -> GLTFLoader material.userData -> src/render/characterLook.js (kcaRimScale = per-material scale of the actor rim,
+# a uniform: no shader / program change, no GPU cost)
+TIER_EXTRAS = {"iron": {"kcaRimScale": 1.35}}
+
+
+def patch_glb_extras(path, extras):
+    """Write `extras` into every material of a GLB in place (JSON chunk only)."""
+    import struct
+    buf = open(path, "rb").read()
+    total = struct.unpack("<I", buf[8:12])[0]
+    off, chunks = 12, []
+    while off < total:
+        ln, ty = struct.unpack("<II", buf[off:off + 8])
+        chunks.append([ty, buf[off + 8:off + 8 + ln]])
+        off += 8 + ln
+    js = json.loads(chunks[0][1].decode("utf-8"))
+    for m in js.get("materials", []):
+        m.setdefault("extras", {}).update(extras)
+    jb = json.dumps(js, separators=(",", ":")).encode("utf-8")
+    jb += b" " * ((4 - len(jb) % 4) % 4)
+    chunks[0][1] = jb
+    body = b"".join(struct.pack("<II", len(c[1]), c[0]) + c[1] for c in chunks)
+    with open(path, "wb") as f:
+        f.write(b"glTF" + struct.pack("<II", 2, 12 + len(body)) + body)
 
 
 # ============================================================================ build
@@ -2061,6 +2248,8 @@ def build(args):
     t = time.time()
     body_W = skin_body(args, arm, L, H, S, los["body"], {"L": los["hand_L"], "R": los["hand_R"]})
     charkit.skin_kilt(los["kilt"], arm, KP, KILT_CHAIN)
+    report["kilt_pieces"] = kilt_pieces_one_chain(los["kilt"], arm, KP, KILT_CHAIN)
+    pipeline.log(f"kilt pieces -> one chain each: {report['kilt_pieces']}")
     for nm in G:
         bone = GEAR[nm][1]
         if bone:
@@ -2091,11 +2280,14 @@ def build(args):
     order = common + list(G)
     fill = pipeline.pack_atlas_shape([los[k] for k in order], margin_px=6 if not fast else 4, res=res)
     report["uv_fill"] = fill
+    # C2 r9: faces whose UVs collapsed to a point sample ONE texel of another island (thief nose shard) -> remap
+    report["uv_degenerate_fixed"] = {k: charkit.fix_degenerate_uvs(los[k], res) for k in order}
+    pipeline.log(f"degenerate UV faces fixed: {report['uv_degenerate_fixed']}")
     pipeline.log(f"UV atlas {time.time()-t:.1f}s")
 
     # ---------------------------------------------------------------- per-tier paint + bake + export
     extra_p = dict(eyes=info["head"]["eyes"], eye_r=info["head"]["eye_r"], z_knee=L["knee_L"][2],
-                   z_chest=L["chest"][2])
+                   z_chest=L["chest"][2], mouth=info["head"].get("mouth_c"))
     sculpt_of = {"body": S, "hand_L": Sh["L"], "hand_R": Sh["R"], "kilt": Sk}
     sculpt_of.update({k: v[0] for k, v in G.items()})
     for k, lst in his.items():
@@ -2144,6 +2336,9 @@ def build(args):
                                                           for k, v in qa.items()))
         out = os.path.join(OUT_MODELS, prefix + ".glb")
         pipeline.export_glb(out, [arm, body], scene_name=prefix)
+        if tier in TIER_EXTRAS:
+            patch_glb_extras(out, TIER_EXTRAS[tier])
+            rep["extras"] = TIER_EXTRAS[tier]
         rep["glb"] = out
         rep["glb_mb"] = os.path.getsize(out) / 1e6
         rep["seconds"] = time.time() - tt
