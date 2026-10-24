@@ -164,6 +164,23 @@ function mountedBoss(game, rider, mount) {
   } });
 }
 
+/** C2 r13 (board r12: "the eagle-head foreground mass dwarfs the Wyrm Rider"): while the Wyrm Rider fight lives, the
+ *  stage-3 eagle's neck (Stages' 'eagleNeck' group, pivot at its base on the deck) eases down to k × its authored scale
+ *  over ~1.5 s — the great bird draws its head in as the wyrm lands on its back — and eases back once she is gone. Runtime
+ *  only, scale only (Stages' eagle.js keeps animating rotation); no Stages file edited. &eagleduck=1 = off, =<k> to tune. */
+function eagleDuck(game, members, k) {
+  const scene = game.renderer && game.renderer.scene; if (!scene || !(k > 0) || k >= 1) return;
+  const neck = scene.getObjectByName('eagleNeck'); if (!neck) return;
+  const s0 = neck.scale.x; let u = 0;
+  game.addSystem({ name: 'boss.eagleDuck', order: 60, update() {
+    const live = members.some((m) => m && m.alive && !m.removed);
+    u = Math.max(0, Math.min(1, u + (live ? 1 / 90 : -1 / 60)));
+    const e = u * u * (3 - 2 * u);
+    neck.scale.setScalar(s0 * (1 + (k - 1) * e));
+    if (!live && u <= 0) game.removeSystem('boss.eagleDuck');
+  }, dispose() { neck.scale.setScalar(s0); } });
+}
+
 export default {
   id: 'wyrm_rider',
   name: NAME,
@@ -201,8 +218,10 @@ export default {
     // foreground mass dwarfs the Wyrm Rider at the game camera"): she fills more of the frame (span 0.6 → the camera
     // dollies in) and the frame's right edge stops at x 4.2 at her depth (head base x 4.85), so the boss owns the shot.
     const R13 = !/[?&]bossframe=0/.test(typeof location !== 'undefined' ? location.search : '');
-    const camOpts = R13 ? { wallLeft: 0.38, wallRight: 0.56, span: 0.6, viewMaxX: 4.2 } : { wallLeft: 0.38, wallRight: 0.56 };
+    const QS = typeof location !== 'undefined' ? location.search : '', qn = (k, d) => { const m = new RegExp('[?&]' + k + '=([0-9.]+)').exec(QS); return m ? Number(m[1]) : d; };   // A/B: &s3span= &s3vmx=
+    const camOpts = R13 ? { wallLeft: 0.38, wallRight: 0.56, span: qn('s3span', 0.6), viewMaxX: qn('s3vmx', 4.2) } : { wallLeft: 0.38, wallRight: 0.56 };
     const G = groupBoss(game, { name: NAME, title: TITLE, typeId: 'cinderwyrm', members, element: 'fire', camera: camOpts });
+    if (R13 && !ctx.showcase) eagleDuck(game, members, qn('eagleduck', 0.78));
     return {
       lead: G.proxy, actors: members, tokens: [G.token], group: G, mount,
       camera: camOpts,

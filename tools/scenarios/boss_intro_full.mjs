@@ -26,7 +26,7 @@ export default async (api) => {
     const THREE_V = g.camera.position.clone();
     const proj = (x, y, z) => { THREE_V.set(x, y, z).project(g.camera); return [(THREE_V.x + 1) / 2 * g.renderer.width, (1 - THREE_V.y) / 2 * g.renderer.height]; };
     const box = (a) => {
-      const h = (a.height || 2) + (a.mountedOn ? (a.mountedOn.saddleY || 1.2) * (a.mountedOn.modelScale || 1) : 0), r = Math.max(0.35, (a.height || 2) * 0.22);
+      const h = (a.height || 2) + (a.mountedOn ? (a.mountedOn.saddleY || 1.2) : 0)   /* C2 r13: saddleY is world-scale already */, r = Math.max(0.35, (a.height || 2) * 0.22);
       const pts = [proj(a.pos.x - r, a.pos.y, a.pos.z), proj(a.pos.x + r, a.pos.y, a.pos.z), proj(a.pos.x - r, a.pos.y + h, a.pos.z), proj(a.pos.x + r, a.pos.y + h, a.pos.z)];
       const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
       return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map((v) => Math.round(v));

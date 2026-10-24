@@ -9,19 +9,21 @@ export default async (api) => {
   const slots = await api.evalGame(() => window.__KCA.showcase.slots);
   const rows = [];
   let t = 0;
+  // C2 r13: step at 60 Hz — Varkhul's flail chain is simulated per RENDERED frame; one long advance froze it mid-swing
+  const adv = async (ms) => { for (let k = 0; k < Math.round(ms / 16.667); k++) await api.advance(16.667); };
   const shotAll = async (tag) => {
     const files = [];
     for (let i = 0; i < slots.length; i++) {
       await api.evalGame((k) => window.__KCA.showcase.frame(k), i);
-      await api.advance(17);                       // one frame for the camera (orbit applied in render)
+      await api.advance(17); await api.advance(17);   // two frames: the orbit is applied in render (one frame lagged a slot after the 60 Hz stepping)
       const f = `${tag}_${i}_${slots[i]}`; await api.shot(f); files.push(path.join(api.outDir, f + '.png'));
     }
     rows.push(files);
   };
-  for (const s of IDLE_AT) { await api.advance(Math.max(0, s - t) * 1000); t = s; await shotAll('idle' + s); }
+  for (const s of IDLE_AT) { await adv(Math.max(0, s - t) * 1000); t = s; await shotAll('idle' + s); }
   await api.evalGame(() => window.__KCA.showcase.play('walk'));
   t = 0;
-  for (const s of WALK) { await api.advance(Math.max(0, s - t) * 1000); t = s; await shotAll('walk' + s); }
+  for (const s of WALK) { await adv(Math.max(0, s - t) * 1000); t = s; await shotAll('walk' + s); }
   // sheet: crop the centre of each tile (boss region) and tile it
   const CW = 520, CH = 700;
   const comp = [];

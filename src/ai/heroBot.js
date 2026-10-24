@@ -18,6 +18,7 @@ import { viewRange } from './_kit.js';
 const EDGE_BAND = 0.25; // fraction of the frame width: the bot's own centre stays this far from an edge while it fights (> the director's PIN_SIDE 0.2, so foes never detour round a bot)
 const MATE_GAP = 1.9;   // m: x gap a bot keeps from its partner while their silhouettes overlap (|dz| < MATE_DZ): a body + the partner's strike spot
 const MATE_DZ = 2.4;
+const THIEF_EDGE = 0.15; // C2 r13: a thief closer than this (fraction of the frame width) to an edge is not chased
 export class HeroBot {
   constructor(game, hero, { skill = 0.8 } = {}) {
     this.game = game;
@@ -39,6 +40,7 @@ export class HeroBot {
     hero.aiBot = true;
     const qp = (k) => { const P = game.params; return P && P.raw && P.raw.get ? P.raw.get(k) : P && P.get ? P.get(k) : null; };
     this.edgeOn = qp('botedge') !== '0';
+    this.thiefOn = qp('botthief') !== '0';
     const gp = Number(qp('botgap')); this.mateGap = gp > 0 ? gp : MATE_GAP; // A/B knob &botgap=
     if (game.bus && game.bus.on) this._off = game.bus.on('hit', (ev) => { if (ev && ev.attacker === hero) this.lastHit = game.tick; });
   }
@@ -59,6 +61,19 @@ export class HeroBot {
     if (this.cool > 0) this.cool--;
     // Leave foes a partner is holding or throwing alone (so co-op throws land).
     const enemies = g.world.query({ team: 'enemies', filter: (e) => e.hurtable && !(e.fsm && e.fsm.is('grabbed', 'thrown') && e.grabbedBy !== h) });
+    // C2 r13 (softlock gate): a loot thief (def.passive: can't be killed, never holds a wave) is only chased in the open.
+    // Once the stage shows GO, or while it hugs a frame edge, the bot lets it go and walks on (the level's strand check
+    // removes it). Gate r13: a lone thief at the left lock wall, outside the hero's camera clamp, held both bots at the
+    // frame edge for 100–800 s (stage 1 2P, stage 4 1P). &botthief=0 → old rule.
+    if (this.thiefOn && enemies.some((e) => e.def && e.def.passive)) {
+      const adv = g.levels && g.levels.canAdvance && g.levels.canAdvance();
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        if (!(e.def && e.def.passive)) continue;
+        const vr = viewRange(g, e.pos.z), w = vr.xMax - vr.xMin, f = w > 1 ? (e.pos.x - vr.xMin) / w : 0.5;
+        if (adv || Math.min(f, 1 - f) < THIEF_EDGE) enemies.splice(i, 1);
+      }
+    }
     if (!enemies.length) {
       const adv = g.levels && g.levels.canAdvance && g.levels.canAdvance();
       this.hold(adv ? ['right'] : []);

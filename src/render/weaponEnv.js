@@ -56,6 +56,9 @@ export function applySelectWeaponEnv(game, heroes, { intensity = 1.0 } = {}) {
   const R = game && game.renderer;
   if (!R || !R.lighting || !R.lighting.pmrem) return () => {};
   if (typeof location !== 'undefined' && /[?&]wenv=0(&|$)/.test(location.search)) return () => {};   // A/B: off
+  // A/B (r6 resume): `&wenv=<x>` scales the weapon env intensity (1 = shipped value; 0 = off above)
+  const wq = typeof location !== 'undefined' && /[?&]wenv=([\d.]+)/.exec(location.search);
+  if (wq && +wq[1] > 0) intensity *= +wq[1];
   const rt = buildSelectWeaponEnv(R.webgl || R.renderer, R.lighting);
   const mats = [];
   for (const h of heroes || []) {

@@ -276,8 +276,8 @@ const CSS = `${FONT_FACES}
 .kca-select .hd .orn-rule { width: 640px; }
 .kca-select .timer { position: absolute; top: 26px; right: 40px; text-align: center; font-size: 12px; letter-spacing: .3em; color: #d8c09a; }
 .kca-select .timer .forge { height: 44px; display: block; margin: 2px auto 0; }
-.kca-cards { position: absolute; bottom: 56px; left: 0; right: 0; display: flex; justify-content: center; gap: 36px; }
-.kca-hcard { position: relative; width: 318px; padding: 14px 16px 12px; transition: transform .35s ${EASE}, box-shadow .3s; transform: translateY(12px) scale(.96); }
+.kca-cards { position: absolute; bottom: 46px; left: 0; right: 0; display: flex; justify-content: center; gap: 36px; }
+.kca-hcard { position: relative; width: 318px; padding: 12px 16px 10px; transition: transform .35s ${EASE}, box-shadow .3s; transform: translateY(4px) scale(.96); }
 .kca-hcard.hov { transform: translateY(-6px) scale(1); }
 .kca-hcard.hov.p1 { box-shadow: 0 0 0 1px #0a0503, 0 0 0 5px #2a180c, 0 0 0 6px var(--p1), 0 0 34px rgba(255,150,60,.45), 0 18px 40px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.65); }
 .kca-hcard.hov.p2 { box-shadow: 0 0 0 1px #0a0503, 0 0 0 5px #2a180c, 0 0 0 6px var(--p2), 0 0 34px rgba(80,160,255,.45), 0 18px 40px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.65); }
@@ -285,13 +285,13 @@ const CSS = `${FONT_FACES}
 .kca-hcard .top { display: flex; gap: 12px; align-items: center; }
 .kca-hcard .nm .forge { height: 26px; filter: drop-shadow(0 2px 2px #000); }
 .kca-hcard .ttl { font-size: 14.5px; letter-spacing: .2em; color: #d8b888; font-variant: small-caps; margin-top: 3px; }
-.kca-hcard p { margin: 8px 0 8px; font-size: 13.5px; line-height: 1.4; color: #ecdcbc; }
+.kca-hcard p { margin: 6px 0 6px; font-size: 13.5px; line-height: 1.4; color: #ecdcbc; }
 .kca-hcard .el .n { margin-left: auto; display: flex; align-items: center; gap: 4px; color: #bfe2ff; }
-.kca-stats { display: grid; grid-template-columns: 82px 1fr; gap: 5px 10px; align-items: center; font-size: 14px; letter-spacing: .2em; color: #c8ae84; font-variant: small-caps; }
+.kca-stats { display: grid; grid-template-columns: 82px 1fr; gap: 3.5px 10px; align-items: center; font-size: 14px; letter-spacing: .2em; color: #c8ae84; font-variant: small-caps; }
 .kca-stats .pips { display: flex; gap: 3px; }
 .kca-stats .pips i { flex: 1; height: 8px; transform: skewX(-20deg); background: #2a1a10; border: 1px solid #4a3020; }
 .kca-stats .pips i.on { background: linear-gradient(#ffe0a0, #e08a3a 60%, #8a3a0a); border-color: #1a0a02; box-shadow: 0 0 6px rgba(255,160,60,.45); }
-.kca-hcard .el { margin-top: 10px; display: flex; align-items: center; gap: 8px; font-size: 13.5px; letter-spacing: .12em; white-space: nowrap; font-variant: small-caps; color: var(--elc, #ffcf80); }
+.kca-hcard .el { margin-top: 7px; display: flex; align-items: center; gap: 8px; font-size: 13.5px; letter-spacing: .12em; white-space: nowrap; font-variant: small-caps; color: var(--elc, #ffcf80); }
 .kca-hcard .el .orn-pot { width: 12px; height: 16px; }
 .kca-hcard .el .gem { width: 14px; height: 14px; transform: rotate(45deg); background: radial-gradient(circle at 35% 35%, #fff, var(--elc) 50%, #000 130%); border: 1.5px solid #120803; box-shadow: 0 0 8px var(--elc); }
 .kca-flag { position: absolute; top: -34px; width: 50px; height: 60px; display: none; z-index: 3; filter: drop-shadow(0 3px 3px #000); transition: transform .3s ${EASE}; }
@@ -299,11 +299,13 @@ const CSS = `${FONT_FACES}
 .kca-flag.f1 { left: 16px; } .kca-flag.f2 { right: 16px; }
 @keyframes kca-flag { from { transform: translateY(-30px); opacity: 0; } }
 .kca-flag svg { width: 100%; height: 100%; }
-.kca-stamp { position: absolute; left: 50%; top: -46px; padding: 5px 20px 4px; border-radius: 3px; border: 2px solid var(--p1); background: linear-gradient(#2a180c, #0c0603); box-shadow: 0 0 0 1px #0a0503, 0 6px 14px rgba(0,0,0,.7), 0 0 22px rgba(255,150,60,.35);
-  transform: translateX(-50%) rotate(-4deg) scale(2.2); opacity: 0; transition: transform .3s cubic-bezier(.3,1.6,.4,1), opacity .15s; pointer-events: none; z-index: 4; }
-.kca-stamp.on { opacity: 1; transform: translateX(-50%) rotate(-4deg) scale(1); }
-.kca-stamp .forge { height: 26px; display: block; }
-.kca-stamp.s2 { border-color: var(--p2); box-shadow: 0 0 0 1px #0a0503, 0 6px 14px rgba(0,0,0,.7), 0 0 22px rgba(80,160,255,.35); }
+.kca-stamp { position: absolute; right: -12px; top: -25px; padding: 3px 15px 2px; border-radius: 3px; border: 2px solid var(--p1); background: linear-gradient(#2a180c, #0c0603); box-shadow: 0 0 0 1px #0a0503, 0 6px 14px rgba(0,0,0,.7), 0 0 22px rgba(255,150,60,.35);
+  transform: rotate(-4deg) scale(2.2); opacity: 0; transition: transform .3s cubic-bezier(.3,1.6,.4,1), opacity .15s; pointer-events: none; z-index: 4; }
+.kca-stamp.on { opacity: 1; transform: rotate(-4deg) scale(1); }
+.kca-stamp .forge { height: 22px; display: block; }
+.kca-hcard.p1.p2 .kca-stamp.s1 { right: auto; left: 70px; } .kca-hcard.p1.p2 .kca-stamp.s2 { left: auto; right: 70px; } /* both players on one card: the plaques sit between the two flags */
+.kca-stamp.s2.on { transform: rotate(3deg) scale(1); }
+.kca-stamp.s2 { right: auto; left: -12px; transform: rotate(3deg) scale(2.2); border-color: var(--p2); box-shadow: 0 0 0 1px #0a0503, 0 6px 14px rgba(0,0,0,.7), 0 0 22px rgba(80,160,255,.35); }
 .kca-hcard.locked:not(.hov) { filter: saturate(.55) brightness(.8); } /* a readied hero's card dims once its cursor leaves; the READY plaque is hung above the card, never over text */
 .kca-select .kca-btnrow { position: absolute; bottom: 16px; left: 0; right: 0; }
 .kca-select .join2 { position: absolute; top: 108px; right: 60px; font-size: 14px; letter-spacing: .35em; color: var(--p2); text-shadow: 0 2px 3px #000; animation: kca-blink 1.2s steps(1) infinite; }

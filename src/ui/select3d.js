@@ -336,7 +336,7 @@ export async function buildSelectSet(game, heroIds) {
   // Selection = firelight, not a whitened material (r6): a warm (P1) / cool (P2) rim lamp behind each hand's fingers that fades up
   // when a cursor is on it; the chosen-hand spot is a soft low wash (it used to frost the whole hand pale).
   const rims = HAND_X.map((x) => {
-    const L = new THREE.PointLight('#ff8a3a', 0, 7.5, 1.4); L.position.set(x * 1.04 - 1.7, 3.1, -1.9); group.add(L);
+    const L = new THREE.PointLight('#ff8a3a', 0, 7.5, 1.4); L.position.set(x * 1.04 - 1.7, 4.3, -3.2); group.add(L);   // C2 r13: high + back, so it lights the hand's fingers and the hero's crown, not the neighbour hero's flank
     return { L, a: 0, b: 0 };
   });
   // Contact shadows under the heroes' feet: a wide soft one + a tight dark core per hero.
@@ -439,17 +439,17 @@ export async function buildSelectSet(game, heroIds) {
       const WARM = new THREE.Color('#ff8a3a'), COOL = new THREE.Color('#6aaeff'), tmp = new THREE.Color();
       rims.forEach((r) => {
         r.a += ((r.ta || 0) - r.a) * Math.min(1, dt * 7); r.b += ((r.tb || 0) - r.b) * Math.min(1, dt * 7);
-        const tot = r.a + r.b; r.L.intensity = tot * 95 * (Math.abs(r.L.position.x) < 1 ? 0.7 : 1) * (0.93 + 0.07 * Math.sin(t * 7 + r.L.position.x));
+        const tot = r.a + r.b; r.L.intensity = tot * 80 * (Math.abs(r.L.position.x) < 1 ? 0.55 : 0.9) * (0.93 + 0.07 * Math.sin(t * 7 + r.L.position.x));
         if (tot > 0.001) r.L.color.copy(tmp.copy(WARM).lerp(COOL, r.b / tot));
       });
       spots.forEach((s, i) => {
         s.x += (s.tx - s.x) * Math.min(1, dt * 9); s.on += (s.ton - s.on) * Math.min(1, dt * 6);
         const both = hov[0] != null && hov[0] === hov[1];
-        s.S.position.set(s.x - 2.4 + (both ? (i ? 0.5 : -0.5) : 0), 8.5, 3.5); s.S.target.position.set(s.x, PALM_Y + 0.6, 0);
+        s.S.position.set(s.x - 2.4 + (both ? (i ? 0.5 : -0.5) : 0), 8.5, 3.5); s.S.target.position.set(s.x, PALM_Y + 1.1, 0);   // C2 r13: aimed up at the hero so the chosen hand sits in the penumbra, not the hot centre
         // C2 r11: Seraphine (light armour, pale skin) clipped to near-white under the centre key while Brann/Gorrim held their values -> the
         // centre spot is held to ~55 % (smooth in x, so the glide between hands stays continuous).
         const keyK = 1 - 0.45 * Math.max(0, 1 - Math.abs(s.x) / 1.8);
-        s.S.intensity += (s.on * 56 * keyK - s.S.intensity) * Math.min(1, dt * 6);
+        s.S.intensity += (s.on * 42 * keyK - s.S.intensity) * Math.min(1, dt * 6);
       });
       place();
     },

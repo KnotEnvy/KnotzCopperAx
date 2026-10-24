@@ -68,6 +68,8 @@ KINDS = dict(BK.KINDS, fur="fur", tabard="cloth", gold="bronze", cloth_trim="clo
 
 HELM_BOUNDS = (V(-0.36, -0.42, 1.56), V(0.36, 0.6, 2.36))
 MANTLE_BOUNDS = (V(-0.56, -0.36, 1.0), V(0.56, 0.46, 2.0))
+TABARD_W = 0.14
+CAPE_RT, CAPE_FLARE, CAPE_HEM = 0.06, 0.2, 0.13   # lower cape: top radius over the kilt top, hem flare, hem height
 CAPE_BOUNDS = (V(-0.62, -0.3, 0.04), V(0.62, 0.66, 1.2))
 SKIRT_BOUNDS = (V(-0.4, -0.42, 0.06), V(0.4, 0.42, 1.18))
 GEAR_TRIS = {"helm": 3000, "pauldron": 1500, "mantle": 2600, "cape": 2000, "skirt": 1300}
@@ -172,8 +174,10 @@ def plate_vk(S, snap, L):
               mat="steel")
         # greave front ridge + gold top rim
         a2 = norm(an - kn)
-        P2 = S.project(np.array([kn + a2 * (0.12 + 0.07 * j) + V(0, -0.3, 0) for j in range(6)]), offset=0.0)
-        S.add(Chain(list(P2), 0.011, squash=(0.5, 1.0), ref=(1, 0, 0)), 0.01, mat="steel")
+        # (r13 resume: traced out from the shin axis -- the old S.project points slid onto the foot / off the shin and
+        # left a floating zig-zag wire down to the sabaton)
+        P2 = [trace_in(S, kn + a2 * (0.12 + 0.05 * j), V(0, -1, 0), r=0.3) for j in range(6)]
+        S.add(Chain(P2, 0.011, squash=(0.5, 1.0), ref=(1, 0, 0)), 0.01, mat="steel")
         S.add(Bounded(Inter(Offset(snap, 0.04), Slab(kn + a2 * 0.1, a2, 0.007), Sphere(kn + a2 * 0.1, 0.16), k=0.002),
                       kn - 0.3, kn + 0.3), 0.002, mat="gold")
         pc = kn + V(0, -0.05, 0.0)
@@ -351,13 +355,13 @@ def helm(L, H):
         S.add(ch, 0.006, mat="steel")
     # red horsehair plume: rises from the crest socket and falls down the back
     S.add(RoundCone(H(0, 0.06, 0.16), H(0, 0.08, 0.215), 0.02 * s, 0.018 * s), 0.008, mat="gold")
-    pts = [H(0, 0.06, 0.2), H(0, 0.1, 0.27), H(0, 0.2, 0.27), H(0, 0.29, 0.17), H(0, 0.34, 0.02), H(0, 0.36, -0.14),
-           H(0, 0.37, -0.3), H(0, 0.36, -0.42)]
-    rr = [0.028, 0.06, 0.072, 0.07, 0.062, 0.05, 0.036, 0.016]
+    pts = [H(0, 0.06, 0.2), H(0, 0.1, 0.28), H(0, 0.2, 0.29), H(0, 0.29, 0.2), H(0, 0.34, 0.06), H(0, 0.36, -0.08),
+           H(0, 0.355, -0.2)]
+    rr = [0.028, 0.062, 0.076, 0.074, 0.064, 0.044, 0.014]
     S.add(Displace(Chain(pts, [r * s for r in rr], squash=(0.62, 1.0), ref=(1, 0, 0)), 0.008, 46.0, 2, seed=16), 0.014,
           mat="plume")
     for sx in (1, -1):                                              # loose side locks
-        lp = [H(sx * 0.02, 0.24, 0.22), H(sx * 0.07, 0.31, 0.08), H(sx * 0.09, 0.34, -0.1), H(sx * 0.08, 0.35, -0.3)]
+        lp = [H(sx * 0.02, 0.24, 0.22), H(sx * 0.07, 0.31, 0.08), H(sx * 0.085, 0.34, -0.04), H(sx * 0.075, 0.345, -0.14)]
         S.add(Displace(Chain(lp, [0.03 * s, 0.03 * s, 0.022 * s, 0.008 * s]), 0.006, 50.0, 2, seed=17 + sx), 0.014,
               mat="plume")
     return S, eye_pts, nose_pts
@@ -465,24 +469,30 @@ def mantle(snapA, L, S_body, kp):
         tip = p + norm(d * 0.6 + V(0, 0, -0.8)) * rng.uniform(0.04, 0.075)
         S.add(RoundCone(p - d * 0.01, tip, rng.uniform(0.018, 0.028), 0.004), 0.012, mat="fur")
     # crimson UPPER CAPE: the same cone family as the lower cape (cape()), from under the fur down to the belt where the
-    # radii meet, so shoulders -> ankles reads as one heavy cape (gathered band at the belt hides the skinning seam)
+    # radii meet, so shoulders -> ankles reads as one heavy cape (its hem overlaps the lower cape top: a small 1 cm step)
     sq = kp["squash"] * 1.05
-    rt = kp["r_top"] + 0.035
+    rt = kp["r_top"] + CAPE_RT + 0.01           # just outside the lower cape's top edge (it tucks under; small step)
     top_c = kp["top_z"] + 0.07
     cy0 = kp["cy"] + 0.03
-    zt = cz + 0.02
-    r_up = max(0.34, 0.27 / sq)
-    cone = RoundCone(V(0, cy0 - 0.02, zt), V(0, cy0, top_c + 0.02), r_up, rt, squash=(sq, 1.0))
+    zt = cz + 0.05                              # tucked up under the fur (no plate gap between fur and cape)
+    r_up = 0.5                                 # wide across the back under the fur, pauldron to pauldron
+    cone = RoundCone(V(0, cy0 + 0.02, zt), V(0, cy0, top_c + 0.02), r_up, rt, squash=(sq, 1.0))   # top set back: clears the back-plate rims
     back = HalfSpace(V(0, cy0 + 0.02, 0), V(0, -1, 0))
     up = Inter(Shell(cone, 0.0065), back, HalfSpace(V(0, 0, zt - 0.02), V(0, 0, 1)),
-               HalfSpace(V(0, 0, top_c - 0.03), V(0, 0, -1)), k=0.004)
+               HalfSpace(V(0, 0, top_c - 0.075), V(0, 0, -1)), k=0.004)
+    # yoke: the top slopes in from the cape's shoulder edge to under the fur, so the cape hangs FROM the shoulders
+    # (side view: no board-like top edge standing off the back)
+    yk = RoundCone(V(0, cy0 - 0.01, zt + 0.07), V(0, cy0 + 0.02, zt - 0.03), 0.36, r_up + 0.003, squash=(sq, 1.0))
+    yoke = Inter(Shell(yk, 0.0065), back, HalfSpace(V(0, 0, zt + 0.07), V(0, 0, 1)),
+                 HalfSpace(V(0, 0, zt - 0.04), V(0, 0, -1)), k=0.004)
+    up = Union(up, yoke, k=0.012)
     up = Diff(up, Offset(snapA, 0.012), k=0.004)
     S.add(Bounded(Displace(up, 0.0025, 11.0, 2, seed=92), lo, hi), 0.0, mat="cloth")
-    for i, f in enumerate(np.linspace(-0.8, 0.8, 7)):                     # folds falling from the shoulders
-        def at(t):
-            z = zt - 0.05 + (top_c - (zt - 0.05)) * t
+    for i, f in enumerate(1.05 * np.linspace(-0.85, 0.85, 9)):            # folds from the shoulders, on the SAME 9
+        def at(t):                                                          # angles as the lower cape's: one fold line
+            z = zt - 0.05 + (top_c - 0.075 - (zt - 0.05)) * t
             r = r_up + (rt - r_up) * t + 0.004
-            return V(math.sin(f) * r, cy0 - 0.02 + 0.02 * t + math.cos(f) * r * sq, z)
+            return V(math.sin(f) * r, cy0 + 0.02 - 0.02 * t + math.cos(f) * r * sq, z)
         fold = Inter(Chain([at(t) for t in np.linspace(0, 1, 5)], [0.006, 0.012, 0.014, 0.012, 0.01]), back, k=0.004)
         S.add(Bounded(fold, lo, hi), 0.016, mat="cloth")
     return S
@@ -495,7 +505,7 @@ def skirt(kp):
     S = Sculpt(materials=MATS, default_mat="cloth")
     top = kp["top_z"] + 0.03
     # front tabard
-    hz, w = 0.2, 0.125
+    hz, w = 0.2, TABARD_W
     y_s = kp["yf"] - 0.016
     cone = RoundCone(V(0, kp["cy"], top + 0.02), V(0, kp["cy"] - 0.03, hz - 0.1), kp["r_top"] + 0.006,
                      kp["r_hem"] + 0.07, squash=(kp["squash"], 1.0))
@@ -525,8 +535,8 @@ def cape(kp):
     """Long TORN crimson cape (belt to the ankles, behind the legs), wider than the body, heavy vertical folds, a
     ragged broken hem with notches and holes, gold border. Painted with the gold crowned serpent (painter)."""
     S = Sculpt(materials=MATS, default_mat="cloth")
-    top, hz = kp["top_z"] + 0.07, 0.11
-    rt, rh = kp["r_top"] + 0.035, kp["r_hem"] + 0.3
+    top, hz = kp["top_z"] + 0.07, CAPE_HEM
+    rt, rh = kp["r_top"] + CAPE_RT, kp["r_hem"] + CAPE_FLARE
     cy0 = kp["cy"] + 0.03
     cone = RoundCone(V(0, cy0, top + 0.02), V(0, cy0 + 0.1, hz - 0.12), rt, rh, squash=(kp["squash"] * 1.05, 1.0))
     back = HalfSpace(V(0, cy0 + 0.0, 0), V(0, -1, 0))
@@ -560,21 +570,74 @@ def cape(kp):
         pts = [at(t) for t in np.linspace(0, 1, 6)]
         fold = Inter(Chain(pts, [0.006, 0.012, 0.02, 0.028, 0.034, 0.036]), back, tg, k=0.004)
         S.add(Bounded(Diff(fold, Union(*tears, k=0.01)), lo, hi), 0.018, mat="cloth")
-    # gathered top band where the cape hangs from the belt (reads as bunched cloth, not a cut shelf)
-    gp = []
-    for a in np.linspace(-1.35, 1.35, 13):
-        gp.append(V(math.sin(a) * (rt + 0.01), cy0 + math.cos(a) * (rt + 0.01) * kp["squash"] * 1.05, top - 0.015 - 0.012 * math.cos(a * 3)))
-    S.add(Bounded(Displace(Chain(gp, 0.026, squash=(0.6, 1.0), ref=(0, 0, 1)), 0.005, 30.0, 2, seed=72), lo, hi), 0.02,
-          mat="cloth")
+    # (r13 resume: no gathered belt band -- the upper cape overlaps this top edge, one cape shoulders -> ankles)
     # gold border down the two side edges (inside the cut)
-    edge = Inter(Offset(panel, 0.0015), tg, Diff(back, HalfSpace(V(0, cy0 + 0.035, 0), V(0, -1, 0))), k=0.002)
+    edge = Inter(Offset(panel, 0.0015), tg, Diff(back, HalfSpace(V(0, cy0 + 0.02, 0), V(0, -1, 0))), k=0.002)
     S.add(Bounded(edge, lo, hi), 0.001, mat="cloth_trim")
     return S
 
 
+def skin_kilt_vk(ob, arm, kp, n, share, seam):
+    """charkit.skin_kilt with a tunable thigh share + L/R seam width. The long back cape and the front tabard only
+    lean on the thighs a little (share 0.3) and blend L/R over a wide centre seam, so the hem does not tear down the
+    middle in split/kick poses and the chain stays the main joint (validate-glb far-joint rule)."""
+    kilt_bones = ["hips", "thigh_L", "thigh_R"] + [b.name for b in arm.data.bones if b.name.startswith("kilt_")]
+    top = kp["top_z"]
+
+    def post(P, names, W):
+        for t in ("thigh_L", "thigh_R"):
+            W[:, names.index(t)] = 0.0
+        W = charkit.kilt_angular_blend(P, names, W, kp, n)
+        W, _ = skin.top_k(W, 4)
+        return skin.skirt_weights(P, names, W, top, kp["hem_z"], share=share, seam=seam)
+    return skin.skin(ob, arm, method="sdf", allowed=kilt_bones, power=3.0, post=post,
+                     overrides=[(lambda P: np.clip((P[:, 2] - (top - 0.05)) / 0.04, 0, 1), "hips")])
+
+
+def mantle_post(P, names, W):
+    z = P[:, 2]
+    a = shaders.smooth01(z, 1.18, 1.32)
+    b = shaders.smooth01(z, 1.34, 1.5)
+    W = np.zeros_like(W)
+    W[:, names.index("hips")] = 1 - a
+    W[:, names.index("spine")] = a * (1 - b)
+    W[:, names.index("chest")] = a * b
+    return W
+
+
+def armpit_post(L):
+    """The bulked torso flank sits ~15-20 cm from the inner upper arm, but the sdf weighting bound flank vertices at
+    chest height to upperarm_* (stretch QA: reach/overhead tore spine<->upperarm edges). Below/inside the upper-arm
+    axis by more than the arm's own radius, hand the upperarm weight to the chest."""
+    def post(P, names, W):
+        if "chest" not in names:
+            return W
+        c = names.index("chest")
+        for s in ("L", "R"):
+            ua = "upperarm_" + s
+            if ua not in names:
+                continue
+            sh, el = L["shoulder_" + s], L["elbow_" + s]
+            d = norm(el - sh)
+            u = np.array([d[2], 0.0, -d[0]])
+            if u[2] > 0:
+                u = -u
+            u = u / np.linalg.norm(u)
+            v = P - sh
+            t = v @ d
+            ou = (v - t[:, None] * d[None, :]) @ u
+            k = shaders.smooth01(ou, 0.05, 0.18) * (t > -0.05) * (t < 0.38)   # wide ramp: no hard seam at the armpit
+            j = names.index(ua)
+            mv = W[:, j] * k
+            W[:, j] -= mv
+            W[:, c] += mv
+        return W
+    return post
+
+
 def cape_params(kp):
     k = dict(kp)
-    k.update(hem_z=0.11, r_hem=kp["r_hem"] + 0.3)
+    k.update(hem_z=CAPE_HEM, r_hem=kp["r_hem"] + CAPE_FLARE)
     return k
 
 
@@ -596,9 +659,9 @@ def p_plate_vk(c, pal):
     rgb = np.tile(base, (c.n, 1)) * (0.88 + 0.18 * n1 + 0.05 * n2)[:, None]
     rust = shaders.smooth01(n3 + 0.25 * c.cav, 0.35, 0.85)
     rgb = shaders.mix(rgb, pal["steel_rust"], 0.55 * rust)
-    wear = np.clip(c.ridge * 1.45 + 0.3 * shaders.smooth01(n2, 0.55, 0.9) * c.ridge, 0, 1)
-    rgb = shaders.mix(rgb, edge, 0.88 * wear)
-    rgb = shaders.mix(rgb, edge * 0.75, (1 - scratch) * 0.32 * (1 - c.cav))
+    wear = shaders.smooth01(c.ridge, 0.22, 0.7) * (0.75 + 0.25 * shaders.smooth01(n2, 0.5, 0.9))
+    rgb = shaders.mix(rgb, edge, 0.85 * wear)
+    rgb = shaders.mix(rgb, edge * 0.6, (1 - scratch) * 0.16 * (1 - c.cav))
     rgb = shaders.mix(rgb, base * 0.22, shaders.smooth01(c.cav, 0.03, 0.42) * 0.92)
     rough = 0.44 + 0.1 * n1 + 0.18 * c.cav - 0.24 * wear + 0.16 * rust
     metal = 0.9 - 0.35 * rust
@@ -664,13 +727,13 @@ def p_tabard(c, pal):
     n1 = c.noise(9.0, 2, 501)
     # torn-hem dirt
     rgb = shaders.mix(rgb, rgb * 0.55, shaders.smooth01(0.42 - pz + 0.04 * n1, 0.0, 0.2) * 0.7)
-    w = 0.125
+    w = TABARD_W
     edge_d = w - np.abs(px)
     border = edge_d < 0.024
     goldline = (edge_d >= 0.024) & (edge_d < 0.031)
     rgb = np.where(border[:, None], pal["tabard_border"] * (0.9 + 0.15 * n1)[:, None], rgb)
     rgb = np.where(goldline[:, None], pal["cloth_trim"], rgb)
-    body, ring, crown, jewels = heraldry(px, pz, 0.0, 0.84, 0.42, 0.034, 0.013, 0.042)
+    body, ring, crown, jewels = heraldry(px, pz, 0.0, 0.84, 0.4, 0.046, 0.021, 0.056)
     rgb = np.where(ring[:, None], pal["cloth_trim"] * 0.9, rgb)
     rgb = np.where(body[:, None], pal["tabard_ink"] * (0.9 + 0.2 * n1)[:, None], rgb)
     rgb = np.where(crown[:, None], pal["cloth_trim"], rgb)
@@ -691,7 +754,7 @@ def p_cloth_vk(c, pal):
     if part == "cape":
         rgb = shaders.mix(rgb, rgb * 0.5, shaders.smooth01(0.4 - P[:, 2] + 0.05 * n1, 0.0, 0.3) * 0.75)
         back = P[:, 1] > 0.05
-        body, ring, crown, jewels = heraldry(P[:, 0], P[:, 2], 0.0, 0.84, 0.36, 0.07, 0.024, 0.08)
+        body, ring, crown, jewels = heraldry(P[:, 0], P[:, 2], 0.0, 0.92, 0.34, 0.12, 0.042, 0.115)
         gold = (body | crown) & back
         rgb = np.where(gold[:, None], pal["cloth_trim"] * (0.88 + 0.2 * n1)[:, None], rgb)
         rgb = np.where((ring & back)[:, None], pal["cloth"] * 0.45, rgb)
@@ -701,6 +764,14 @@ def p_cloth_vk(c, pal):
     return rgb, rough, metal, emit
 
 
+def p_gold_thread(c, pal):
+    """Cape border: gilt thread (gold, semi-metal) instead of the knight kit's tan rag trim."""
+    n1 = c.noise(60.0, 2, 521)
+    rgb = np.tile(pal["cloth_trim"], (c.n, 1)) * (0.85 + 0.25 * n1)[:, None]
+    rgb = shaders.mix(rgb, rgb * 0.45, c.cav)
+    return shaders.out(c.n, rgb, 0.45, 0.65)
+
+
 def p_void_vk(c, pal):
     rgb = np.tile(pal["void"], (c.n, 1))
     return shaders.out(c.n, rgb, 0.9)
@@ -708,7 +779,7 @@ def p_void_vk(c, pal):
 
 PAINTERS = dict(BK.PAINTERS, steel=p_plate_vk, skin=p_mail_vk, eye=p_mail_vk, nail=p_mail_vk, brow=p_mail_vk,
                 trim=lambda c, pal: shaders.p_metal(c, pal, "trim"), gold=lambda c, pal: shaders.p_metal(c, pal, "gold"),
-                fur=shaders.p_fur_mass, tabard=p_tabard, cloth=p_cloth_vk, void=p_void_vk)
+                fur=shaders.p_fur_mass, tabard=p_tabard, cloth=p_cloth_vk, void=p_void_vk, cloth_trim=p_gold_thread)
 
 MAT_COLORS = dict(BK.MAT_COLORS, steel=(0.16, 0.16, 0.17), trim=(0.75, 0.52, 0.16), gold=(0.78, 0.55, 0.16),
                   cloth=(0.42, 0.04, 0.05), cloth_trim=(0.75, 0.55, 0.2), plume=(0.6, 0.05, 0.06),
@@ -840,15 +911,18 @@ def build(args):
 
     t = time.time()
     body_bones = [b.name for b in arm.data.bones if b.use_deform and not b.name.startswith(("kilt_", "hair_"))]
-    body_W = skin.skin(los["body"], arm, method="sdf", S=S, allowed=body_bones,
+    body_W = skin.skin(los["body"], arm, method="sdf", S=S, allowed=body_bones, post=armpit_post(L),
                        overrides=[(charkit.head_mask(H), "head"), (BK.crotch_mask, "hips")] +
                                  [(charkit.wrist_mask(L, s, beyond=0.03), "hand_" + s) for s in ("L", "R")])
     for s in ("L", "R"):
         skin.skin(los["hand_" + s], arm, method="sdf", allowed=["forearm_" + s, "hand_" + s],
                   overrides=[(charkit.wrist_mask(L, s), "hand_" + s)], smooth=2)
-    charkit.skin_kilt(los["skirt"], arm, skirt_params(KP), BK.KILT_CHAIN)
-    charkit.skin_kilt(los["cape"], arm, cape_params(KP), BK.KILT_CHAIN)
-    skin.skin(los["mantle"], arm, method="sdf", S=S, allowed=["hips", "spine", "chest", "neck"], smooth=4)
+    skin_kilt_vk(los["skirt"], arm, skirt_params(KP), BK.KILT_CHAIN, share=0.3, seam=0.2)
+    skin_kilt_vk(los["cape"], arm, cape_params(KP), BK.KILT_CHAIN, share=0.3, seam=0.35)
+    # mantle (fur collar + upper cape): weights by HEIGHT, hips -> spine -> chest. The sdf weighting + mesh smoothing
+    # leaked neck weight down the upper cape to the belt (twist QA tore it); the bottom overlaps the lower cape's top,
+    # which is hips-bound, so both move together; the fur collar rides the chest.
+    skin.skin(los["mantle"], arm, method="sdf", S=S, allowed=["hips", "spine", "chest"], smooth=4, post=mantle_post)
     for nm, (_, bone, _) in G.items():
         if bone:
             charkit.rigid_bind(los[nm], arm, bone)
@@ -889,11 +963,18 @@ def build(args):
     mat = pipeline.final_material("M_" + ASSET, tex["albedo"], tex["normal"], tex["orm"])
     gmat = BS.glow_material("M_" + ASSET + "_glow", pal["glow"], pal["glow_strength"])
     dups = []
+    cape_ob = None
     for k in parts:
         o = meshutil.duplicate(los[k], f"{k}_x")
         o.data.materials.clear()
         o.data.materials.append(mat)
         pipeline.strip_for_export(o)
+        if k == "cape":
+            # own mesh, same atlas material + skeleton: the bosses code skips its runtime cape when the body GLB has
+            # a mesh whose name contains "cape" (src/enemies/bosses/_varkhul.js r13Asset)
+            cape_ob = o
+            o.name = o.data.name = ASSET + "_cape"
+            continue
         dups.append(o)
     bpy.context.view_layer.update()
     body = meshutil.join(dups, ASSET + "_mesh")
@@ -903,16 +984,19 @@ def build(args):
     g.data.materials.append(gmat)
     pipeline.strip_for_export(g)
     body = meshutil.join([body, g], ASSET + "_mesh")
-    report["tris"] = meshutil.tri_count(body)
-    qa = skin.stretch_report(body, arm)
-    report["stretch_qa"] = {k: dict(bad=q_["bad"], soft=q_["soft"]) for k, q_ in qa.items()}
-    pipeline.log("stretch QA: " + ", ".join(f"{k}: bad {q_['bad']} soft {q_['soft']}" for k, q_ in qa.items()))
-    P = meshutil.get_verts(body)
+    report["tris"] = meshutil.tri_count(body) + meshutil.tri_count(cape_ob)
+    report["tris_cape"] = meshutil.tri_count(cape_ob)
+    report["stretch_qa"] = {}
+    for tag, ob_ in (("body", body), ("cape", cape_ob)):
+        qa = skin.stretch_report(ob_, arm)
+        report["stretch_qa"].update({f"{tag}:{k}": dict(bad=q_["bad"], soft=q_["soft"]) for k, q_ in qa.items()})
+    pipeline.log("stretch QA: " + ", ".join(f"{k}: bad {q_['bad']} soft {q_['soft']}" for k, q_ in report["stretch_qa"].items()))
+    P = np.concatenate([meshutil.get_verts(body), meshutil.get_verts(cape_ob)])
     report["extent"] = dict(min=P.min(axis=0).tolist(), max=P.max(axis=0).tolist(),
                             hip_z=float(L["hip_L"][2]), shoulder_x=float(L["shoulder_L"][0]))
     pipeline.log(f"extent {report['extent']}")
     out = args.out or os.path.join(OUT_MODELS, ASSET + ".glb")
-    pipeline.export_glb(out, [arm, body], scene_name=ASSET)
+    pipeline.export_glb(out, [arm, body, cape_ob], scene_name=ASSET)
     patch_glb_extras(out, {"M_" + ASSET: {"kcaMetalTint": METAL_TINT, "kcaMetalEnv": METAL_ENV}})
     report["glb"] = out
     report["glb_mb"] = os.path.getsize(out) / 1e6

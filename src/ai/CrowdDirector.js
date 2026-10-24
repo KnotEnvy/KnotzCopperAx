@@ -486,8 +486,8 @@ export class CrowdDirector {
         // C2 r2 SQUEEZE: a foe between the frame floor and a hero on his row can't make room in x → it leaves his row in depth
         if (eh && ff) { const fb = p.hero ? q : p, fd = p.hero ? dir : -dir, fr = fd > 0 ? fb.hi - fb.s : fb.s - fb.lo; if (fr < over - 0.02) fb.sq = p.hero ? p.a : q.a; }
         // …and two foes pressed together against the frame floor (one walking out to the edge, one mid-swing there): the one at
-        // the floor that can't make the room steps off the other's row in depth too
-        else if (!eh && ff && !this.noSqueeze && dz < SP_DZ && rp + rq < over - 0.02) { const pAt = (dir > 0 ? p.s - p.lo : p.hi - p.s) < 0.05, qAt = (dir > 0 ? q.hi - q.s : q.s - q.lo) < 0.05, fb = pAt ? p : qAt ? q : null; if (fb && !fb.sq && !fb.a.fsm.is('attack')) fb.sq = fb === p ? q.a : p.a; }
+        // the floor that can't make the room steps off the other's row in depth too — OFF by default (director.ffSqueeze = true turns it on; C2 r13 A/B: it held foes 8–15 s in control before a first swing, ee08 no better)
+        else if (!eh && ff && !this.noSqueeze && this.ffSqueeze && dz < SP_DZ && rp + rq < over - 0.02) { const pAt = (dir > 0 ? p.s - p.lo : p.hi - p.s) < 0.05, qAt = (dir > 0 ? q.hi - q.s : q.s - q.lo) < 0.05, fb = pAt ? p : qAt ? q : null; if (fb && !fb.sq && !fb.a.fsm.is('attack')) fb.sq = fb === p ? q.a : p.a; }
         if (rp + rq <= 1e-5) continue;
         let mp = Math.min(rp, over * sp), mq = Math.min(rq, over - mp);
         if (mq < over - mp - 1e-6) mp = Math.min(rp, over - mq); // q is stuck (frame edge / cap): p takes the rest

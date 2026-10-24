@@ -184,9 +184,12 @@ export function applyCharacterLook(root, { strength = 1 } = {}) {
     for (const m of list) {
       if (!LIT(m) || m.userData.kcaChar || m.userData.noCharacterLook) continue;
       m.userData.kcaChar = true;
-      const k = { value: strength };
+      // C2 r13 (hero-seraphine, additive): per-material rim scale from glTF material extras `kcaRimScale` (1 = unchanged).
+      // The alpha-tested hair cards sit at grazing angles everywhere, so the full hero rim washed them pale.
+      const rs = m.userData.kcaRimScale === undefined ? 1 : +m.userData.kcaRimScale;
+      const k = { value: strength * rs };
       m.userData.kcaRimK = k;
-      m.userData.kcaRimBase = strength;
+      m.userData.kcaRimBase = strength * rs;
       // C2 r3 (hero-weapons): per-material dark-rim strength (0 = off; anim/retarget.js sets it on the hero weapons)
       const ed = m.userData.kcaEdgeDarkU || (m.userData.kcaEdgeDarkU = { value: +m.userData.kcaEdgeDark || 0 });
       // C2 r5 (hero-weapons): per-material hue-locked metal (vec4, 0 = off; anim/retarget.js sets it on the hero weapons)

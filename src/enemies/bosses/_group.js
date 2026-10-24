@@ -110,7 +110,10 @@ export function groupBoss(game, { name, title, typeId, members = [], element = '
           const kk = 1 - Math.exp(-2.4 / 60);
           // C2 r13: the encounter's frame limits (stage 3: the eagle's head stays out of the boss shot)
           const vmx = camera && Number.isFinite(camera.viewMaxX) && !/[?&]bossframe=0/.test(location.search) ? camera.viewMaxX : null;
-          const cxv = vmx === null ? cx : Math.min(cx, vmx - o.distance * tf * asp);
+          // …but never past the members' own reach (r13 resume: when the Wyrm Rider advanced in the intro the limit cut the
+          // wyrm's tail at the frame edge) — a mounted member reaches ~3 m (tail), a foot boss 1.4 m
+          let reach = -Infinity; for (const m of ms) reach = Math.max(reach, m.pos.x + (m.mountedOn ? 3.0 : 1.4) + 0.3);
+          const cxv = vmx === null ? cx : Math.min(cx, Math.max(vmx, reach) - o.distance * tf * asp);
           F.x += (cxv - F.x) * kk; F.z += ((fp.z || 0) - F.z) * kk; o.distance += (dd - o.distance) * kk;
           // C2 r13: lift the members' feet clear of the lower-third card band (vertical camera shift, same pitch)
           const drop = cardClear(game, ms, cc, { distance: o.distance, fov: o.fov });

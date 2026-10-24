@@ -38,7 +38,7 @@ const WH_R12 = typeof location !== 'undefined' && /[?&]witchfire=r12/.test(locat
 // off the top and rise, a tighter brighter palm core glow, and a flickering green point light — one reused slot of the
 // VfxSystem's pooled pop lights (the scene's point-light count never changes → no new programs).
 // [dx along facing, dy, dz toward camera, w, h, cycle s, phase, mirror, lean, additive, core, tint]
-const BODY = [0.28, 1.5, 0.52], CORE = [0.9, 2.6, 1.3];
+const BODY = [0.08, 1.5, 0.5], CORE = [0.9, 2.6, 1.3];   // r13 resume: body r 0.28 → 0.08 (the atlas' red tongue tips read orange)
 const TONGUES = WH_R12 ? [
   [0.10, 0.02, 0.42, 0.21, 0.56, 0.62, 0.0, 1, -0.10, true, 1.6, null],
   [0.0, 0.0, 0.48, 0.16, 0.44, 0.53, 0.37, -1, 0.16, true, 1.6, null],

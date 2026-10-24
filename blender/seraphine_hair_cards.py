@@ -36,6 +36,10 @@ STRIP_W = ATLAS_RES // STRIPS
 #   wispy : few strands, no solid body -> hairline / tendrils
 STRIP_KIND = ["dense", "dense", "dense", "dense", "medium", "medium", "wispy", "wispy"]
 KIND_IDX = {k: [i for i, s in enumerate(STRIP_KIND) if s == k] for k in ("dense", "medium", "wispy")}
+# r13: the sun-disc medallion is geometry in the card mesh; its metallic gold lives in a patch across the bottom of the
+# two wispy strips (rows >= GOLD_ROW0 of strips 6-7; wispy strands end by 0.84 so the patch has a clear margin).
+GOLD_ROW0 = 0.875
+GOLD_STRIPS = (6, 7)
 
 
 # ============================================================================ atlas
@@ -96,14 +100,18 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
         lam = rng.uniform(0.28, 0.9)
         ph = rng.uniform(0, 2 * math.pi)
         thick = rng.uniform(*t_rng)
-        end = rng.uniform(0.62, 1.0) if kind != "wispy" else rng.uniform(0.45, 1.0)
-        start = 0.0 if kind != "wispy" else rng.uniform(0.0, 0.12)
+        end = rng.uniform(0.62, 1.0) if kind != "wispy" else rng.uniform(0.45, 0.84)
+        start = 0.0 if kind != "wispy" else rng.uniform(0.0, 0.15)
         val = rng.choice([0.62, 0.8, 0.95, 1.05, 1.18, 1.32], p=[0.1, 0.22, 0.28, 0.2, 0.13, 0.07])
         xc = cx + (x0 - cx) * (1 - conv * v) + amp * np.sin(2 * math.pi * v / lam + ph) + \
             2.0 * np.sin(2 * math.pi * v * 3.1 + ph * 1.7) * v
         # taper: full thickness to 70 % of its length, then to a point
         u = np.clip((v - start) / max(end - start, 1e-3), 0, 1)
         th = thick * np.clip(1.25 - 1.25 * np.clip((u - 0.7) / 0.3, 0, 1) ** 1.3, 0.25, 1.0)
+        if kind == "wispy":     # r13: strands grow in from nothing (hairline roots on skin read as cut paper otherwise)
+            th = th * np.clip(u / 0.16, 0, 1) ** 0.6
+        else:                   # r13: dense / medium strands taper in over the first 5 % too (root fade, see backing)
+            th = th * np.clip(u / 0.05, 0, 1) ** 0.5
         th = np.where((v >= start) & (v <= end), th, 0.0)
         dx = np.abs(cols - xc)
         cov = np.clip(th * 0.5 + 0.5 - dx, 0, 1) * (th > 0)
@@ -121,6 +129,9 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
     lat = np.minimum(cols, W - cols)
     e = e_fade * (1 + 0.7 * nz2[:, None] + 0.35 * _noise1(H, 22.0, rng)[:, None])      # torn lateral edges
     backing = backing * np.clip(lat / np.maximum(e, 1.0), 0, 1) ** 0.8
+    # r13: the root end dissolves into strands over the first ~6 % (ragged), so a card root on skin is not a cut edge
+    root_in = np.clip((v - 0.004 - 0.02 * (0.5 + 0.5 * nz[None, :])) / 0.055, 0, 1) ** 0.7
+    backing = backing * root_in
     if kind == "wispy":
         backing *= 0.0
     # backing colour: darker, streaked (so even the solid body shows strand direction)
@@ -157,6 +168,27 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
         rgb[:, k * W:(k + 1) * W] = c
         height[:, k * W:(k + 1) * W] = h
         cov[:, k * W:(k + 1) * W] = cv
+    # r13: metallic gold patch for the medallion across the bottom of the wispy strips (alpha 1, metal 1, hammered)
+    r0 = int(round(GOLD_ROW0 * res))
+    c0, c1 = GOLD_STRIPS[0] * W, (GOLD_STRIPS[-1] + 1) * W
+    gy, gx = np.mgrid[r0:res, c0:c1]
+    py = (gy - r0) / max(res - 1 - r0, 1) * 2 - 1
+    px = (gx - c0) / max(c1 - c0 - 1, 1) * 2 - 1
+    rad = np.sqrt(px * px + py * py)
+    grng = np.random.RandomState(seed + 101)
+    bump = np.zeros_like(rad)
+    for _ in range(26):        # hammered facets: shallow round dents
+        bx, by, br = grng.uniform(-1, 1), grng.uniform(-1, 1), grng.uniform(0.10, 0.22)
+        bump += np.clip(1 - ((px - bx) ** 2 + (py - by) ** 2) / (br * br), 0, 1) ** 1.5 * grng.uniform(0.4, 1.0)
+    bump = np.clip(bump, 0, 1.2)
+    gold = pal.get("gold", _srgb(236, 190, 98)) if pal else _srgb(236, 190, 98)
+    gcol = gold[None, None, :] * (0.86 + 0.18 * (1 - bump) - 0.10 * np.clip((rad - 0.6) / 0.4, 0, 1))[..., None]
+    rgb[r0:res, c0:c1] = np.clip(gcol, 0, 1)
+    alpha[r0:res, c0:c1] = 1.0
+    height[r0:res, c0:c1] = 1.6 * (1 - bump)                   # px-ish height for the normal (dents go in)
+    cov[r0:res, c0:c1] = 1.0
+    gold_patch = np.zeros((res, res), bool)
+    gold_patch[r0:res, c0:c1] = True
     # tangent-space normal from the strand height field (px units): +X = +u, +Y = +v (v up = toward the root row 0)
     hs = height.copy()
     hs = (hs + np.roll(hs, 1, 0) + np.roll(hs, -1, 0) + np.roll(hs, 1, 1) + np.roll(hs, -1, 1)) / 5.0
@@ -169,7 +201,11 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
     v = (np.arange(res) / (res - 1.0))[:, None]
     occ = (0.58 + 0.42 * np.clip(v / 0.3, 0, 1)) * (0.86 + 0.14 * cov)
     rough = 0.90 + 0.06 * (1 - cov) + 0.03 * np.sin(np.arange(res)[None, :] * 0.37 + v * 9.0)
-    orm = np.stack([occ, np.clip(rough, 0.3, 0.98), np.zeros_like(occ)], -1)
+    metal = np.zeros_like(occ)
+    rough = np.where(gold_patch, 0.34 + 0.08 * np.sin(np.arange(res)[None, :] * 0.61 + v * 23.0), rough)
+    occ = np.where(gold_patch, 1.0, occ)
+    metal = np.where(gold_patch, 1.0, metal)
+    orm = np.stack([occ, np.clip(rough, 0.3, 0.98), metal], -1)
     os.makedirs(out_dir, exist_ok=True)
     srgb = np.clip(rgb, 0, 1) ** (1 / 2.2)
     alb = np.concatenate([srgb, alpha[..., None]], -1)
@@ -248,7 +284,7 @@ def scalp_ray(dist_fn, c, dirs, r_max=0.3):
 
 
 def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, gather_dir, s=1.0, seed=11,
-                 hairline_el=None):
+                 hairline_el=None, medallion=None):
     """Card dicts: path (n x 3), normal hint (n x 3), width (n,), strip (int), flip (bool), kind.
     dist_fn / grad_fn: body + under-mass field (cards ride on it); skin_dist / skin_grad: body only (tendrils rest on
     the cheek). locks: list of dict(root_dir, g_dir, width, n) from the under-mass design (already mirrored).
@@ -272,14 +308,14 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
     # ---- layer A: one wide card per designed lock, riding the under-mass (the lock's own strand read)
     for lk in locks:
         rd = _rot_az(lk["root_dir"], math.radians(rng.uniform(-1.5, 1.5)))
-        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * 0.92, 0.0016 * s, 1.0, 10,
+        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * 0.92, 0.0016 * s, 1.0, 8,
                                rng.choice(KIND_IDX["dense"]), bow=rng.uniform(-0.002, 0.002) * s))
     # ---- layer A': interleaved narrower cards between the A roots at the same height (denser shingle, fewer flat
     #      plates showing their full width)
     for lk in locks:
         sx = 1.0 if lk["root_dir"][0] >= 0 else -1.0
         rd = _rot_az(lk["root_dir"], math.radians(-sx * 7.0 + rng.uniform(-1.5, 1.5)))
-        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.62, 0.74), 0.0022 * s, rng.uniform(0.85, 1.0), 9,
+        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.62, 0.74), 0.0022 * s, rng.uniform(0.85, 1.0), 8,
                                rng.choice(KIND_IDX["dense"]), bow=rng.uniform(-0.002, 0.002) * s, kind="lock"))
     # ---- layer B: a half-offset shingle of narrower cards (between the A roots), a little higher, shorter -> the
     #      tapered tips end mid-crown / mid-side so the mass breaks into strands without crossing flows
@@ -288,7 +324,7 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
         rd = _rot_az(lk["root_dir"], math.radians(sx * 7.5 + rng.uniform(-1.5, 1.5)))
         rd = _slerp(rd, lk["g_dir"], rng.uniform(0.02, 0.06))
         cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.50, 0.62), rng.uniform(0.0036, 0.0046) * s,
-                               rng.uniform(0.62, 0.82), 8, rng.choice(KIND_IDX["medium"]),
+                               rng.uniform(0.62, 0.82), 7, rng.choice(KIND_IDX["medium"]),
                                bow=rng.uniform(-0.002, 0.002) * s, kind="lock2"))
     # ---- hairline wisps: short narrow cards from the hairline ring, flowing back into the mass
     el_fn = hairline_el or (lambda az: math.radians(30.0 - 26.0 * _smooth((abs(az) - 22.0) / 50.0) -
@@ -303,8 +339,8 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
         rd = _dir(math.radians(az + rng.uniform(-2, 2)), el)
         gd = _slerp(rd, gather_dir, 0.30 + rng.uniform(-0.05, 0.08))
         wid = rng.uniform(0.010, 0.016) * s
-        kind = "wispy" if rng.rand() < 0.6 else "medium"
-        c = lock_card(rd, gd, wid, 0.0008 * s, 1.0, 7, rng.choice(KIND_IDX[kind]), kind="hairline")
+        kind = "wispy"      # r13: wispy strips only (root taper) -- a medium strip's solid backing is a cut edge on skin
+        c = lock_card(rd, gd, wid, 0.0008 * s, 1.0, 6, rng.choice(KIND_IDX[kind]), kind="hairline")
         cards.append(c)
     # ---- temple tendrils: thin wispy cards resting on the cheek in front of the ears
     for pts in tendrils:
@@ -326,8 +362,11 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
         rd = _dir(math.radians(az), math.radians(el))
         gd = _slerp(rd, _dir(math.pi, math.radians(-30.0)), 0.55)
         kind = "wispy" if a > 150 else "medium"
-        cards.append(lock_card(rd, gd, rng.uniform(0.018, 0.026) * s, 0.0014 * s, 1.0, 7, rng.choice(KIND_IDX[kind]),
+        cards.append(lock_card(rd, gd, rng.uniform(0.018, 0.026) * s, 0.0014 * s, 1.0, 6, rng.choice(KIND_IDX[kind]),
                                kind="nape"))
+    # ---- r13: the rayed sun-disc medallion as geometry (see medallion_geom)
+    if medallion is not None:
+        cards.append(medallion_geom(dist_fn, grad_fn, medallion, s=s))
     return cards
 
 
@@ -348,23 +387,104 @@ def strip_uv(k, flip, pad_px=2, res=ATLAS_RES):
     return (u1, u0) if flip else (u0, u1)
 
 
+def gold_uv_rect(res=ATLAS_RES, pad_px=10):
+    """(u0, u1, v0, v1) of the medallion gold patch in Blender UV convention (v = 1 at image row 0)."""
+    W = res // STRIPS
+    r0 = int(round(GOLD_ROW0 * res))
+    u0 = (GOLD_STRIPS[0] * W + pad_px) / res
+    u1 = ((GOLD_STRIPS[-1] + 1) * W - pad_px) / res
+    v_top = 1.0 - (r0 + pad_px) / (res - 1.0)
+    v_bot = 1.0 - (res - 1 - pad_px) / (res - 1.0)
+    return u0, u1, v_bot, v_top
+
+
+def medallion_geom(dist_fn, grad_fn, med, s=1.0, n_rays=16, r_disc=0.0130, ray_len=(0.0170, 0.0120),
+                   ray_base=0.0040, ray_tip=0.00040, lift_skin=0.0030, lift_band=0.0008, lift_hair=0.0060):
+    """The rayed sun-disc medallion (reference seraphine_hair_circlet.png): a slightly convex hammered disc on the band
+    centre + alternating long / short pointed rays, wrapped onto the head: every vertex is ray-cast from the head
+    centre against the body + under-mass field (which includes the band) and lifted by an elevation-dependent clearance
+    (on the skin below the band, resting ON the band, above the hair cards over the under-mass). UVs map into the
+    atlas gold patch. Returns dict(kind="medallion", verts, tris, quads, uv, normal)."""
+    f, fn, up, side, hc = (np.asarray(med[k], float) for k in ("f", "fn", "up", "side", "hc"))
+    el_band = math.asin(float(np.clip(_norm(f - hc)[2], -1, 1)))
+    u0, u1, v0, v1 = gold_uv_rect()
+    R_max = (r_disc + max(ray_len)) * s * 1.08
+    V, N, UV, T, Q = [], [], [], [], []
+
+    def lift(el):
+        d = el - el_band
+        L = lift_skin + (lift_band - lift_skin) * _smooth((d + 0.070) / 0.050)       # skin -> on the band (-4..-1 deg)
+        L = L + (lift_hair - lift_band) * _smooth((d - 0.045) / 0.070)             # band -> over the cards (+2.5..+6.5)
+        return L * s
+
+    def add(x, y, raise_mm=0.0):
+        Pt = f + side * x + up * y
+        d = _norm(Pt - hc)
+        r = float(scalp_ray(dist_fn, hc, d[None, :])[0])
+        el = math.asin(float(np.clip(d[2], -1, 1)))
+        P = hc + d * (r + lift(el) + raise_mm)
+        V.append(P)
+        N.append(d)
+        UV.append((u0 + (u1 - u0) * (0.5 + 0.5 * x / R_max), v0 + (v1 - v0) * (0.5 + 0.5 * y / R_max)))
+        return len(V) - 1
+
+    rd, r1 = r_disc * s, r_disc * s * 0.48
+    c = add(0.0, 0.0, 0.0017 * s)
+    ring1 = [add(r1 * math.cos(a), r1 * math.sin(a), 0.0011 * s) for a in np.linspace(0, 2 * math.pi, n_rays, endpoint=False)]
+    ring2 = [add(rd * math.cos(a), rd * math.sin(a), 0.0) for a in np.linspace(0, 2 * math.pi, n_rays, endpoint=False)]
+    for i in range(n_rays):
+        j = (i + 1) % n_rays
+        T.append((c, ring1[i], ring1[j]))
+        Q.append((ring1[i], ring2[i], ring2[j], ring1[j]))
+    for i in range(n_rays):
+        a = (i + 0.5) * 2 * math.pi / n_rays
+        ln = ray_len[i % 2] * s
+        ca, sa = math.cos(a), math.sin(a)
+        bx, by = (rd - 0.0012 * s) * ca, (rd - 0.0012 * s) * sa     # base tucked under the disc rim
+        tx, ty = (rd + ln) * ca, (rd + ln) * sa
+        hb, ht = ray_base * s * 0.5, ray_tip * s * 0.5
+        b0 = add(bx - sa * hb, by + ca * hb, -0.0004 * s)
+        b1 = add(bx + sa * hb, by - ca * hb, -0.0004 * s)
+        t1 = add(tx + sa * ht, ty - ca * ht, 0.0)
+        t0 = add(tx - sa * ht, ty + ca * ht, 0.0)
+        Q.append((b0, b1, t1, t0))
+    V = np.array(V)
+    NN = grad_fn(V)
+    return dict(kind="medallion", verts=V, tris=np.array(T, np.int64), quads=np.array(Q, np.int64), uv=np.array(UV),
+                normal=NN)
+
+
 def card_mesh(cards, n_across=3, cup=0.0012):
     """Ribbons: n_across verts across each path sample (centre vert cupped `cup` outward along the normal).
     Returns verts (N,3), quads (M,4), uv per vert (N,2), normals per vert (N,3), card id per vert."""
     V, Q, UV, NN, ID = [], [], [], [], []
+    TRI = []
     base = 0
     for ci, c in enumerate(cards):
+        if c.get("kind") == "medallion":
+            for p, uv, n in zip(c["verts"], c["uv"], c["normal"]):
+                V.append(np.asarray(p, float))
+                UV.append(tuple(uv))
+                NN.append(np.asarray(n, float))
+                ID.append(ci)
+            for q in c["quads"]:
+                Q.append(tuple(int(i) + base for i in q))
+            for t in c["tris"]:
+                TRI.append(tuple(int(i) + base for i in t))
+            base += len(c["verts"])
+            continue
         P = np.asarray(c["path"], float)
         n = len(P)
         T, N, Sd = _frames(P, c["normal"])
         w = np.asarray(c["width"], float)
         u0, u1 = strip_uv(c["strip"], c["flip"])
+        v_span = 0.835 if c["strip"] in GOLD_STRIPS else 1.0     # r13: wispy tips stop above the gold patch
         xs = np.linspace(-0.5, 0.5, n_across)
         for j in range(n):
             for a, x in enumerate(xs):
                 bulge = cup * (1 - (2 * x) ** 2)
                 V.append(P[j] + Sd[j] * (x * w[j]) + N[j] * bulge)
-                UV.append((u0 + (u1 - u0) * (x + 0.5), 1.0 - j / (n - 1.0)))
+                UV.append((u0 + (u1 - u0) * (x + 0.5), 1.0 - v_span * j / (n - 1.0)))
                 NN.append(N[j])
                 ID.append(ci)
         for j in range(n - 1):
@@ -375,15 +495,16 @@ def card_mesh(cards, n_across=3, cup=0.0012):
                 i3 = i0 + n_across
                 Q.append((i0, i1, i2, i3))
         base += n * n_across
-    return (np.array(V), np.array(Q, np.int64), np.array(UV), np.array(NN), np.array(ID, np.int32))
+    return (np.array(V), np.array(Q, np.int64), np.array(UV), np.array(NN), np.array(ID, np.int32),
+            np.array(TRI, np.int64).reshape(-1, 3))
 
 
 # ============================================================================ bpy side
 def build_card_object(name, cards, arm=None, n_across=3, cup=0.0012):
     import bpy
     from lib import meshutil
-    V, Q, UV, NN, ID = card_mesh(cards, n_across, cup)
-    ob = meshutil.mesh_from_numpy(name, V, quads=Q)
+    V, Q, UV, NN, ID, TRI = card_mesh(cards, n_across, cup)
+    ob = meshutil.mesh_from_numpy(name, V, quads=Q, tris=TRI if len(TRI) else None)
     me = ob.data
     lv = np.empty(len(me.loops), np.int32)
     me.loops.foreach_get("vertex_index", lv)
@@ -400,7 +521,8 @@ def build_card_object(name, cards, arm=None, n_across=3, cup=0.0012):
         W = np.ones((len(V), 1))
         skin.write_groups(ob, ["head"], W)
         skin.bind(ob, arm)
-    return ob, dict(tris=meshutil.tri_count(ob), cards=len(cards), verts=len(V))
+    return ob, dict(tris=meshutil.tri_count(ob), cards=len(cards), verts=len(V),
+                    medallion=bool(any(c.get("kind") == "medallion" for c in cards)))
 
 
 _NORMALS = {}
@@ -490,7 +612,7 @@ def card_material(name, albedo_path, normal_path, orm_path, cutoff=0.4):
     return m
 
 
-def patch_glb(path, material_name, cutoff=0.4, double_sided=True, specular=0.3):
+def patch_glb(path, material_name, cutoff=0.4, double_sided=True, specular=0.3, extras=None):
     """Force alphaMode MASK (+ cutoff, doubleSided) on `material_name` in a GLB (JSON chunk rewrite) and add
     KHR_materials_specular specularFactor (three: MeshPhysicalMaterial.specularIntensity -> caps the grazing-angle
     Fresnel that turned the thin cards into mirrors of the fill light). Returns the material entry (or None)."""
@@ -517,6 +639,8 @@ def patch_glb(path, material_name, cutoff=0.4, double_sided=True, specular=0.3):
                 used = js.setdefault("extensionsUsed", [])
                 if "KHR_materials_specular" not in used:
                     used.append("KHR_materials_specular")
+            if extras:      # -> GLTFLoader material.userData (characterLook reads kcaRimScale etc.)
+                mdef.setdefault("extras", {}).update(extras)
             found = mdef
     if found is None:
         return None

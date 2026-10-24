@@ -129,12 +129,18 @@ async function lineup(ctx, phase) {
       }
     } catch (e) { console.warn('lineup', s.id, e); }
   }
+  // C2 r13: &hero=<id> — a hero puppet 2.2 m behind every boss slot (same facing) for the size read (e.g. Varkhul vs Gorrim)
+  const heroId = params.get('hero');
+  if (heroId) for (const s of SLOTS) { try { const h = await ctx.hero(heroId, { x: s.x - 2.2, z: 0.35, facing: 1, puppet: true }); if (h) actors.push(h); } catch (e) { console.warn('lineup hero', e); } }
   for (const a of actors) {
     ctx.puppet(a);
     a.boundsMode = 'none';
     if (a.mountedOn) continue;   // seated: riding.js maps every clip to ride_idle
     a.play(anim, { loop: true, fade: 0, startAt: 0 });
   }
+  // C2 r13: hold every actor on its slot (stepped at a true 60 Hz the puppets drifted off their slots between rows)
+  const pins = [...actors, ...actors.map((x) => x.mountedOn).filter(Boolean)].map((x) => ({ a: x, x: x.pos.x, z: x.pos.z }));
+  ctx.every(1 / 60, () => { for (const p of pins) { p.a.pos.x = p.x; p.a.pos.z = p.z; if (p.a.vel) { p.a.vel.x = 0; p.a.vel.z = 0; } } });
   // one camera offset for every slot: frame(i) re-centres it on slot i (same distance / elevation / lens)
   const CAM = { distance: 15, height: 15 * 0.36, fov: 30 };
   const orbit = ctx.orbit({ target: [0.25, 1.6, 0], distance: 40, height: 40 * 0.36, fov: 26, lookHeight: 1.55 });

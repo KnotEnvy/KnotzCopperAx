@@ -619,6 +619,8 @@ UP_LIFT = 0.004
 UNDER = dict(thick=0.80, bulge=0.60, k_mass=0.0060)
 CARD_CUTOFF = 0.4
 CARD_SPECULAR = 0.12      # KHR_materials_specular on the card material (grazing Fresnel cap; fast build #2 = mirror flakes)
+CARD_RIM_SCALE = 0.3      # r13: glTF extras kcaRimScale -> characterLook per-material rim (the full hero rim washed the
+#                           grazing-angle cards pale tan at every silhouette; probe progress/tmp/c2r3/matvar3/panel_e.png)
 # temple tendrils (head-frame points, right side; mirrored): width, thick
 # v3: 25 mm further back (fast build #1: they hung across the eye in profile) -- beside the cheekbone / in front of the ear
 TENDRILS = [([(0.066, -0.030, 0.022), (0.076, -0.038, 0.002), (0.082, -0.036, -0.022), (0.083, -0.044, -0.046),
@@ -874,6 +876,7 @@ def hair_sculpts(S_body, L, H, seed=17):
         circlet(Ss, S_body, H, ring_cache)
         out[detail] = (Ss, meta_s + meta_b)
     S_lo = out["lo"][0]
+    cards_src["medallion"] = ring_cache.get("medallion")
     cards = design_hair_cards(S_body, S_lo, cards_src, seed)
     return out["hi"][0], S_lo, out["hi"][1], C, len(soft), cards
 
@@ -896,7 +899,7 @@ def design_hair_cards(S_body, S_under, src, seed=17):
             g[:, a] = (dist(P + o) - dist(P - o)) / 0.003
         return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-9)
     return HCARDS.design_cards(dist, grad, S_body.dist, S_body.grad, src["hc"], src["locks"], src["tendrils"],
-                               src["g_dir"], s=src["s"], seed=seed + 5)
+                               src["g_dir"], s=src["s"], seed=seed + 5, medallion=src.get("medallion"))
 
 
 def circlet(S, S_body, H, ring_cache):
@@ -938,15 +941,11 @@ def circlet(S, S_body, H, ring_cache):
     fn = norm(f - hc)
     up = norm(V(0, 0, 1) - fn * fn[2])
     side = np.cross(fn, up)
-    # C2 r3 (board r9: "a wire with a bead"): a visible rayed gold sun-disc medallion (reference
-    # seraphine_hair_circlet.png): 15 mm disc, 12 tapering rays to 26 mm, a hammered dome, two side diamonds
-    S.add(Chain([f - fn * 0.0004, f + fn * 0.0030], 0.0150), 0.0006, mat="bronze")          # disc
-    for i in range(12):
-        a = i * math.pi / 6
-        d = up * math.cos(a) + side * math.sin(a)
-        ln = 0.0265 if i % 2 == 0 else 0.0215
-        S.add(RoundCone(f + fn * 0.0022 + d * 0.0135, f + fn * 0.0008 + d * ln, 0.0022, 0.0006), 0.0006, mat="bronze")
-    S.add(Sphere(f + fn * 0.0012, 0.0092), 0.0010, mat="bronze")                               # dome
+    # C2 r3 (board r9: "a wire with a bead"): the rayed sun-disc medallion. r13 resume: the SDF disc / rays / dome
+    # (0.6-3 mm proud) did not survive the 2.4 mm polygonisation + decimation of hair_lo (fast builds #2/#3 showed only
+    # the dome = still "a bead"), so the medallion is now REAL GEOMETRY in the hair-card mesh (seraphine_hair_cards
+    # .medallion_geom: flat hammered disc + 16 rays, metallic gold patch in the card atlas). Only its frame is kept here.
+    ring_cache["medallion"] = dict(f=f, fn=fn, up=up, side=side, hc=hc)
     for sgn in (1, -1):                                                                        # gold beads on the band
         j = int(round(sgn * 7)) % len(ring)
         S.add(Sphere(ring[j] + norm(ring[j] - hc) * 0.0016, 0.0042), 0.0006, mat="bronze")
@@ -1061,9 +1060,11 @@ def p_hair(c, pal):
     n_lock = float(c.x.get("n_lock", 0))
     if n_lock > 0:          # C2 r3: ids below n_lock = the solid under-mass beneath the hair cards -> dark, matte
         um = (lid < n_lock - 0.5).astype(float)
-        rgb = shaders.mix(rgb, rgb * 0.52, um)
-        rough = rough + 0.12 * um
-    return shaders.out(c.n, np.clip(rgb, 0, 1), np.clip(rough, 0.45, 0.9))
+        rgb = shaders.mix(rgb, rgb * 0.42, um)          # r13: 0.52 -> 0.42
+        rough = rough + (0.96 - rough) * um             # r13: +0.12 (-> ~0.74) left a broad cool grazing-angle Fresnel
+        #                                                 sheen on the smooth dome at the crown silhouette (the pale
+        #                                                 lavender "cards" of fast build #3 were the under-mass)
+    return shaders.out(c.n, np.clip(rgb, 0, 1), np.clip(rough, 0.45, 0.97))
 
 
 
@@ -1666,7 +1667,8 @@ def build(args):
         objs.append(cards_ob)
     pipeline.export_glb(out, objs, scene_name=ASSET)
     if cards_ob is not None:
-        info_m = HCARDS.patch_glb(out, "M_" + ASSET + "_hair", cutoff=CARD_CUTOFF, double_sided=True, specular=CARD_SPECULAR)
+        info_m = HCARDS.patch_glb(out, "M_" + ASSET + "_hair", cutoff=CARD_CUTOFF, double_sided=True, specular=CARD_SPECULAR,
+                                  extras={"kcaRimScale": CARD_RIM_SCALE})
         report["hair_card_material"] = info_m
         pipeline.log(f"hair card material: {info_m}")
     report["glb"] = out

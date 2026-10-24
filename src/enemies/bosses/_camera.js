@@ -18,6 +18,7 @@ const FEET = -0.60, SPAN = 0.50, BOT = 0.84, TOPN = 0.80, DMIN = 7.4, DMAXK = 1.
 
 // C2 r13 options: span (lead height as a fraction of the frame, default SPAN) · viewMaxX / viewMinX (world x the frame
 // edge may not pass at the lead's depth — stage 3: keep the eagle's head out of the boss shot). &bossframe=0 = ignore.
+const SADDLE_OLD = typeof location !== 'undefined' && /[?&]saddlefix=0/.test(location.search);
 const FRAME_OFF = typeof location !== 'undefined' && /[?&]bossframe=0/.test(location.search);
 export function bossCam(game, { lead, members, arena, wallLeft = 0.35, wallRight = 0.65, span = SPAN, viewMaxX = null, viewMinX = null } = {}) {
   if (FRAME_OFF) { span = SPAN; viewMaxX = null; viewMinX = null; }
@@ -68,7 +69,9 @@ export function bossCam(game, { lead, members, arena, wallLeft = 0.35, wallRight
   };
   const top = (a) => {
     const mt = a.mountedOn;
-    const extra = mt ? (mt.saddleY || 1.2) * (mt.modelScale || 1) : 0;
+    // C2 r13: saddleY is already world-scale (wyrm_rider scaleBeast multiplies it) — × modelScale framed the Wyrm Rider
+    // ~1 m taller than she is (smaller in frame). &saddlefix=0 = old.
+    const extra = mt ? (mt.saddleY || 1.2) * (SADDLE_OLD ? (mt.modelScale || 1) : 1) : 0;
     let t = (a.pos.y || 0) + (a.height || 2) + extra;
     if (mt && mt.pos) t = Math.max(t, (mt.pos.y || 0) + (mt.height || 0));
     return t;
@@ -145,8 +148,13 @@ export function bossCam(game, { lead, members, arena, wallLeft = 0.35, wallRight
       const lo = Math.max(bl - maxOff, xMax + 0.6 - EDGE * hw), hi = Math.min(bl + maxOff, xMin - 0.6 + EDGE * hw);
       c = lo <= hi ? clamp(c, lo, hi) : clamp(c, bl - maxOff, bl + maxOff);
       if (lk) c = clamp(c, lk.xMin + hw, Math.max(lk.xMin + hw, lk.xMax - hw));
-      if (viewMaxX !== null) c = Math.min(c, viewMaxX - hwLead);
-      if (viewMinX !== null) c = Math.max(c, viewMinX + hwLead);
+      if (viewMaxX !== null || viewMinX !== null) {
+        // the limits never cut a member (r13 resume): a mounted member reaches ~3 m (wyrm tail), a foot boss 1.4 m
+        let rR = -Infinity, rL = Infinity;
+        for (const m of list()) { if (!m || m.removed || m.alive === false) continue; const k = (m.mountedOn ? 3.0 : 1.4) + 0.3; rR = Math.max(rR, m.pos.x + k); rL = Math.min(rL, m.pos.x - k); }
+        if (viewMaxX !== null) c = Math.min(c, Math.max(viewMaxX, rR) - hwLead);
+        if (viewMinX !== null) c = Math.max(c, Math.min(viewMinX, rL) + hwLead);
+      }
       const targetZ = lerp(d.z, cz, 0.5);
       syncDramas(Hb, c, targetZ, Dc, hC);
       // arena + camera-view soft walls (keeps boss 3D bounding box inside the frame even in wide arenas)
@@ -300,7 +308,7 @@ export function cardClear(game, actors, state, { distance = 12, fov = 30, margin
     if (_cc.z > 1) continue;
     const fx = (_cc.x + 1) / 2, fy = (1 - _cc.y) / 2;
     over = Math.max(over, fy - (top(fx) - margin));
-    const h = (a.pos.y || 0) + (a.height || 2) + (mt ? (mt.saddleY || 1.2) * (mt.modelScale || 1) : 0);
+    const h = (a.pos.y || 0) + (a.height || 2) + (mt ? (mt.saddleY || 1.2) : 0);   // saddleY is already world-scale (scaleBeast scales it)
     _cc.set(a.pos.x, h, a.pos.z).project(cam);
     room = Math.min(room, (1 - _cc.y) / 2 - headTop);
   }

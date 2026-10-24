@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { fxSystem, cape } from './_fx.js';
 import { reportError } from '../../core/log.js';
 import { revealCam, introStandoff } from './_camera.js';
-import { bossShade } from './_look.js';
+import { bossShade, bossGrade } from './_look.js';
 
 const Q = typeof location !== 'undefined' ? location.search : '';
 const OLD_INTRO = /[?&]varkhulintro=0/.test(Q), OLD_CARRY = /[?&]varkhulcarry=0/.test(Q);
@@ -35,9 +35,14 @@ function flailRig(fx, b) {
     const r = inst && inst.source === 'glb' ? inst.root : fallback();
     if (inst && inst.source === 'glb') r.scale.setScalar(H / 2.0);          // built at the 2 m reference; ring at origin
     r.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    // C2 r13 resume: the rebuilt ball (blackened iron, metallic, no kcaMetal extras) rendered pitch-black in the dark stage-4
+    // hall — it was loaded raw, outside the character look. Grade it with the body's own handle: same look + boss grade as
+    // the GLB body (kcaChar program family) and it follows bossShade() during the shaded emergence.
+    if (inst && inst.source === 'glb' && !/[?&]ballgrade=0/.test(Q)) try { bossGrade(r, (b.def && b.def.grade) || {}, b.lightRig || null); } catch (e) { reportError('varkhul.ballGrade', e); }
     ball.add(r);
     // C2 r13: the ball's real bottom below the chain ring (the r13 asset hangs its centre 0.27 m under the ring) → floor clamp
-    try { const bb = new THREE.Box3().setFromObject(r); if (!bb.isEmpty()) rig.lowY = Math.max(H * 0.07, -bb.min.y * 0.92); } catch (e) { /* keep default */ }
+    // (measured in the ball group's frame: the group may already sit at its world spot when the asset resolves)
+    try { ball.updateWorldMatrix(true, true); const bb = new THREE.Box3().setFromObject(r); const by = new THREE.Vector3().setFromMatrixPosition(ball.matrixWorld).y; if (!bb.isEmpty()) rig.lowY = Math.max(H * 0.07, -(bb.min.y - by) * 0.92); } catch (e) { /* keep default */ }
   }).catch((e) => { reportError('varkhul.ball', e); ball.add(fallback()); });
   fx.add(g);
   const rig = {};   // (filled below; the ball loader writes rig.lowY once the GLB is in)
