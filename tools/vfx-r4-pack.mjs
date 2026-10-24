@@ -1,0 +1,27 @@
+import fs from 'node:fs';import crypto from 'node:crypto';import assert from 'node:assert/strict';
+const H='progress/shots/vfx-hitfx/r10',F='progress/shots/shared-fire-library/r4',read=f=>JSON.parse(fs.readFileSync(f));
+const reports=[`${H}/brawl-verified`,`${H}/heavy-brawl`,`${H}/camp-contacts`,`${H}/contact-light-proof`,`${H}/motifs`,`${F}/fire-verified`,`${F}/camp-final`,`${F}/roof-final`].map(d=>{
+ const r=read(d+'/report.json');return {path:d+'/report.json',ok:r.ok,gpu:r.gpu,errors:[...r.pageErrors,...r.consoleErrors,...(r.info.errors||[])],warnings:r.warnings,drawCalls:r.info.drawCalls};
+});
+assert.ok(reports.every(r=>r.ok&&r.errors.length===0&&/5070/.test(r.gpu)),'clean hardware captures');
+const probes=read(`${H}/brawl-verified/flash-placement.json`),heavy=read(`${H}/heavy-brawl/contacts.json`);
+assert.ok(probes.every(p=>p.screenDistancePx===0));assert.ok(heavy.probes.every(p=>p.screenDistancePx===0));
+const chain=read(`${H}/brawl-verified/contacts.json`).hits.filter(h=>h.attacker==='brann'&&/^light_[123]$/.test(h.moveId));
+assert.ok(['light_1','light_2','light_3'].every(move=>chain.some(h=>h.moveId===move)));
+assert.ok(heavy.hits.some(h=>h.attacker==='brann'&&h.moveId.startsWith('heavy')&&!h.blocked&&h.brains>=4));
+const light=read(`${H}/contact-light-proof/light-delta.json`);assert.ok(light.floor.delta>0&&light.body.delta>0);
+const runs=[...read(`${F}/perf-verified/perfbench.json`).runs,...read(`${F}/perf-s3-verified/perfbench.json`).runs];
+const perf=runs.map(r=>({stage:r.stage,phase:r.phase,estimated1650TiMs:r.gpu.estRefMs,clean:r.gpu.nClean,method:r.gpu.method,calls:r.census.calls,triangles:r.census.triangles,passPixels:r.census.passPixels1080,overdraw:r.overdraw,newPrograms:r.newPrograms,errors:r.errors,cpu:r.cpu}));
+const cast=perf.find(r=>r.stage==='3'&&r.phase==='cast');assert.ok(cast.overdraw.mean<=3&&cast.overdraw.p95<=8);assert.ok(perf.every(r=>!r.newPrograms.length));
+const files=['src/vfx/effects/hit_spark.js','src/vfx/fireLib.js','src/vfx/author_atlas.py','src/vfx/ScreenFx.js','src/vfx/contact.js','src/levels/stages/bonus/campfire.js','src/levels/stages/stage1.js','src/levels/stages/stage1/huts.js','public/assets/vfx/fire-hit-atlas.png'];
+const sourceHashes=Object.fromEntries(files.map(f=>[f,crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')]));
+const result={round:4,items:[{id:'vfx-hitfx',iter:10},{id:'shared-fire-library',iter:4}],reports,sourceHashes,
+ gates:{cleanHardwareCaptures:true,brawlContactsInsideBody:probes.length,allContactProjectionDistancesZero:true,realLight123:true,realHeavyFourBrains:true,lightFloorAndBodyPositive:true,zeroNewPrograms:true,stage3CastOverdraw:true,atlasPadding:read('public/assets/vfx/fire-hit-atlas.check.json').passAll,contracts:read(`${F}/contracts.json`).pass},
+ probes,heavy,chain,light,perf,
+ clips:{camp:read(`${F}/camp-final/clipcheck.json`),fire:read(`${F}/fire-verified/clipcheck.json`),brawl:read(`${H}/brawl-verified/clipcheck.json`)},
+ canonicalEvidence:[`${H}/board-gap-fixed.png`,`${H}/brawl-contacts.png`,`${H}/light-brawl-native.png`,`${H}/light-brawl-400x225.png`,`${H}/heavy-brawl-native.png`,`${H}/heavy-brawl-400x225.png`,`${H}/brawl-chain-33ms-strip.png`,`${H}/heavy-brawl-33ms-strip.png`,`${H}/motifs-sheet.png`,`${H}/magic_fire-33ms-game-strip.png`,`${H}/magic_fire-2x-strip.png`,`${H}/contact-light-proof/contact-light-restored.png`,`${H}/camp-contacts/camp-hit-0.png`,`${F}/camp-final/frame_0000.png`,`${F}/camp-final/clip.mp4`,`${F}/roof-final/shot.png`,`${F}/fire-verified/clip.mp4`,`${F}/fire-atlas-silhouettes.png`],
+ provenance:['Brawl and heavy: arranged starts, enemy HP999/player godmode, partner bot, four live enemy brains, actual virtual-device input/CombatSystem; HUD and stage retained.','Camp contacts: untouched camp bot, fire and HUD; 60Hz sampling of real thief contacts.','Motifs/fire: explicit showcase effects, game camera; no claim of natural spell damage.','Light proof: real Light input and damage, then renderer.render(0) of the same pose with only pooled point-light intensity toggled; no simulation advance.','Final roof screenshot includes the concurrent Stages straw-card rebuild; emitter transforms follow the baked rim.','Perf final2 uses isolated /tmp/kca-fire-c2r4-final2-build and shared public assets. Captured before final heavy-CA uniform reduction and tiny fire ignition-contour rounding; no pools, lights or geometry added by that cleanup.','Concurrent AI/Stages/Enemy edits changed world state, counts and assets between baseline and final snapshots; these are budget observations, not isolated VFX speedups.'],
+ limitations:['S1 9.58ms exceeds requested approximate8.4ms; S5 9.86ms meets approximate9.9ms. Shared CPU normalized maxima103/79ms remain above50ms; allocations not measured. No global perf PASS.','Camp clip0 issues; brawl7 impact/shake spikes; fire2 initial ignition/camera-shake spikes at33/100ms. All0 freezes/flashes/blanks.','Camera-facing procedural paint remains stylized; smoke is subtle on bright backgrounds. Critic decides quality parity.','HUD pot text can overlap camp fighters; UI coordination request posted.']};
+fs.writeFileSync(`${F}/verification.json`,JSON.stringify(result,null,2));
+fs.writeFileSync(`${F}/final-source-hashes.json`,JSON.stringify(sourceHashes,null,2));
+console.log(JSON.stringify({gates:result.gates,perf:perf.map(r=>({stage:r.stage,phase:r.phase,ms:r.estimated1650TiMs,od:r.overdraw.mean,p95:r.overdraw.p95,newPrograms:r.newPrograms.length}))},null,2));

@@ -1,0 +1,12 @@
+{
+ "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Ti (0x00001F95) Direct3D11 vs_5_0 ps_5_0, D3D11)": {
+  "calIdleMs": 1.379,
+  "date": "2026-09-28T01:23:29.341Z",
+  "cpuCalIdleMs": 13.6
+ },
+ "ANGLE (Microsoft Corporation, D3D12 (NVIDIA GeForce RTX 5070), OpenGL 4.6)": {
+  "calIdleMs": 0.144,
+  "date": "2026-10-20T16:38:51.757Z",
+  "cpuCalIdleMs": 2.8
+ }
+}

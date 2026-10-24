@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KCA GLB Viewer</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d22; }
+    canvas { display: block; }
+    #hud { position: fixed; left: 12px; top: 10px; font: 12px/1.45 ui-monospace, Consolas, monospace; color: #cfd3da;
+      background: rgba(10, 12, 16, 0.55); padding: 8px 10px; border-radius: 6px; pointer-events: none; white-space: pre; }
+    #hud.hidden { display: none; }
+    #err { position: fixed; left: 12px; bottom: 10px; font: 12px ui-monospace, Consolas, monospace; color: #ff8a80; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+  <div id="err"></div>
+  <script type="module" src="./viewer.js"></script>
+</body>
+</html>

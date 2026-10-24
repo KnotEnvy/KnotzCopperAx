@@ -1,0 +1,25 @@
+{
+  "name": "knotzcopperax",
+  "version": "1.0.0",
+  "description": "KnotzCopperAx — a 3D fantasy beat-em-up in Three.js, spiritual successor to Golden Axe",
+  "scripts": {
+    "dev": "vite --port 5190 --strictPort --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "capture": "node tools/capture.mjs",
+    "progress": "node tools/progress.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.4",
+    "vite": "^8.3.0"
+  }
+}

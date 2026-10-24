@@ -1,0 +1,392 @@
+{
+  "passAll": true,
+  "cells": 64,
+  "maxBorderAlpha": 0,
+  "minimumPaddingPx": 9,
+  "frames": [
+    {
+      "clip": "flame",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "flame",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "flame",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "flame",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "flame",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "flame",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "flame",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "flame",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 15
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 14
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 13
+    },
+    {
+      "clip": "fireBurst",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 13
+    },
+    {
+      "clip": "smoke",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "smoke",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "smoke",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 10
+    },
+    {
+      "clip": "smoke",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "smoke",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "smoke",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 10
+    },
+    {
+      "clip": "smoke",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 10
+    },
+    {
+      "clip": "smoke",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "embers",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 18
+    },
+    {
+      "clip": "embers",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 19
+    },
+    {
+      "clip": "embers",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 18
+    },
+    {
+      "clip": "embers",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 19
+    },
+    {
+      "clip": "embers",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 21
+    },
+    {
+      "clip": "embers",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 19
+    },
+    {
+      "clip": "embers",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 26
+    },
+    {
+      "clip": "embers",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 22
+    },
+    {
+      "clip": "slash",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 10
+    },
+    {
+      "clip": "slash",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "slash",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "slash",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 28
+    },
+    {
+      "clip": "slash",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 28
+    },
+    {
+      "clip": "slash",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 28
+    },
+    {
+      "clip": "slash",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 28
+    },
+    {
+      "clip": "slash",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 28
+    },
+    {
+      "clip": "blunt",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "blunt",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "blunt",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "blunt",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "blunt",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "blunt",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "blunt",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "blunt",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 11
+    },
+    {
+      "clip": "knockdown",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 36
+    },
+    {
+      "clip": "knockdown",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 31
+    },
+    {
+      "clip": "knockdown",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 26
+    },
+    {
+      "clip": "knockdown",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 21
+    },
+    {
+      "clip": "knockdown",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 17
+    },
+    {
+      "clip": "knockdown",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "knockdown",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 10
+    },
+    {
+      "clip": "knockdown",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 9
+    },
+    {
+      "clip": "storm",
+      "frame": 0,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "storm",
+      "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 13
+    },
+    {
+      "clip": "storm",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 12
+    },
+    {
+      "clip": "storm",
+      "frame": 3,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 13
+    },
+    {
+      "clip": "storm",
+      "frame": 4,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 13
+    },
+    {
+      "clip": "storm",
+      "frame": 5,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 15
+    },
+    {
+      "clip": "storm",
+      "frame": 6,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 16
+    },
+    {
+      "clip": "storm",
+      "frame": 7,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 256
+    }
+  ]
+}
