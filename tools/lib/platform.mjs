@@ -48,7 +48,6 @@ export function blenderExe() {
   return fs.existsSync(local) ? local : 'blender';
 }
 
-/** PIDs of every running Blender on this machine (ours or not). */
 /**
  * Free memory (MemAvailable, MB) on Linux/WSL; Infinity where /proc/meminfo is missing. KCA_FAKE_MEMAVAIL_MB overrides
  * it for testing. Used by blender-run and capture to wait instead of starting a job that would push the machine into
@@ -62,13 +61,99 @@ export function memAvailableMB() {
   } catch { return Infinity; }
 }
 
+/**
+ * One cheap read of the machine's memory state (MB; Linux/WSL — elsewhere availMB is Infinity and the rest 0):
+ * MemAvailable, MemTotal, swap total/used, and memory pressure (PSI, /proc/pressure/memory: % of the last 10 s in which
+ * at least one task (some) / every task (full) was stalled waiting for memory — > 10 % means the machine is thrashing).
+ * Test overrides: KCA_FAKE_MEMAVAIL_MB, KCA_FAKE_SWAPUSED_MB, KCA_FAKE_MEMPSI.
+ */
+export function memState() {
+  const st = { availMB: Infinity, totalMB: 0, swapTotalMB: 0, swapUsedMB: 0, psiSome10: 0, psiFull10: 0, psi: false };
+  try {
+    const mi = fs.readFileSync('/proc/meminfo', 'utf8');
+    const kb = (k) => { const i = mi.indexOf(k + ':'); return i < 0 ? NaN : parseInt(mi.slice(i + k.length + 1), 10) / 1024; };
+    st.availMB = kb('MemAvailable'); st.totalMB = kb('MemTotal');
+    st.swapTotalMB = kb('SwapTotal') || 0; st.swapUsedMB = Math.max(0, st.swapTotalMB - (kb('SwapFree') || 0));
+    if (!Number.isFinite(st.availMB)) st.availMB = Infinity;
+  } catch { /* not Linux */ }
+  try {
+    const p = fs.readFileSync('/proc/pressure/memory', 'utf8');
+    const some = /some avg10=([\d.]+)/.exec(p), full = /full avg10=([\d.]+)/.exec(p);
+    st.psiSome10 = some ? Number(some[1]) : 0; st.psiFull10 = full ? Number(full[1]) : 0; st.psi = !!some;
+  } catch { /* kernel without PSI */ }
+  const e = process.env;
+  if (e.KCA_FAKE_MEMAVAIL_MB) st.availMB = Number(e.KCA_FAKE_MEMAVAIL_MB);
+  if (e.KCA_FAKE_SWAPUSED_MB) st.swapUsedMB = Number(e.KCA_FAKE_SWAPUSED_MB);
+  if (e.KCA_FAKE_MEMPSI) { st.psiSome10 = Number(e.KCA_FAKE_MEMPSI); st.psi = true; }
+  return st;
+}
+
+/** Resident, peak resident (VmHWM) and swapped memory of one process (MB) + its parent PID, or null when it is gone /
+ * not Linux. */
+export function procMem(pid) {
+  try {
+    const s = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+    const kb = (k) => { const i = s.indexOf('\n' + k + ':'); return i < 0 ? 0 : parseInt(s.slice(i + k.length + 2), 10) / 1024; };
+    const pp = /\nPPid:\s+(\d+)/.exec(s);
+    return { rssMB: kb('VmRSS'), hwmMB: kb('VmHWM'), swapMB: kb('VmSwap'), ppid: pp ? Number(pp[1]) : 0 };
+  } catch { return null; }
+}
+
+/** CPU seconds (user + system) a process has used so far, or null. */
+export function procCpuSec(pid) {
+  try {
+    const s = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const f = s.slice(s.lastIndexOf(')') + 2).split(' ');
+    return (Number(f[11]) + Number(f[12])) / 100; // USER_HZ = 100 on Linux
+  } catch { return null; }
+}
+
+let gpuMemCache = null;
+/** Whole-GPU memory {usedMB, totalMB} from nvidia-smi (WSL / Linux / Windows), cached 10 s; null when unavailable. */
+export function gpuMem() {
+  if (process.env.KCA_FAKE_VRAMFREE_MB) return { usedMB: 12000 - Number(process.env.KCA_FAKE_VRAMFREE_MB), totalMB: 12000 };
+  if (gpuMemCache && Date.now() - gpuMemCache.t < 10000) return gpuMemCache.v;
+  let v = null;
+  const exe = IS_WIN ? 'nvidia-smi.exe' : (fs.existsSync('/usr/lib/wsl/lib/nvidia-smi') ? '/usr/lib/wsl/lib/nvidia-smi' : 'nvidia-smi');
+  try {
+    const out = execFileSync(exe, ['--query-gpu=memory.used,memory.total', '--format=csv,noheader,nounits'], { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const [u, t] = out.split('\n')[0].split(',').map((x) => Number(x.trim()));
+    if (Number.isFinite(u) && Number.isFinite(t) && t > 0) v = { usedMB: u, totalMB: t };
+  } catch { /* no NVIDIA tools */ }
+  gpuMemCache = { t: Date.now(), v };
+  return v;
+}
+
+/**
+ * PIDs of every running Blender on this machine (ours or not). Linux: a scan of /proc/<pid>/stat (process name exactly
+ * "blender", zombies skipped) — no child process, because waiting wrappers call this and a fork per poll is what made
+ * them expensive on a machine deep in swap. KCA_BLENDER_COMM changes the name (tests use a fake Blender).
+ */
 export function runningBlenders() {
   try {
     if (IS_WIN) {
       const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq blender.exe', '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
       return out.split(/\r?\n/).filter((l) => /blender\.exe/i.test(l)).map((l) => Number(l.split('","')[1]));
     }
+    const comm = process.env.KCA_BLENDER_COMM || 'blender';
+    const want = `(${comm}) `;
+    let dirs = null;
+    try { dirs = fs.readdirSync('/proc'); } catch { /* no /proc: fall back to pgrep */ }
+    if (dirs) {
+      const pids = [];
+      for (const d of dirs) {
+        const c = d.charCodeAt(0);
+        if (c < 48 || c > 57) continue; // only numeric entries are processes
+        let s;
+        try { s = fs.readFileSync(`/proc/${d}/stat`, 'latin1'); } catch { continue; } // exited meanwhile
+        const i = s.indexOf(want);
+        if (i < 0 || s.lastIndexOf(')') !== i + want.length - 2) continue; // name must match exactly
+        if (s.charAt(i + want.length) === 'Z') continue; // zombie
+        pids.push(Number(d));
+      }
+      return pids;
+    }
     // -x: exact process name, so editors with "blender" in a path don't count
-    return execFileSync('pgrep', ['-x', 'blender'], { encoding: 'utf8' }).split(/\s+/).filter(Boolean).map(Number);
+    return execFileSync('pgrep', ['-x', comm], { encoding: 'utf8' }).split(/\s+/).filter(Boolean).map(Number);
   } catch { return []; } // pgrep exits 1 when nothing matches
 }

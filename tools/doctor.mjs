@@ -2,7 +2,7 @@
 // doctor — check that this machine can run the KnotzCopperAx toolchain, and clean up leftovers.
 //
 //   node tools/doctor.mjs              check everything (≈10 s): deps, GPU browser, ffmpeg, Blender + CUDA, dev server,
-//                                      locks, stray processes
+//                                      memory / swap / VRAM, Blender jobs (silent logs), queues, locks, stray processes
 //   node tools/doctor.mjs --quick      skip the slow checks (GPU browser launch, Blender)
 //   node tools/doctor.mjs --cleanup    also kill ORPHANED tool processes (a browser or Blender whose launching tool has
 //                                      died) and remove stale lock files. Never touches live tool runs, the dev server,
@@ -15,8 +15,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { IS_WIN, IS_WSL, KCA_HOST, KCA_PORT, blenderExe, runningBlenders, withLibPath, sandboxReason, SANDBOX_HELP } from './lib/platform.mjs';
+import { IS_WIN, IS_WSL, KCA_HOST, KCA_PORT, blenderExe, runningBlenders, withLibPath, sandboxReason, SANDBOX_HELP, memState, gpuMem } from './lib/platform.mjs';
 import { LOCK_DIR, lockIsStale } from './lib/locks.mjs';
+import { blenderJobs, queue, STALL_MIN } from './lib/jobs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
@@ -71,7 +72,11 @@ row(serverOk ? true : 'warn', 'dev server', serverDetail);
 
 // ---- GPU browser
 if (!quick) {
-  try {
+  // a browser like any other: it takes a capture slot (queue + memory gate), or is skipped when none frees up in 45 s
+  let releaseSlot = null;
+  try { const { acquire } = await import('./lib/locks.mjs'); releaseSlot = await acquire('capture', { slots: Number(process.env.KCA_CAPTURE_SLOTS || 6), info: { what: 'doctor GPU check' }, quiet: true, waitMaxMs: 45000 }); } catch {}
+  if (!releaseSlot) row('warn', 'GPU browser', 'skipped: no free capture slot within 45 s (busy machine) — run doctor again later');
+  else try {
     const { launchBrowser, gpuRenderer, isSoftwareRenderer } = await import('./lib/browser.mjs');
     const b = await launchBrowser({ tool: 'doctor' });
     const p = await b.newPage();
@@ -81,10 +86,12 @@ if (!quick) {
     row(!isSoftwareRenderer(r), 'GPU browser', r);
     row(timer ? true : 'warn', 'GPU timer queries', timer ? 'perfbench GPU timing available' : 'missing: perfbench can only report budgets');
   } catch (e) { row(false, 'GPU browser', e.message.split('\n')[0]); }
+  finally { if (releaseSlot) releaseSlot(); }
 }
 
-// ---- Blender
-if (!quick) {
+// ---- Blender (two short Blender runs outside the wrapper: skipped while the machine is at the owner's 3-Blender cap)
+if (!quick && runningBlenders().length >= 3) row('warn', 'blender', 'check skipped: 3 Blenders already running (owner cap) — run doctor again later');
+else if (!quick) {
   const exe = blenderExe();
   const v = sh(exe, ['--version'], { env: withLibPath() });
   if (v.status !== 0) row(false, 'blender', `${exe} not runnable (set BLENDER_EXE)`);
@@ -98,15 +105,54 @@ if (!quick) {
   }
 }
 
+// ---- memory, Blender jobs, queues (C2 r13: the 23 Oct overload — swap full, 4 h bakes, agents disconnected)
+{
+  const m = memState(); const g = gpuMem();
+  const gb = (mb) => (mb / 1024).toFixed(1);
+  if (Number.isFinite(m.availMB)) {
+    const swapPct = m.swapTotalMB ? m.swapUsedMB / m.swapTotalMB : 0;
+    const bad = m.availMB < 4000 || swapPct > 0.5 || (m.psi && m.psiSome10 >= 10);
+    row(bad ? 'warn' : true, 'memory', `${gb(m.availMB)} of ${gb(m.totalMB)} GB available · swap ${gb(m.swapUsedMB)}/${gb(m.swapTotalMB)} GB${m.psi ? ` · pressure ${m.psiSome10} %` : ''}${g ? ` · VRAM ${gb(g.usedMB)}/${gb(g.totalMB)} GB` : ''}${bad ? ' — new Blender/capture jobs will wait (tools/lib/memgate.mjs)' : ''}`);
+  }
+  const jobs = blenderJobs(3);
+  for (const j of jobs) {
+    const silent = j.lastOutputMinAgo;
+    const where = j.alive ? '' : ' [STALE LOCK]';
+    row(j.stalled ? 'warn' : true, `blender slot ${j.slot}`, `${j.owner || '?'} "${j.what || ''}" · wrapper ${j.pid} · ${Math.round(j.runtimeMin)} min${j.childPid ? ` · blender ${j.childPid}${j.rssMB != null ? ` ${gb(j.rssMB)} GB (peak ${gb(j.peakRssMB)}, expected ${gb(j.expectedPeakMB)})` : ' (gone)'}` : ''}${silent != null ? ` · last output ${silent < 1 ? '<1' : Math.round(silent)} min ago` : ' · no log'}${j.launcherGone ? ' · its launching session is gone' : ''}${j.stalled ? ` — SILENT > ${STALL_MIN} min: probably stalled; tell its owner (docs/notes/_coord-C2.md), never kill another team's job` : ''}${where}`);
+  }
+  const silentOnes = jobs.filter((j) => j.stalled && j.alive);
+  if (silentOnes.length) row('warn', 'silent Blender logs', silentOnes.map((j) => `wrapper ${j.pid} (blender ${j.childPid || '?'}, ${j.owner || '?'}) silent ${Math.round(j.lastOutputMinAgo)} min`).join('; ') + ' — the wrapper writes a STALL line into its log; --cleanup never stops a live wrapper');
+  const qb = queue('blender'), qc = queue('capture');
+  if (qb.length || qc.length) row(true, 'queues', `blender ${qb.length} waiting${qb.length ? ` (oldest ${Math.round(qb[0].waitingMin)} min: ${qb[0].owner || qb[0].pid})` : ''} · capture ${qc.length} waiting`);
+}
+
+// GPU resets (Windows TDR: one piece of GPU work > 2 s) in the last 24 h. Each one breaks every browser on the GPU: lost
+// WebGL contexts, striped screenshots, SwiftShader for browsers started right after (C2 r13, tools/capture.mjs flags them).
+if (IS_WSL && !quick) {
+  const ps = sh('powershell.exe', ['-NoProfile', '-Command', "Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='nvlddmkm'; StartTime=(Get-Date).AddHours(-24)} -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated.ToString('s') }"], { timeout: 30000 });
+  if (ps.status === 0) {
+    // the driver logs 2-3 events per reset, a few seconds apart: count resets, not events
+    const ts = (ps.stdout || '').split(/\r?\n/).map((s) => Date.parse(s.trim())).filter(Number.isFinite).sort((a, b) => a - b);
+    const resets = ts.filter((t, i) => i === 0 || t - ts[i - 1] > 30000);
+    const last = resets.length ? new Date(resets[resets.length - 1]) : null;
+    row(resets.length ? 'warn' : true, 'GPU resets (24 h)', resets.length ? `${resets.length} (last ${last.toTimeString().slice(0, 5)}, Windows nvlddmkm 153 / TDR): captures running at that moment are broken — rerun them` : 'none');
+  }
+}
+
 // ---- locks + strays
-const locks = fs.existsSync(LOCK_DIR) ? fs.readdirSync(LOCK_DIR).filter((f) => /\.(lock|want|child)$/.test(f)) : [];
+const locks = fs.existsSync(LOCK_DIR) ? fs.readdirSync(LOCK_DIR).filter((f) => /\.(lock|want|child|ticket)$/.test(f) || f.startsWith('.tmp-')) : [];
 const stale = [];
 for (const f of locks) {
+  const file = path.join(LOCK_DIR, f);
+  let stale1;
   // a .child file (Blender PID) belongs to its wrapper's lock: stale when that lock is gone
-  const stale1 = f.endsWith('.child') ? !fs.existsSync(path.join(LOCK_DIR, f.replace(/\.child$/, '.lock'))) : lockIsStale(path.join(LOCK_DIR, f));
+  if (f.endsWith('.child')) stale1 = !fs.existsSync(path.join(LOCK_DIR, f.replace(/\.child$/, '.lock')));
+  else if (f.startsWith('.tmp-')) { try { stale1 = Date.now() - fs.statSync(file).mtimeMs > 60000; } catch { stale1 = false; } } // a lock update interrupted mid-write
+  else stale1 = lockIsStale(file);
   if (stale1) stale.push(f);
 }
-row(stale.length ? 'warn' : true, 'locks', `${locks.length - stale.length} held${stale.length ? `, ${stale.length} stale (${stale.join(', ')})` : ''}`);
+const nTickets = locks.filter((f) => f.endsWith('.ticket') && !stale.includes(f)).length;
+row(stale.length ? 'warn' : true, 'locks', `${locks.length - stale.length - nTickets} held${nTickets ? `, ${nTickets} waiting` : ''}${stale.length ? `, ${stale.length} stale (${stale.join(', ')})` : ''}`);
 
 // Orphans (Linux): a tool browser (main process, carries --kca-tool=) or Blender whose parent is no longer a node tool.
 const orphans = [];
@@ -115,14 +161,15 @@ if (!IS_WIN) {
     .map(([, pid, ppid, et, cmd]) => ({ pid: +pid, ppid: +ppid, age: +et, cmd }));
   const byPid = new Map(ps.map((p) => [p.pid, p]));
   const isNodeTool = (p) => p && /\bnode\b/.test(p.cmd) && /tools\//.test(p.cmd);
+  const blenders = new Set(runningBlenders()); // once (it used to spawn one pgrep per process on the machine)
   for (const p of ps) {
     const browserMain = /--kca-tool=/.test(p.cmd) && !/--type=/.test(p.cmd);
-    const blender = new Set(runningBlenders()).has(p.pid);
+    const blender = blenders.has(p.pid);
     if (!browserMain && !blender) continue;
     if (!isNodeTool(byPid.get(p.ppid))) orphans.push({ ...p, kind: browserMain ? `browser ${(p.cmd.match(/--kca-tool=(\S+)/) || [])[1]}` : 'blender' });
   }
   const live = ps.filter((p) => /--kca-tool=/.test(p.cmd) && !/--type=/.test(p.cmd)).length;
-  row(orphans.length ? 'warn' : true, 'tool processes', `${live} browser(s), ${runningBlenders().length} blender(s) running${orphans.length ? `; ORPHANED: ${orphans.map((o) => `${o.kind} pid ${o.pid} (${Math.round(o.age / 60)} min)`).join(', ')}` : ''}`);
+  row(orphans.length ? 'warn' : true, 'tool processes', `${live} browser(s), ${blenders.size} blender(s) running${orphans.length ? `; ORPHANED: ${orphans.map((o) => `${o.kind} pid ${o.pid} (${Math.round(o.age / 60)} min)`).join(', ')}` : ''}`);
 }
 
 if (args.has('--cleanup') && sandbox) console.log('\ncleanup skipped: sandboxed processes cannot judge other agents\' locks');

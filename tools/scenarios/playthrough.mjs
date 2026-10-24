@@ -48,6 +48,18 @@ export default async (api) => {
   }, COUNT);
   const takeCounts = () => E(() => { const r = { ...window.__PT.c, bossNames: window.__PT.boss.slice() }; window.__PT.c = {}; window.__PT.boss = []; return r; });
 
+  // GPU-reset guard (perf-1650 C2 r13): a WebGL context loss while the manual clock is off (the realtime perf sample)
+  // makes the game open its PAUSE menu (Renderer._onContextLost) and nothing resumed it (enemies-ai r13: one full-1P run
+  // logged 1600+ fake SOFTLOCKs; the loss was a Windows GPU reset). The harness never pauses on purpose, so a pause it
+  // sees is resumed and counted; a lost context is waited for (≤ 60 s) and the perf sample retried once.
+  const gpuState = () => E(() => { const c = window.__KCA.game.renderer && window.__KCA.game.renderer.context; return c ? { state: c.state, losses: c.losses } : null; }).catch(() => null);
+  const unpause = async (why) => {
+    const was = await E(() => { const f = window.__KCA.game.flow; if (f.state === 'stage' && f.paused) { f.resume(); return true; } return false; });
+    if (was) { R.unrequestedPauses = (R.unrequestedPauses || 0) + 1; log(`PAUSE not requested by the harness (${why}) → resumed`); }
+    return was;
+  };
+  const waitGpu = async (ms = 60000) => { for (let t = 0; t < ms; t += 1000) { const g = await gpuState(); if (!g || g.state === 'ok') return true; await api.page.waitForTimeout(1000); } return false; };
+
   // ---------------------------------------------------------------- title → select → map
   await adv(800);
   if ((await flow()) !== 'title') log('WARN not on title: ' + (await flow()));
@@ -155,15 +167,32 @@ export default async (api) => {
         await E(() => { const g = window.__KCA.game, L = g.levels; window.__KCA.debug.kill('enemies'); for (const a of L.waveActors) { if (a.alive && a.kill) try { a.kill(); } catch (e) {} a.alive = false; } if (L.phase === 'go') { const n = L.screens[L.screenIndex + 1]; if (n) L.enterScreen(L.screenIndex + 1); } });
         progAt = simS; prog = null;
       }
-      // perf sample (realtime) once per stage, ~25 s in
+      // perf sample (realtime) once per stage, ~25 s in (retried once if the GPU context was lost during it)
       if (PERF && !cur.perf && simS - (cur.simStart ?? simS) > 25 && sid !== 'bonus') {
-        await E(() => window.__KCA.setManualClock(false));
-        await api.page.waitForTimeout(3500);
-        const samples = [];
-        for (let k = 0; k < 4; k++) { await api.page.waitForTimeout(500); samples.push(await E(() => { const i = window.__KCA.info(); return { fps: i.fps, dc: i.drawCalls, tri: i.triangles, en: i.enemies }; })); }
-        await E(() => window.__KCA.setManualClock(true));
-        cur.perf = { fps: Math.round(Math.min(...samples.map((s) => s.fps))), fpsAvg: Math.round(samples.reduce((a, s) => a + s.fps, 0) / samples.length), drawCalls: Math.max(...samples.map((s) => s.dc)), triangles: Math.max(...samples.map((s) => s.tri)), enemies: samples[samples.length - 1].en };
+        for (let attempt = 1; attempt <= 2 && !cur.perf; attempt++) {
+          const g0 = await gpuState();
+          await E(() => window.__KCA.setManualClock(false));
+          await api.page.waitForTimeout(3500);
+          const samples = [];
+          for (let k = 0; k < 4; k++) { await api.page.waitForTimeout(500); samples.push(await E(() => { const i = window.__KCA.info(); return { fps: i.fps, dc: i.drawCalls, tri: i.triangles, en: i.enemies }; })); }
+          await E(() => window.__KCA.setManualClock(true));
+          const g1 = await gpuState();
+          if (g0 && g1 && (g1.losses > g0.losses || g1.state !== 'ok')) {
+            R.gpuLosses = (R.gpuLosses || 0) + 1; cur.gpuLosses = (cur.gpuLosses || 0) + 1;
+            log(`GPU CONTEXT LOST during the realtime perf sample (attempt ${attempt}; usually a Windows GPU reset) — waiting for the restore`);
+            const back = await waitGpu();
+            await unpause('context loss during the perf sample');
+            if (!back) { log('GPU context NOT restored within 60 s: frames from here on are black; perf sample skipped'); cur.perf = { skipped: 'webgl context lost, not restored' }; }
+            continue;
+          }
+          await unpause('during the realtime perf sample');
+          cur.perf = { fps: Math.round(Math.min(...samples.map((s) => s.fps))), fpsAvg: Math.round(samples.reduce((a, s) => a + s.fps, 0) / samples.length), drawCalls: Math.max(...samples.map((s) => s.dc)), triangles: Math.max(...samples.map((s) => s.tri)), enemies: samples[samples.length - 1].en };
+          if (attempt > 1) { cur.perf.retried = true; log(`perf sample retried after the context loss: ${JSON.stringify(cur.perf)}`); }
+        }
+        if (!cur.perf) cur.perf = { skipped: 'webgl context lost in both attempts' };
       }
+      // any other pause the harness did not ask for (it never presses START mid-stage): resume, count, carry on
+      if (await E(() => window.__KCA.game.flow.paused)) await unpause('seen in the stage loop');
       if (SHOTS && simS >= nextShot) { const f = path.join(api.outDir, cur.id, `f_${String(shotN++).padStart(3, '0')}.png`); await api.page.screenshot({ path: f }); cur.shots.push(f); nextShot = simS + (sid === 'bonus' ? 4 : 12); }
       await adv(1000);
       continue;
@@ -194,5 +223,5 @@ export default async (api) => {
   R.run = await E(() => { const r = window.__KCA.game.stats && window.__KCA.game.stats.run; return r ? JSON.parse(JSON.stringify(r, (k, v) => (v && typeof v === 'object' && v.isObject3D) ? undefined : v)) : null; }).catch(() => null);
   R.finalErrors = await E(() => window.__KCA.info().errors || []);
   writeOut();
-  api.log('RESULT ' + JSON.stringify({ result: R.result, stages: R.stages.map((s) => [s.id, s.simSeconds, s.deaths, s.continuesUsed, s.softlocks, s.perf && s.perf.fps, s.perf && s.perf.drawCalls]), softlocks: R.softlocks.length, sim: R.simSeconds, wall: R.wallSeconds }));
+  api.log('RESULT ' + JSON.stringify({ result: R.result, stages: R.stages.map((s) => [s.id, s.simSeconds, s.deaths, s.continuesUsed, s.softlocks, s.perf && s.perf.fps, s.perf && s.perf.drawCalls]), softlocks: R.softlocks.length, sim: R.simSeconds, wall: R.wallSeconds, gpuLosses: R.gpuLosses || 0, unrequestedPauses: R.unrequestedPauses || 0 }));
 };

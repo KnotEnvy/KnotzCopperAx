@@ -137,6 +137,11 @@ The remaining ~4 ms of the 16.7 ms frame covers compositor, DOM/HUD raster and h
   Real S4 values (`--no-overdraw`): combat 205, boss 280 KB/frame. Use `--no-overdraw` when hunting S4 allocations.
 - `GL ERRORS` lines: once per stage the kit renders one frame with every draw call checked (`gl.getError`) and names
   the program + materials of any failing draw (a GL_INVALID_OPERATION draw is silently skipped by the driver).
+- **Windows GPU resets (TDR) break every browser on the GPU** (C2 r13): lost WebGL contexts, striped/black screenshots,
+  SwiftShader for browsers started right after, transient "useProgram: program not valid" (links failing on a dying
+  device). `node tools/doctor.mjs` lists the resets of the last 24 h; capture.mjs flags damaged runs in pageErrors
+  (`report.gpuEvents`, `report.readback`). A perf or capture run that overlaps a reset is not evidence — rerun it. The
+  timeout is the Windows default 2 s (`TdrDelay` unset); raising it is an owner/host decision (docs/notes/perf-1650.md C2 r13).
 
 ## 4. Repeatability (the harness proving itself)
 Suite run 3× back to back under normal busy conditions (other agents running). Target: CV of the normalised metrics ≤ 5–7 %.
@@ -396,3 +401,11 @@ Evidence + full write-up: `docs/notes/perf-1650.md` 'Wave C2 r1 (iter 6)', `prog
 - perfbench tip for busy waves: other agents' runs rebuild the shared `public/_bench/cand` mid-run (lazy chunk 404 →
   a spell module missing). Build privately (`PB_OUT=/tmp/<name> node node_modules/vite/bin/vite.js build --config
   tools/perfbench.vite.mjs`) and pass `--dist /tmp/<name>`.
+
+### 2026-10-24 · Wave C2 r13 (perf-1650, platform round) — S4/S5 check on the quieter box, no game change
+Private prod build of HEAD b47598ff, 1920×1080 High, `--parts all` (`progress/shots/perf-1650/c2r13/pb_s45/summary.md`):
+S4 combat 9.38 · **S4 boss 11.11** · **S5 combat 10.25** · **S5 boss 12.26 (over 12)** ≈1650 Ti ms; 0 new programs, passPx 7.69.
+S4 boss is inside budget on a prod build (the 12.2–12.6 seen this round was a `--dev` run on a busy box). Boss-phase
+increments are the boss actors (+≈2 ms) and, in S5, post/HDR fill (+≈1.7 ms); S5 env is instanced-heavy. S5 combat has a
+162 ms (laptop-norm) JS slice. Breakdown + reading: docs/notes/perf-1650.md "Wave C2 r13 (platform)".
+Platform changes this round (queue, memory gate, watchdog, GPU-reset detection): CHANGELOG_SHARED 2026-10-24.

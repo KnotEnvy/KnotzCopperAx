@@ -9,7 +9,8 @@ export async function takeOtherSlots(what = 'exclusive') {
   try {
     // priority claim: other captures started from now on leave the free slots to us, so the running ones drain
     unclaim = await claimPriority('capture', { info: { what, owner: 'perf-1650' } });
-    for (let i = 1; i < slots; i++) rel.push(await acquire('capture', { slots, waitMaxMs: Number(process.env.PB_EXCL_WAIT || 900) * 1000, info: { what: `${what} (slot ${i + 1}/${slots})`, owner: 'perf-1650' } }));
+    // holdOnly: placeholders (no browser behind them) — no memory gate, no start stagger, no memory reserved for them
+    for (let i = 1; i < slots; i++) rel.push(await acquire('capture', { slots, waitMaxMs: Number(process.env.PB_EXCL_WAIT || 900) * 1000, info: { what: `${what} (slot ${i + 1}/${slots})`, owner: 'perf-1650', holdOnly: true } }));
     unclaim(); // all slots are ours now
     return () => { for (const r of rel) r(); };
   } catch (e) { for (const r of rel) r(); if (unclaim) unclaim(); console.log('[exclusive] not taken: ' + e.message); return null; }

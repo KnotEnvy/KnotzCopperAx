@@ -33,9 +33,18 @@
 //
 // Exit code 0 on success; non-zero if the page failed to become ready. Page errors are listed in report.json
 // and printed to stdout — ALWAYS read them.
+//
+// GPU resets (C2 r13): Windows resets the GPU when one piece of GPU work runs > 2 s (TDR; System log nvlddmkm 153 +
+// LiveKernelEvent 141). Every browser on the shared GPU then either loses its WebGL context (the game shows "The graphics
+// device was reset…") or keeps running while the screenshots come back as striped garbage / black. The capture records
+// context-lost/restored events with the frame index (report.gpuEvents), re-checks the renderer at the end (report.gpuEnd)
+// and scans every saved frame for that garbage (report.readback); any of these adds a pageError — rerun the capture.
+// KCA_EXPECT_CONTEXT_LOSS=1: a test that loses the context on purpose (events still recorded, no pageError);
+// KCA_READBACK_CHECK=0: skip the frame scan (~25 ms per frame).
 
 import { launchBrowser, gpuRenderer, isSoftwareRenderer } from './lib/browser.mjs';
-import { KCA_HOST, memAvailableMB } from './lib/platform.mjs';
+import { KCA_HOST } from './lib/platform.mjs';
+import { memGate } from './lib/memgate.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -70,25 +79,24 @@ const every = Number(opt.every || (nFrames > 12 ? Math.ceil(nFrames / 12) : 1));
 
 const report = { url, outDir, size: [W, H], consoleErrors: [], pageErrors: [], warnings: [], files: [], info: null, ok: false };
 const t0 = Date.now();
+const frameFiles = []; // every frame PNG written by frames() (declared early: the GPU-event binding below reads it)
+const warningCounts = new Map(); // all warnings, deduplicated (report.warnings keeps only the first 30)
+let gpuLostFlagged = process.env.KCA_EXPECT_CONTEXT_LOSS === '1'; // tools/scenarios/context_loss.mjs loses it on purpose
+const flagGpuLost = (how) => {
+  if (gpuLostFlagged) return; gpuLostFlagged = true;
+  report.pageErrors.push(`WEBGL CONTEXT LOST at frame ${frameFiles.length} (${how}; usually a Windows GPU reset/TDR, see doctor "GPU resets"): frames from here on may be black, striped or show the "graphics device was reset" message — rerun`);
+};
 
-// Machine-wide cap on concurrent capture browsers. KCA_CAPTURE_SLOTS overrides (default 6). Queued captures wait for a free slot.
+// Machine-wide cap on concurrent capture browsers. KCA_CAPTURE_SLOTS overrides (default 6). Queued captures wait for a free
+// slot in arrival order, starts are staggered 10 s apart (KCA_CAPTURE_STAGGER_MS) so each launch sees the memory the
+// previous one took, and a capture waits while memory is short (tools/lib/memgate.mjs: KCA_CAPTURE_MIN_FREE_MB, default
+// 4000 usable; a capture browser settles at ~1.5-2 GB, up to 3.6 GB measured).
 const { acquire, claimPriority } = await import('./lib/locks.mjs');
 // KCA_EXCLUSIVE=1 (perf-1650): claim priority first so other captures leave the free slots to this run (see lib/locks.mjs)
 if (process.env.KCA_EXCLUSIVE === '1') await claimPriority('capture', { info: { what: 'exclusive ' + url.slice(0, 100), owner: 'perf-1650' } });
-// Also wait while free memory is low (a capture browser needs ~1.5-2.5 GB; KCA_CAPTURE_MIN_FREE_MB overrides).
-const CAPTURE_MIN_FREE_MB = Number(process.env.KCA_CAPTURE_MIN_FREE_MB || 3000);
-let memWaitLogged = 0;
 const releaseSlot = await acquire('capture', {
   slots: Number(process.env.KCA_CAPTURE_SLOTS || 6), info: { what: url.slice(0, 120) },
-  extraBusy: async () => {
-    const free = memAvailableMB();
-    if (free >= CAPTURE_MIN_FREE_MB) return false;
-    if (!memWaitLogged || Date.now() - memWaitLogged > 60000) {
-      memWaitLogged = Date.now();
-      console.error(`[capture] waiting for memory: ${Math.round(free)} MB free, need ${CAPTURE_MIN_FREE_MB} MB (KCA_CAPTURE_MIN_FREE_MB)`);
-    }
-    return true;
-  },
+  extraBusy: memGate('capture', { prefix: '[capture]' }),
 });
 const browser = await launchBrowser({
   tool: 'capture',
@@ -113,20 +121,72 @@ export class ErrorOverlay extends HTMLElement {}
 export default {};`,
   }));
 }
+// WebGL context lost / restored on any canvas of the page → report.gpuEvents with the frame index it happened at.
+report.gpuEvents = [];
+try {
+  await context.exposeBinding('__kcaGpuEvent', (_src, type) => {
+    report.gpuEvents.push({ type: String(type), atFrame: frameFiles.length, shots: report.files.length, t: +((Date.now() - t0) / 1000).toFixed(1) });
+    if (type === 'webglcontextlost') flagGpuLost('webglcontextlost event');
+  });
+  await context.addInitScript(() => {
+    const h = (e) => { try { if (e.target && e.target.isConnected !== false) window.__kcaGpuEvent(e.type); } catch {} };
+    addEventListener('webglcontextlost', h, true); addEventListener('webglcontextrestored', h, true);
+  });
+} catch { /* diagnostics only */ }
 const page = await context.newPage();
 // A CPU fallback renderer makes every frame and number wrong: fail loudly instead of producing plausible-looking output.
 report.gpu = await gpuRenderer(page);
 if (isSoftwareRenderer(report.gpu)) report.pageErrors.push('SOFTWARE RENDERER (no GPU): ' + report.gpu + ' — run node tools/doctor.mjs');
 page.on('console', (m) => {
   const t = m.type();
+  if ((t === 'warning' || t === 'error') && m.text().includes('CONTEXT_LOST_WEBGL')) flagGpuLost('CONTEXT_LOST_WEBGL in the console');
   if (t === 'error') report.consoleErrors.push(m.text().slice(0, 800));
-  else if (t === 'warning') { if (report.warnings.length < 30) report.warnings.push(m.text().slice(0, 300)); }
+  else if (t === 'warning') {
+    const k = m.text().slice(0, 300);
+    if (report.warnings.length < 30) report.warnings.push(k);
+    warningCounts.set(k, (warningCounts.get(k) || 0) + 1);
+  }
   else if (opt.verbose) console.log('[page]', m.text());
 });
 page.on('pageerror', (e) => report.pageErrors.push(String(e && e.stack || e).slice(0, 1500)));
 
+/** Readback garbage after a GPU reset: rows of the real image smeared sideways (vertical/horizontal luma-step ratio ≈ 4
+ * vs 1.0-1.8 on 1319 normal frames checked 2026-10-24). Returns { striped, black, ratio }. ~25 ms per 1600×900 frame. */
+async function frameHealth(sharp, file) {
+  const { data, info } = await sharp(file).greyscale().resize(400, null, { kernel: 'nearest' }).raw().toBuffer({ resolveWithObject: true });
+  const w = info.width, h = info.height;
+  let dv = 0, dh = 0, sum = 0;
+  for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) { const i = y * w + x, v = data[i]; dv += Math.abs(v - data[i + w]); dh += Math.abs(v - data[i + 1]); sum += v; }
+  const n = (w - 1) * (h - 1);
+  return { striped: dv / n >= 30 && dv / Math.max(1, dh) >= 2.5, black: sum / n < 1.5, ratio: +(dv / Math.max(1, dh)).toFixed(2) };
+}
+let readbackChecked = false;
+async function checkReadback() {
+  if (readbackChecked || process.env.KCA_READBACK_CHECK === '0') return;
+  readbackChecked = true;
+  const pngs = [...frameFiles, ...report.files.filter((f) => /\.png$/.test(f) && !/sheet\.png$/.test(f)).map((f) => path.resolve(f))];
+  if (!pngs.length) return;
+  const sharp = (await import('sharp')).default;
+  const stride = Math.max(1, Math.ceil(pngs.length / 400)); // ≤ 400 checks (~10 s) even for very long runs
+  const bad = []; let black = 0;
+  for (let i = 0; i < pngs.length; i += stride) {
+    let hlt; try { hlt = await frameHealth(sharp, pngs[i]); } catch { continue; }
+    if (hlt.striped) bad.push(path.basename(pngs[i]));
+    if (hlt.black) black++;
+  }
+  report.readback = { checked: Math.ceil(pngs.length / stride), striped: bad.length, black, firstStriped: bad[0] || null };
+  if (bad.length) report.pageErrors.push(`GPU READBACK GARBAGE: ${bad.length} striped frame(s) from ${bad[0]} — the GPU was reset mid-capture (Windows TDR); these frames are not the game. Rerun.`);
+}
+
 async function finish(code) {
   try { report.info = await page.evaluate(() => (window.__KCA && window.__KCA.info) ? window.__KCA.info() : null); } catch {}
+  // the renderer can change mid-run (GPU reset → SwiftShader): check it again at the end
+  try {
+    report.gpuEnd = await Promise.race([gpuRenderer(page), new Promise((r) => setTimeout(() => r('unknown (timeout)'), 5000))]);
+    if (isSoftwareRenderer(report.gpuEnd) && !isSoftwareRenderer(report.gpu)) report.pageErrors.push('SOFTWARE RENDERER at the end of the run (the GPU was lost mid-capture): ' + report.gpuEnd);
+  } catch {}
+  try { await checkReadback(); } catch (e) { report.warnings.push('readback check failed: ' + e.message.slice(0, 200)); }
+  if (warningCounts.size) report.warningCounts = Object.fromEntries([...warningCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20));
   report.seconds = (Date.now() - t0) / 1000;
   report.ok = code === 0;
   fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2));
@@ -172,7 +232,6 @@ const shot = async (name) => {
   report.files.push(rel(p));
   return p;
 };
-const frameFiles = [];
 const frames = async (n, stepMs = step, prefix = 'frame') => {
   const list = [];
   for (let i = 0; i < n; i++) {
@@ -206,6 +265,9 @@ try {
   try { await shot('failed'); } catch {}
   await finish(3);
 }
+
+// GPU-reset garbage check while every frame is still on disk (the hygiene step below deletes most of them)
+try { await checkReadback(); } catch (e) { report.warnings.push('readback check failed: ' + e.message.slice(0, 200)); }
 
 // Post-process frames: sheet + mp4
 if (frameFiles.length) {

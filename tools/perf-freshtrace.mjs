@@ -17,7 +17,8 @@ const until = arg('until', 'cast'), secs = Number(arg('secs', 120));
 const KEEP = /^(Paint|PaintImage|Decode Image|ImageDecodeTask|RasterTask|Commit|UpdateLayoutTree|Layout|RasterDecoderImpl::DoEndRasterCHROMIUM|D3DCompile|GetPixelExecutableTask::run|GetVertexExecutableTask::run|Program::MainLinkLoadEvent::wait|FireAnimationFrame|ProxyMain::BeginMainFrame)$/;
 const CATS = 'toplevel,devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-v8.gc,gpu,gpu.angle,blink.user_timing,benchmark';
 const SLOTS = Number(process.env.KCA_CAPTURE_SLOTS || 6), rels = [];
-for (let i = 0; i < SLOTS; i++) rels.push(await acquire('capture', { slots: SLOTS, info: { what: `perf-freshtrace (${i + 1}/${SLOTS}, exclusive)`, owner: 'perf-1650' } }));
+// slot 1 carries the browser (memory gate + stagger); the others only keep other captures out (holdOnly)
+for (let i = 0; i < SLOTS; i++) rels.push(await acquire('capture', { slots: SLOTS, info: { what: `perf-freshtrace (${i + 1}/${SLOTS}, exclusive)`, owner: 'perf-1650', ...(i > 0 ? { holdOnly: true } : {}) } }));
 const browser = await launchBrowser({ tool: 'perf-freshtrace', args: ['--autoplay-policy=no-user-gesture-required'] });
 try {
   const context = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 });
