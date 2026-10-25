@@ -186,7 +186,9 @@ export class LevelDirector {
       const inX = side === 'left' ? vis.xMin + g.rng.range(1.5, 3.5) : vis.xMax - g.rng.range(1.5, 3.5);
       const rise = sp.rise || (sp.opts && sp.opts.rise);
       const enter = sp.enter !== false && sp.x === undefined;
-      const x = sp.x ?? (rise ? inX : offX);
+      let x = sp.x ?? (rise ? inX : offX);
+      // C2 r15 (enemies-ai, additive): in co-op the crowd director may move a riser to the emptier flank of a hero (no-op in 1P)
+      if (rise && g.ai && g.ai.director && g.ai.director.coRiseX) x = g.ai.director.coRiseX(x, z);
       const E = await enemies();
       if (!E) return;
       const p = E.spawnEnemy(g, sp.type, { x, z, facing: side === 'left' ? 1 : -1, tier: sp.tier, hp: sp.hp, elite: sp.elite, enterFrom: enter && !rise ? { x: inX, z } : null, ...(sp.opts || {}), ...(rise ? { rise: true } : {}) });

@@ -69,7 +69,8 @@ const peak = expectedBlenderPeak({ declaredMB: Number(opt['mem-mb']) > 0 ? Numbe
 const gate = memGate('blender', { prefix: '[blender-run]', needMB: peak.mb + HEADROOM_MB });
 const release = await acquire('blender', {
   slots: SLOTS,
-  info: { owner: opt.owner || process.env.KCA_OWNER || '', what, log: logPath, memMB: peak.mb, memSrc: peak.src, script: jobKey.script, ppid: process.ppid },
+  // gpu:false = a CPU render (KCA_CYCLES_DEVICE=CPU): exempt from the capture/Blender GPU turn-taking in lib/locks.mjs
+  info: { owner: opt.owner || process.env.KCA_OWNER || '', what, log: logPath, memMB: peak.mb, memSrc: peak.src, script: jobKey.script, ppid: process.ppid, ...(String(process.env.KCA_CYCLES_DEVICE || '').toUpperCase() === 'CPU' ? { gpu: false } : {}) },
   pollMs: Math.max(100, Number(opt['poll-ms']) || 5000),
   signals: false, // handled below: a stopped wrapper stops its Blender
   // Also wait while the machine is already at the cap (unmanaged Blenders count too), or while memory is short.

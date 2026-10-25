@@ -5,6 +5,7 @@
 // a silhouette none of the other bosses have); the left hand reaches forward, claw open (the witchfire hand).
 // Walk: a slow, wide, rolling stomp, axe still shouldered. Attacks stay in boss_morvane.js (Brann grammar).
 import { dir, W, torso, feet, gait } from './_kit.js';
+import { twoBeat, IDLE_R14 } from './_bossIdle.js';   // C2 r15: two-beat idle (&bossidle=r14 = old)
 
 const ST = feet([0.27, 0, -0.14, 0, 10], [-0.25, 0, 0.2, 0, 34]);
 const T = (p = 0, y = 0) => torso({ pelvis: -16, yaw: 12 + y, pitch: -30 + p, look: 1, hp: 6, pelvisPitch: -6 });
@@ -37,7 +38,7 @@ export default {
   clips: {
     idle: {
       frames: 160, loop: true, plant: 1, breathe: 1, grip: 0, tags: ['idle'],
-      keys: [
+      keys: !IDLE_R14 ? twoBeat(160, k, { sway: 0.05, rise: 0.022, pitch: 7, roll: 3.5, yaw: 6, head: 13, lift: 0.05, handSwing: 0.055 }) : [
         k(0),
         k(80, { pose: T(2.5, -2), hips: [-0.07, -0.155, 0], wpn: AXE(0.02), handL: CLAW(0.04) }),
         k(160),

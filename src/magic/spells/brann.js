@@ -11,14 +11,14 @@ import { groundRing, dustRing, debris, crackDecal, dustPuffs, embers, coreGlow }
 
 const VEIN = '#ffad42';
 let columnSerial = 0;
-const DUST_LIT = new Color().setRGB(5.8, 3.5, 1.8), DUST_COOL = new Color().setRGB(2.8, 2.1, 1.5);
+const DUST_LIT = new Color().setRGB(3.6, 2.2, 1.2), DUST_COOL = new Color().setRGB(2.8, 2.1, 1.5);
 
 function earthDust(S, x, y, z, n = 4, size = 1.2, dense = false) {
   if (!S.vfx.fire) return dustPuffs(S.vfx, x, y, z, { n, spread: .6, size: [size * .5, size], alpha: .4 });
   for (let i = 0; i < n; i++) S.vfx.fire.emit({ clip: 'smoke',
-    pos: [x + S.r.range(-.65, .65), y + size * (dense ? .60 : .2), z + S.r.range(dense ? .45 : -.3, dense ? 1.0 : .4)],
+    pos: [x + S.r.range(-.65, .65), y + size * (dense ? .60 : .2), z + S.r.range(dense ? -.2 : -.3, dense ? .65 : .4)],
     size: [size * .92, size * (dense ? 1.25 : 1)], life: S.r.range(dense ? .42 : .55, dense ? .68 : .85), tint: dense ? DUST_LIT : DUST_COOL, alpha: S.r.range(dense ? .22 : .14, dense ? .40 : .25), erosion: .12,
-    vel: [S.r.range(-.55, .55), S.r.range(.8, 1.7), S.r.range(-.15, .3)], grow: dense ? .9 : 1.1, core: 0, soft: .14, floor: y,
+    vel: [S.r.range(dense ? -2.4 : -.55, dense ? 2.4 : .55), S.r.range(.5, 1.5), S.r.range(-.25, dense ? .9 : .3)], grow: dense ? .9 : 1.1, core: 0, soft: .14, floor: y,
     phase: i * .17, rot: S.r.range(-.4, .4) });
 }
 
@@ -27,9 +27,9 @@ function stoneFragments(S, x, y, z, ground, n = 6, size = 0.24, split = true) {
   const f = rockField(S.vfx, 'chip', { glow: VEIN }), r = S.r;
   f.glow(.65);
   for (let i = 0; i < n; i++) {
-    const a = i / n * Math.PI * 2 + r.range(-0.4, 0.4), s = size * (i === 0 && split ? 1.25 : r.range(0.4, 1.2)), speed = r.range(0.7, 2.3);
+    const a = i / n * Math.PI * 2 + r.range(-0.4, 0.4), s = size * (i === 0 ? 1.65 : i % 3 === 0 ? .28 : r.range(0.55, 1.1)), speed = r.range(0.7, 2.3);
     f.add({ pos: { x: x + Math.cos(a) * 0.38, y: y + r.range(-0.28, 0.28), z: z + Math.sin(a) * 0.3 },
-      scale: [s * r.range(.65, 1.15), s * r.range(.7, 1.3), s * r.range(.45, .8)], yaw: a, vel: [Math.cos(a) * speed, y > ground + 0.5 ? r.range(-1.8, 0.3) : r.range(1.4, 3.4), Math.sin(a) * speed * 0.6],
+      scale: [s * r.range(.65, 1.5), s * r.range(.45, 1.3), s * r.range(.35, .95)], yaw: a, vel: [Math.cos(a) * speed, y > ground + 0.5 ? r.range(-1.8, 0.3) : r.range(1.4, 3.4), Math.sin(a) * speed * 0.6],
       gravity: 15, bounce: 0.3, spin: [r.range(-5, 5), r.range(-4, 4), r.range(-5, 5)], rise: 0, hold: 2.2, sink: 0.45, groundY: ground + s * 0.35,
       onLand: it => {
         if (split && i === 0) earthDust(S, it.x, ground + .02, it.z, 1, .5);
@@ -78,10 +78,10 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
         launchTick: target.vel?.y > 0 ? S.g.tick : null, struck, boss: !!(target.poise || target.kind === 'boss' || target.def?.boss) };
       if (!scenic) S.g.bus.emit('magic:earthBreach', record);
       else S.g.bus.emit('magic:earthRow', { column: id, tick, x, y, z, height: h });
-      crackDecal(S.vfx, x, y, z, { radius: scenic ? .75 : 1.0, glow: '#ffd16b', glowIntensity: 7, life: 1.7 });
+      crackDecal(S.vfx, x, y, z, { radius: scenic ? .58 : .85, glow: '#b95d29', glowIntensity: .8, life: .85 });
       groundRing(S.vfx, x, y + .04, z, { radius: scenic ? .8 : 1.2, color: ['#ffc15e', '#b7410b'], intensity: 1.2, life: .16, from: .12 });
       earthDust(S, x, y + .03, z, 1, scenic ? .85 : 1.05);
-      stoneFragments(S, x, y + .2, z, y, scenic ? 6 : 12, .21, false);
+      stoneFragments(S, x, y + .2, z, y, scenic ? 4 : 8, .24, false);
       coreGlow(S.vfx, { x, y: y + .2, z: z + .15 }, { size: 2.5, color: '#fff9df', tail: '#ff931b', intensity: 12, life: .065, core: .2 });
       S.g.cameraRig?.shake(scenic ? .12 : .32);
       if (!scenic) S.g.cameraRig?.punch(.035, 8);
@@ -105,7 +105,7 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
       stoneFragments(S, rockX, y + h * .45, rockZ, y, 9, .16, false);
       stoneFragments(S, rockX, y + .2, rockZ, y, 9, .075, false);
       // Warm translucent billows reveal the glowing break faces; staggered lifetimes avoid a dark curtain.
-      earthDust(S, rockX, y + .08, rockZ, scenic ? 4 : 12, scenic ? .9 : 1.35, true);
+      earthDust(S, rockX, y + .08, rockZ, scenic ? 3 : 8, scenic ? .9 : 1.25, true);
       if (!scenic) earthDust(S, rockX, y + h * .35, rockZ, 3, 1.1, true);
       rockField(S.vfx, 'chip', { glow: VEIN })._tick(0);
       S.g.bus.emit('magic:earthCrumble', { column: id, tick: S.g.tick, x, y, z, height: h });
@@ -228,7 +228,7 @@ async function boulderRain(S) {
 
 async function mountainsWrath(S) {
   const g = S.g, h = S.hero, vfx = S.vfx;
-  await S.intro({ charge: 34, dark: .48, light: 2.4, dist: 21.5, height: 8 });
+  await S.intro({ charge: 34, dark: .48, light: 2.4, dist: 22.5, height: 8 });
   const foes = S.alive();
   const cx = foes.length ? foes.reduce((a, e) => a + e.pos.x, 0) / foes.length : h.pos.x + S.F * 4;
   const cz = 0, gy = S.gy(cx, cz);
@@ -240,7 +240,7 @@ async function mountainsWrath(S) {
   g.magic?.spellLight({ pos: { x: cx - .5, y: gy + .1, z: cz + .4 }, facing: 1 }, '#ffb35c', 100);
   const SC = 2.6, y0 = gy + 9, yHit = gy + 0.05;
   const T_REVEAL = 0.72, T_SLAM = 0.13, tick0 = g.tick;
-  fist.add({ pos: { x: cx, y: y0, z: cz + 0.2 }, scale: [SC, SC * 0.85, SC], yaw: -0.12 * S.F, tilt: [0.03, 0.025 * S.F], rise: 0.001, hold: T_REVEAL + T_SLAM + 0.9, sink: 0.7, sinkDepth: SC * 1.2,
+  fist.add({ pos: { x: cx, y: y0, z: cz + 0.2 }, scale: [SC, SC * 0.85, SC], yaw: -0.30 * S.F, tilt: [0.03, 0.025 * S.F], rise: 0.001, hold: T_REVEAL + T_SLAM + 0.9, sink: 0.7, sinkDepth: SC * 3.4,
     update: (it) => {
       // driven by the SIM clock (the impact is scheduled on sim ticks; the render clock lags under slow-mo, which
       // made the fist arrive AFTER its own impact in r1 → read as a tower rising out of the spikes)

@@ -326,7 +326,7 @@ def hair_cap(S, snap, H, hi):
 
 
 def PONY_TIE(H):
-    return H(0, 0.1, -0.025)          # r1d: tie at the back of the head, threaded through the crest's ring
+    return H(0, 0.1, -0.025)          # tie at the back of the head, inside the hood (C2 r8: the tail drops out below it)
 
 
 def toes(S, L, side):
@@ -542,24 +542,23 @@ FANG_BOX = (V(-0.3, -0.3, 0.85), V(0.3, 0.3, 1.02))
 
 
 def pony_curve(S, H):
-    """High ponytail: from the crown tie up and back THROUGH the crest's top notch, then falling behind the crest
-    and down the back to the waist (flared off the back so it swings clear)."""
-    hy = crest_back_y(-0.035)
-    pts = [PONY_TIE(H) + V(0, -0.006, 0), H(0, hy, -0.035), H(0, hy + 0.035, -0.05), H(0, hy + 0.055, -0.1),
-           H(0, hy + 0.062, -0.16)]
-    for j, z in enumerate((1.48, 1.37, 1.26, 1.16, 1.07)):
+    """High ponytail: tied at the back of the head INSIDE the hood's cup and falling out under the hood's open
+    bottom (C2 r8: no hole through the hood any more -- hair and hood are two separate value masses), then down the
+    back to the waist (flared off the back so it swings clear)."""
+    pts = [PONY_TIE(H) + V(0, -0.006, 0)] + [H(0, y, z) for y, z in PONY_DROP]
+    for j, z in enumerate((1.46, 1.36, 1.26, 1.16, 1.07)):
         yb = float(trace_in(S, V(0, 0.0, z), V(0, 1, 0), r=0.4)[1])
         pts.append(V(0.028 * math.sin(j * 0.75), yb + 0.055 + 0.03 * (1.48 - z), z))      # a lazy S off the spine
     P, _ = anatomy.resample(np.array(pts), step=0.008)
     return P
 
 
-PONY_CHAIN_START = 6        # index in the raw point list (behind the crest) where the spring chain starts
+PONY_DROP = ((0.118, -0.06), (0.13, -0.11), (0.138, -0.165), (0.142, -0.215))   # H frame (y, z), under the hood
 
 
 def chain_points(C, H, n=HAIR_CHAIN):
-    """Spring bones only on the hanging part (behind the crest); the arc over the crest rides the head."""
-    start = H(0, crest_back_y(-0.035) + 0.055, -0.1)
+    """Spring bones only on the hanging part (below the hood); the part inside the hood rides the head."""
+    start = H(0, *PONY_DROP[2])
     i0 = int(np.argmin(np.linalg.norm(C - start, axis=1)))
     D = C[i0:]
     sl = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(D, axis=0), axis=1))])
@@ -597,16 +596,26 @@ def pony_bounds(C):
 
 
 # ============================================================================ rigid gear
-# C2 r6 HOOD (board r5: "the hood is invisible in profile -- a flat disc behind the head"): a CUPPED cobra-hood
-# shell -- a slice of an ellipsoid shell tilted forward (top over the crown), cut to a spade outline in its own
-# front plane. Where the outline reaches the ellipsoid's equator (the wide flares at temple height) the rim comes
-# forward beside the head; at the top and the nape it stays back -- so from the side camera the hood shows as a
-# deep curved shape behind/above the head with a bright rim, and from the front as a wide flared frame.
-HOOD_C = (0.0, 0.01, 0.035)          # ellipsoid centre (H units)
-HOOD_R = (0.21, 0.165, 0.215)         # radii: x / back (b) / up (u)
-HOOD_TILT = 9.0                      # deg: the top leans forward over the crown
-HOOD_T = 0.0072                      # shell half-thickness (H units)
-HOOD_APEX = 0.19                     # u of the spade's apex (where the serpent leaves the hood)
+# C2 r8 HOOD (board r7, unanimous: "at 1x the crest collapses into a tall hooked headdress / a ~10 px stalk -- the
+# hood must be the DOMINANT shape, a spade wider than the head at the game camera"). The game camera sees the vipers
+# near PROFILE, where r6/r7's forward-facing cup showed only its edge. Now the hood is a DEEP cupped shell LEANING
+# BACK: from the side its outer face is a broad spade behind the head and above the crown whose top narrows into the
+# serpent's neck (the cobra's own spread hood with its head on top); from the front it is still the wide flared frame
+# around her face. Values: the hood is a MID tier colour with a bright rim, the serpent a DARK dorsal, the hair black
+# -- three separate value masses. The ponytail leaves under the hood's open bottom (no hole).
+HOOD_C = (0.0, 0.095, 0.085)          # ellipsoid centre (H units)
+HOOD_R = (0.2, 0.19, 0.24)            # radii: x / back (b) / up (u)
+HOOD_TILT = -12.0                     # deg: negative = the top leans BACK
+HOOD_T = 0.0075                       # shell half-thickness (H units)
+HOOD_APEX = 0.23                      # u of the spade's apex (where the serpent's neck leaves the hood)
+HOOD_FRONT = -0.07                    # keep (P - c).b >= HOOD_FRONT: the open front plane (just behind the ears)
+HOOD_BOTTOM = -0.15                   # keep (P - c).u >= HOOD_BOTTOM: the open bottom (the ponytail drops out here)
+HOOD_CHAMFER = 0.38                   # front-top edge slope into the apex (profile leaf: ear -> tip)
+HOOD_NAPE = (-0.03, -0.155, 0.75)     # (b, u) of the lower-front corner + slope of the lower-back edge
+HOOD_RIBS = (22.0, 46.0, 70.0)        # deg off the back centre: dark hood ribs fanning down from the neck (each side)
+SERPENT_IN = ((0.14, 0.0), (0.12, 0.05), (0.08, 0.12), (0.045, 0.185), (0.022, 0.235))   # (b, u) inside the cup
+SERPENT_RISE = ((0, -0.002, 0.03), (0, -0.016, 0.06), (0, -0.05, 0.082), (0, -0.088, 0.086))  # from the exit (H)
+SERPENT_KH = {"crest": 1.35, "crest_captain": 1.5}     # cobra head scale (r7: 1.15 -- 'no resolvable head at 1x')
 
 
 def hood_axes():
@@ -624,39 +633,26 @@ def hood_pt(x, zu, out=0.0):
     return V(*HOOD_C) + X * x + b * (yb + out) + u * zu
 
 
-def crest_back_y(z, x=0.0):
-    """H-y of the hood's mid surface (back side) at H-height z (bisection along +y)."""
-    X, b, u = hood_axes()
-    c = V(*HOOD_C)
-    rx, rb, ru = HOOD_R
-    lo, hi = c[1], c[1] + 0.5
-    for _ in range(40):
-        m = (lo + hi) / 2
-        q = V(x, m, z) - c
-        f = (x / rx) ** 2 + (float(q @ b) / rb) ** 2 + (float(q @ u) / ru) ** 2
-        lo, hi = (m, hi) if f < 1 else (lo, m)
-    return (lo + hi) / 2
-
-
 def serpent_path(H):
-    """The crest serpent's spine (H frame -> world): up the hood's back from just above the ponytail ring, over the
-    apex, then a SHORT thick '?' rise (C2 r7: r6's tall thin neck read as a heron) ending at the head's hinge over
-    the crown."""
-    pts = [hood_pt(0, zu, 0.024) for zu in (0.0, 0.05, 0.1, 0.14)]
-    ap = hood_pt(0, HOOD_APEX, 0.014)
-    pts += [ap + V(0, 0.008, 0.028), ap + V(0, 0.002, 0.062), ap + V(0, -0.022, 0.084), ap + V(0, -0.05, 0.088)]
+    """The crest serpent's spine (H frame -> world): rearing INSIDE the cup behind her head (from the hood's inner
+    back wall), out through the hood's top tip -- in profile the hood narrows into the neck like a cobra's own hood
+    -- then a short thick '?' rise arching forward over her crown."""
+    Xa, b, u = hood_axes()
+    pts = [V(*HOOD_C) + b * bb + u * uu for bb, uu in SERPENT_IN]
+    ex = pts[-1]
+    pts += [ex + V(*o) for o in SERPENT_RISE]
     P, _ = anatomy.resample(np.array([H(*p) for p in pts]), step=0.005)
     return P
 
 
 def crest(H, captain=False):
-    """The cobra crest (C2 r6). Both parts rigid on the head:
-    1) the HOOD: cupped spade-shaped scale shell (see HOOD_*): DARK scaled outer face (paint 'outer'), pale belly
-       inner face with dark cross bands (the cobra's hood markings), a bright rolled rim -- the value contrast that
-       makes the shape read against sky and rock; the ponytail threads through a ringed hole low on its back;
-    2) the SERPENT: a thick scaled cobra body up the hood's back and over the apex, rising free above the crown and
-       arching forward (C2 r7: a short thick '?' neck and a blunt cobra head, see below). Captain: same shape, gold
-       rim only (C2 r7: the r6 spike crown read as a halo / sun disc at 1x)."""
+    """The cobra crest (C2 r8). Both parts rigid on the head:
+    1) the HOOD (see HOOD_*): a deep cupped scale shell leaning back -- a broad spade in profile, a flared frame from
+       the front; MID tier-colour scales ('hood' paint) with a few dark cross bands, a lighter inner face and a
+       bright rolled rim ('rim' paint = per-tier rim colour) that draws the spade at 1x;
+    2) the SERPENT: a thick cobra body up the hood's upper back, over the apex and a short '?' rise arching forward;
+       a blunt cobra head (bigger: SERPENT_KH), DARK continuous dorsal, pale only in a small throat patch.
+    Captain: same shape, bigger serpent head, gold rim."""
     S = Sculpt(materials=GEAR_MATS, default_mat="scale")
     s = H.s
     Xa, b, u = hood_axes()
@@ -666,61 +662,60 @@ def crest(H, captain=False):
     E = Ellipsoid(c, H.r(rx, rb, ru), M)
     t = HOOD_T * s
     big = 3.0
-    outline = Union(Ellipsoid(c + u * 0.012 * s, H.r(0.204, big, 0.185), M),
-                    Ellipsoid(c - u * 0.11 * s, H.r(0.088, big, 0.1), M), k=0.05 * s)
+    # front-view spade: the cup's own sides make the wide flares (the outline stays clear of them, else the rim
+    # strip would run along the whole flare); only the narrowing toward the nape and the apex are cut
+    outline = Union(Ellipsoid(c + u * 0.02 * s, H.r(0.3, big, 0.215), M),
+                    Ellipsoid(c - u * 0.11 * s, H.r(0.1, big, 0.1), M), k=0.05 * s)
     apex = c + u * HOOD_APEX * s
     for sx in (1, -1):
         outline = Inter(outline, HalfSpace(apex, norm(u + Xa * sx * 0.5)), k=0.03 * s)
-    keep = Inter(outline, HalfSpace(c - u * 0.16 * s, -u), HalfSpace(c + b * 0.01 * s, -b), k=0.006 * s)
-    hz = -0.035
-    hole_c = H(0, crest_back_y(hz), hz)
-    hole = Ellipsoid(hole_c, H.r(0.022, 0.06, 0.022))
-    lo, hi = c - 0.32, c + 0.32
-    sheet = Diff(Inter(Shell(E, t), keep, k=0.003), hole, k=0.002)
+    # profile spade: the front-top edge closes into the apex (the back edge is the cup's own curve), the lower back
+    # edge sweeps in to a narrow nape -- a leaf / spade from the side, not a box
+    outline = Inter(outline, HalfSpace(apex, norm(u * HOOD_CHAMFER - b)), k=0.03 * s)
+    nape = c + b * HOOD_NAPE[0] * s + u * HOOD_NAPE[1] * s
+    outline = Inter(outline, HalfSpace(nape, norm(b * HOOD_NAPE[2] - u)), k=0.04 * s)
+    keep = Inter(outline, HalfSpace(c + u * HOOD_BOTTOM * s, -u), HalfSpace(c + b * HOOD_FRONT * s, -b), k=0.006 * s)
+    lo, hi = c - 0.36, c + 0.36
+    sheet = Inter(Shell(E, t), keep, k=0.003)
     S.add(Bounded(BH.ScaleField(sheet, amp=0.0018), lo, hi), 0.0, mat="scale")
-    rim = Inter(Shell(E, t + 0.0022), Diff(outline, Offset(outline, -0.009 * s)), keep, k=0.002)   # C2 r7: thinner
+    rim = Inter(Shell(E, t + 0.0024), Diff(keep, Offset(keep, -0.011 * s)), k=0.002)
     S.add(Bounded(rim, lo, hi), 0.002, mat="trim")
-    hb = norm(hole_c - c)
-    S.add(Torus(hole_c, 0.023 * s, 0.0045 * s, basis(hb, V(0, 0, 1))[:, [1, 2, 0]]), 0.002, mat="trim")
-    # value design: dark outer face, pale inner face with dark hood bands
-    S.paint(Bounded(Diff(Offset(sheet, 0.004), E), lo, hi), "outer", soft=0.002, value=1.0)
+    S.paint(Bounded(Offset(rim, 0.003), lo, hi), "rim", soft=0.002, value=1.0)
+    # values: the whole hood a MID tier colour; the inner face (front / 3q) a little lighter; dark cross bands
+    S.paint(Bounded(Offset(sheet, 0.004), lo, hi), "hood", soft=0.002, value=1.0)
     inner = Inter(Offset(sheet, 0.004), E)
-    # C2 r7 (board r6: "jade a pale loop, captain a halo disc at 1x"): the inner face -- the side the game camera
-    # sees -- is now DARK: 3/4 of the way to scale_deep, broad near-black hood bands; only the thin rolled rim (1 px at
-    # 1x) stays light and draws the hood shape.
-    S.paint(Bounded(inner, lo, hi), "outer", soft=0.004, value=0.74)
-    for j, zu in enumerate((-0.1, -0.04, 0.02, 0.08, 0.13)):      # broad dark hood bands
-        S.paint(Bounded(Inter(inner, Slab(c + u * zu * s, u, (0.017 - 0.0016 * j) * s)), lo, hi), "mark2",
-                soft=0.004, value=0.88)
-    # ---- the serpent (C2 r7, board r6 unanimous "a heron/crane, not a cobra": neck 1/5 of the head width, long open
-    # beak jaw). Now a COBRA by the seats' numbers: a THICK neck (r 0.03 H, laterally flattened like a cobra's
-    # spread neck: >= 60 % of the head width) rising straight out of the hood's apex in a short '?' curve, a BLUNT
-    # rounded head (wider than tall, short snout) bent forward-down over her brow, only a small jaw gap with two short
-    # fangs and a red forked tongue, dark bead eyes under bright brow ridges, a DARK back (dorsal) and a mid-value
-    # throat with two dark throat bands. No separate neck flare (r6's read as a disc mouth / lollipop in 3q).
+    S.paint(Bounded(inner, lo, hi), "belly", soft=0.004, value=0.3)
+    # the cobra's hood bands on the INNER face (front / 3q); the outer face (profile) stays one mid mass, shaded
+    # darker toward its back centre (the cup reads round, the bright front rim draws the spade)
+    for j, zu in enumerate((-0.08, -0.02, 0.04)):
+        S.paint(Bounded(Inter(inner, Slab(c + u * zu * s, u, (0.013 - 0.0015 * j) * s)), lo, hi),
+                "mark2", soft=0.004, value=0.85)
+    outer_f = Diff(Offset(sheet, 0.004), E)
+    S.paint(Bounded(Inter(outer_f, Slab(c, Xa, 0.07 * s)), lo, hi), "outer", soft=0.05 * s, value=0.45)
+    # C2 r8 (fast1 in game: 'a bonnet / helmet'): the cobra hood's RIBS -- dark meridian stripes on the outer face
+    # fanning out from the neck at the top (where they converge) down to the rim; ~2 px at the game camera
+    for sx in (1, -1):
+        for ph in HOOD_RIBS:
+            a = math.radians(ph)
+            dd = norm(Xa * sx * math.sin(a) + b * math.cos(a))
+            S.paint(Bounded(Inter(outer_f, Slab(c, norm(np.cross(u, dd)), 0.0075 * s), HalfSpace(c, -dd)), lo, hi),
+                    "mark2", soft=0.003 * s, value=0.8)
+    # ---- the serpent
     P = serpent_path(H)
     n = len(P)
     f = np.linspace(0, 1, n)
-    Rb = np.interp(f, [0, 0.12, 0.45, 0.75, 1.0], [0.016, 0.028, 0.031, 0.032, 0.03]) * s
+    Rb = np.interp(f, [0, 0.15, 0.45, 0.75, 1.0], [0.02, 0.031, 0.034, 0.034, 0.031]) * s
     T_ = np.gradient(P, axis=0)
     T_ /= np.linalg.norm(T_, axis=1, keepdims=True)
     body = Chain(list(P), list(Rb), squash=(1.22, 0.86), ref=(1, 0, 0))      # wider laterally than deep
     S.add(BH.ScaleField(body, amp=0.0014), 0.01 * s, mat="scale")
+    S.paint(Bounded(Offset(body, 0.008 * s), P.min(axis=0) - 0.06, P.max(axis=0) + 0.06), "outer", soft=0.004,
+            value=1.0)                                                       # continuous DARK dorsal
     Nf = np.cross(T_, V(1, 0, 0))                    # body 'front' normal (belly side), in the yz plane
     Nf /= np.linalg.norm(Nf, axis=1, keepdims=True)
     Nf *= np.where(Nf[:, 1] < 0, 1, -1)[:, None]     # face forward (-y) / down
-    for i in range(1, n - 1):
-        S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.4), HalfSpace(P[i] + Nf[i] * float(Rb[i]) * 0.35, -Nf[i])),
-                        P[i] - 0.06, P[i] + 0.06), "belly", soft=0.004, value=0.45)
-        S.paint(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.4), HalfSpace(P[i] - Nf[i] * float(Rb[i]) * 0.2, Nf[i])),
-                        P[i] - 0.06, P[i] + 0.06), "outer", soft=0.006, value=1.0)
-    for fb in (0.6, 0.72):                           # dark throat bands (spectacled-cobra throat) on the front
-        i = int(n * fb)
-        S.paint(Bounded(Inter(Slab(P[i], T_[i], 0.0075 * s), Sphere(P[i], float(Rb[i]) * 1.5)), P[i] - 0.06, P[i] + 0.06),
-                "mark2", soft=0.003, value=0.9)
-    # head: blunt and rounded, bent forward-down; built in its own frame (x lateral, y snout, z up). KH: the game
-    # camera is ~97 px/m (r6 crops) -> head ~0.135 H x 1.15 = 13 px long at 1x (board: >= 12 px).
-    KH = 1.15
+    # head: blunt and rounded, bent forward-down; built in its own frame (x lateral, y snout, z up)
+    KH = SERPENT_KH["crest_captain" if captain else "crest"]
     hs = s * KH
 
     def Hr(*r):
@@ -744,16 +739,23 @@ def crest(H, captain=False):
     gap = Ellipsoid(hinge + hd * 0.075 * hs - up * 0.021 * hs, Hr(0.026, 0.05, 0.0055), Mh)
     S.sub(gap, 0.003 * hs)                                                                            # short jaw gap
     S.paint(Offset(gap, 0.003 * hs), "mouth", soft=0.003, value=1.0)
-    S.paint(Bounded(Inter(Ellipsoid(hc, Hr(0.07, 0.11, 0.06), Mh), HalfSpace(hc - up * 0.006 * hs, -up)),
-                    hc - 0.14, hc + 0.14), "outer", soft=0.006, value=1.0)                       # dark dorsal head
-    S.paint(Bounded(Inter(Ellipsoid(jc, Hr(0.05, 0.07, 0.03), Mj), HalfSpace(jc, Mj[:, 2] * -1)), jc - 0.1,
-                    jc + 0.1), "belly", soft=0.004, value=0.55)                                     # pale-ish chin
+    S.paint(Bounded(Ellipsoid(hc, Hr(0.08, 0.12, 0.07), Mh), hc - 0.16, hc + 0.16), "outer", soft=0.006,
+            value=1.0)                                                                              # dark head
+    pale = [Bounded(Inter(Ellipsoid(jc, Hr(0.05, 0.07, 0.03), Mj), HalfSpace(jc, Mj[:, 2] * -1)), jc - 0.1,
+                    jc + 0.1)]                                                                      # pale-ish chin
+    for i in range(int(n * 0.8), n - 1):              # + a small pale THROAT patch just under the head
+        pale.append(Bounded(Inter(Sphere(P[i], float(Rb[i]) * 1.4),
+                                  HalfSpace(P[i] + Nf[i] * float(Rb[i]) * 0.45, -Nf[i])), P[i] - 0.06, P[i] + 0.06))
+    for pr in pale:
+        S.paint(pr, "belly", soft=0.004, value=0.6)
+        S.paint(pr, "outer", soft=0.004, value=0.9, mode="sub")
     for sx in (1, -1):
         lat = lat0 * sx
         ec = hc + lat * 0.034 * hs - hd * 0.004 * hs + up * 0.009 * hs
         S.add(Sphere(ec, 0.0105 * hs), 0.002, mat="leather_dark")                                   # dark bead eye
-        S.add(Ellipsoid(ec + up * 0.009 * hs + lat * 0.003 * hs, Hr(0.009, 0.019, 0.0045), Mh), 0.003 * hs,
-              mat="trim")                                                                           # bright brow ridge
+        br = Ellipsoid(ec + up * 0.009 * hs + lat * 0.003 * hs, Hr(0.009, 0.019, 0.0045), Mh)
+        S.add(br, 0.003 * hs, mat="trim")                                                           # bright brow ridge
+        S.paint(Offset(br, 0.004 * hs), "rim", soft=0.002, value=1.0)
         ft = hc + hd * 0.062 * hs + lat * 0.013 * hs - up * 0.016 * hs
         S.add(RoundCone(ft, ft - up * 0.022 * hs + hd * 0.004 * hs, 0.0042 * hs, 0.0009), 0.002,
               mat="bone")                                                                           # short fangs
@@ -829,7 +831,7 @@ def cape(snapT, L, half=False):
     fa, fb, fr = cape_fill(half)
     fill = Capsule(fa, fb, fr)
     hz = 1.0 if half else 1.06
-    ridges = []
+    ridges, crests, valleys = [], [], []
     xs = (0.015, 0.075, 0.135, 0.19) if half else (-0.15, -0.075, 0.0, 0.075, 0.15)
     for i, x in enumerate(xs):
         def yb(z):
@@ -840,10 +842,14 @@ def cape(snapT, L, half=False):
         z0, z1 = 1.36, hz - 0.03
         a = V(x, yb(z0) - 0.012, z0)
         b = V(x * 1.12 + (0.012 if i % 2 else -0.012), yb(z1) + 0.008, z1)
-        ridges.append(RoundCone(a, b, 0.006, 0.027 + 0.006 * (i % 2)))
+        ridges.append(RoundCone(a, b, 0.006, 0.031 + 0.007 * (i % 2)))
+        crests.append(Offset(ridges[-1], 0.004))
+        if i:                                            # the valley between this ridge and the previous one
+            xm = (x + xs[i - 1]) / 2
+            valleys.append(RoundCone(V(xm, yb(z0) - 0.004, z0 - 0.04), V(xm * 1.1, yb(z1) + 0.006, z1), 0.012, 0.034))
     drape = Union(Offset(snapT, 0.014), fill, k=0.05)
     drape = Union(drape, *ridges, k=0.022)
-    sheet = Shell(drape, 0.0032)
+    sheet = Shell(drape, 0.0052)               # C2 r8: heavier cloth (board r7: 'flat rigid triangles at rest')
     if half:
         keep = Inter(HalfSpace(V(-0.03, 0, 0), V(-1, 0, 0)), HalfSpace(V(0.235, 0, 0), V(1, 0, 0)),
                      HalfSpace(V(0, -0.02, 0), V(0, -1, 0)), k=0.01)
@@ -863,6 +869,14 @@ def cape(snapT, L, half=False):
                    k=0.002)
     lo, hi = V(-0.32, -0.25, 0.9), V(0.32, 0.36, 1.62)
     S.add(Bounded(Displace(reg, 0.001, 16.0, 2, seed=5), lo, hi), 0.0, mat="cape")
+    # C2 r8: a rolled hem (thicker lower edge) + painted fold shading (lit ridge crests, dark valleys, a darker hem)
+    hem_band = Inter(Shell(drape, 0.0085), keep, top, hem, HalfSpace(V(0, 0, hz + 0.05), V(0, 0, 1)), k=0.004)
+    S.add(Bounded(Diff(hem_band, arm_cutter(L, r_up=0.064, r_fore=0.06), k=0.004), lo, hi), 0.003, mat="cape")
+    for cr in crests:
+        S.paint(Bounded(cr, lo, hi), "foldhi", soft=0.008, value=0.8)
+    for va in valleys:
+        S.paint(Bounded(va, lo, hi), "folddk", soft=0.012, value=0.9)
+    S.paint(Bounded(HalfSpace(V(0, 0, hz + 0.06), V(0, 0, 1)), lo, hi), "hemdk", soft=0.05, value=0.8)
     clasp = L["shoulder_L"] + V(-0.06, -0.06, 0.035)
     S.add(Bounded(Inter(Offset(snapT, 0.02), Sphere(clasp, 0.022)), clasp - 0.05, clasp + 0.05), 0.003, mat="trim")
     return S
@@ -914,7 +928,7 @@ def cape_post(half):
 
 def gear_bounds(name, L):
     if name.startswith("crest"):
-        return V(-0.3, -0.25, 1.4), V(0.3, 0.32, 2.08)
+        return V(-0.3, -0.25, 1.4), V(0.3, 0.36, 2.16)
     if name.startswith("cape"):
         return V(-0.32, -0.25, 0.9), V(0.32, 0.36, 1.62)
     if name.startswith("plate"):
@@ -967,7 +981,7 @@ def build_gear(S_body, L, H, names, h=0.0028):
     return out
 
 
-GEAR_TRIS = {"crest": 1800, "crest_captain": 1800, "mantle": 540, "plate": 260, "cape_half": 760, "cape_captain": 860}
+GEAR_TRIS = {"crest": 2000, "crest_captain": 1900, "mantle": 540, "plate": 260, "cape_half": 760, "cape_captain": 860}
 SYM_GEAR = ("crest", "cape_captain")
 
 
@@ -993,6 +1007,8 @@ PAL = dict(
     trim=shaders.srgb(226, 212, 176), trim_bone=True, trim_patina=shaders.srgb(110, 90, 50), trim_patina_amt=0.25,
     bronze=shaders.srgb(186, 146, 72), bronze_patina=shaders.srgb(76, 66, 46), bronze_patina_amt=0.3,
     mark=shaders.srgb(206, 176, 90), mark2=shaders.srgb(16, 22, 16), belly=shaders.srgb(214, 220, 178),
+    # C2 r8 crest value masses: hood = MID tier colour, rim = bright, serpent dorsal = scale_deep, hair = black
+    hood=shaders.srgb(70, 128, 82), hood_rim=shaders.srgb(228, 214, 172),
 )
 TIER_PAL = {
     "jade": {},
@@ -1001,24 +1017,34 @@ TIER_PAL = {
                     legging=shaders.srgb(56, 38, 32), legging_worn=shaders.srgb(96, 70, 58),
                     leather=shaders.srgb(72, 48, 34), leather_worn=shaders.srgb(120, 88, 62),
                     trim=shaders.srgb(186, 132, 62), trim_bone=False, trim_patina=shaders.srgb(80, 60, 40),
-                    iris=shaders.srgb(232, 140, 30), lips=shaders.srgb(112, 38, 42), mark=shaders.srgb(214, 150, 70)),
+                    iris=shaders.srgb(232, 140, 30), lips=shaders.srgb(112, 38, 42), mark=shaders.srgb(214, 150, 70),
+                    hood=shaders.srgb(160, 54, 40), hood_rim=shaders.srgb(232, 178, 104)),
     "dusk": dict(scale=shaders.srgb(48, 32, 68), scale_rim=shaders.srgb(122, 106, 152), scale_deep=shaders.srgb(12, 6, 20),
                  belly=shaders.srgb(104, 92, 126), cloth=shaders.srgb(54, 46, 62), wrap=shaders.srgb(46, 40, 52),
                  legging=shaders.srgb(28, 24, 30), legging_worn=shaders.srgb(62, 56, 66),
                  leather=shaders.srgb(40, 32, 34), leather_worn=shaders.srgb(80, 70, 72),
                  bone=shaders.srgb(168, 156, 132), cape=shaders.srgb(34, 26, 46),
                  trim=shaders.srgb(96, 92, 100), trim_bone=False, trim_patina=shaders.srgb(40, 36, 50),
-                 iris=shaders.srgb(206, 120, 236), lips=shaders.srgb(88, 38, 58), mark=shaders.srgb(140, 110, 170)),
+                 iris=shaders.srgb(206, 120, 236), lips=shaders.srgb(88, 38, 58), mark=shaders.srgb(140, 110, 170),
+                 hood=shaders.srgb(80, 76, 108), hood_rim=shaders.srgb(190, 184, 206)),   # cool steel vs the burnt wall
     "captain": dict(scale=shaders.srgb(28, 46, 38), scale_rim=shaders.srgb(214, 176, 80), scale_deep=shaders.srgb(6, 12, 10),
                     belly=shaders.srgb(214, 186, 110), cloth=shaders.srgb(152, 26, 30), wrap=shaders.srgb(70, 24, 26),
                     legging=shaders.srgb(26, 22, 22), leather=shaders.srgb(54, 36, 28), cape=shaders.srgb(146, 22, 28),
                     trim=shaders.srgb(224, 174, 72), trim_bone=False, mark=shaders.srgb(230, 190, 90),
-                    iris=shaders.srgb(244, 200, 60)),
+                    iris=shaders.srgb(244, 200, 60), hood=shaders.srgb(46, 112, 86), hood_rim=shaders.srgb(240, 192, 84)),
 }
 
 
 def p_viper_scale(c, pal):
     rgb, rough, metal, emit = BH.p_scale(c, pal)
+    w = c.paint("hood")               # C2 r8: the crest hood's MID tier colour (keeps a faint scale pattern)
+    if w.any():
+        lum = rgb.mean(axis=1) / max(float(np.mean(pal["scale"])), 1e-3)
+        hc = np.asarray(pal["hood"])[None, :] * np.clip(0.72 + 0.28 * lum, 0.75, 1.2)[:, None]
+        wh = np.clip(w, 0, 1)
+        rgb = shaders.mix(rgb, hc, wh * 0.92)
+        metal = metal * (1.0 - 0.7 * wh)          # matte: no sky mirror on the hood
+        rough = rough + 0.08 * wh
     w = c.paint("belly")              # pale belly scales on the crest's inner face (keeps the scale shading)
     if w.any():
         rgb = shaders.mix(rgb, rgb / np.maximum(pal["scale"], 1e-3) * pal["belly"] * 0.8 + pal["belly"] * 0.2,
@@ -1042,10 +1068,34 @@ def p_viper_scale(c, pal):
     return rgb, rough, metal, emit
 
 
+def p_viper_cape(c, pal):
+    """C2 r8: rag cloth + painted fold shading so the cape reads as heavy folded cloth even at rest."""
+    rgb, rough, metal, emit = BM.p_rag(c, pal, "cape")
+    w = np.clip(c.paint("foldhi"), 0, 1)
+    if w.any():
+        rgb = shaders.mix(rgb, np.minimum(rgb * 1.45 + 0.02, 1), 0.6 * w)
+    w = np.clip(c.paint("folddk"), 0, 1)
+    if w.any():
+        rgb = shaders.mix(rgb, rgb * 0.42, 0.65 * w)
+    w = np.clip(c.paint("hemdk"), 0, 1)
+    if w.any():
+        rgb = shaders.mix(rgb, rgb * 0.6, 0.5 * w)
+    return rgb, rough, metal, emit
+
+
 def p_trim(c, pal):
     if pal.get("trim_bone"):
-        return BM.p_bone(c, dict(pal, bone=pal["trim"]))
-    return shaders.p_metal(c, pal, "trim")
+        out = BM.p_bone(c, dict(pal, bone=pal["trim"]))
+    else:
+        out = shaders.p_metal(c, pal, "trim")
+    w = c.paint("rim")                # C2 r8: the crest hood rim + serpent brows in a bright per-tier rim colour
+    if w.any():
+        rgb, rough, metal, emit = out
+        wr = np.clip(w, 0, 1)
+        rgb = shaders.mix(rgb, np.asarray(pal["hood_rim"])[None, :] * (0.85 + 0.15 * rgb.mean(axis=1, keepdims=True)
+                                                                       / max(float(np.mean(pal["trim"])), 1e-3)), wr * 0.85)
+        out = (rgb, rough + 0.06 * wr, metal * (1.0 - 0.4 * wr), emit)
+    return out
 
 
 def p_viper_skin(c, pal):
@@ -1112,7 +1162,7 @@ PAINTERS = {"skin": p_viper_skin, "eye": p_viper_eye, "scale": p_viper_scale, "b
             "legging": lambda c, pal: shaders.p_leather(c, pal, "legging"),
             "cloth": lambda c, pal: BM.p_rag(c, pal, "cloth"),
             "wrap": lambda c, pal: BM.p_rag(c, pal, "wrap"),
-            "cape": lambda c, pal: BM.p_rag(c, pal, "cape")}
+            "cape": lambda c, pal: p_viper_cape(c, pal)}
 
 
 def tier_pal(tier):
@@ -1166,6 +1216,25 @@ def preview_main(args):
 
 
 # ============================================================================ build
+def viper_skin_kilt(kilt_lo, arm, kp, n, share=0.55):
+    """charkit.skin_kilt with restrict=False (C2 r8). In game the kilt chains are springs that swing apart; the
+    angular cosine blend between neighbouring chains is what keeps the tabards whole, but skin.restrict_adjacent
+    keeps only the DOMINANT chain per vertex -- a hard F/L/B/R seam on every diagonal (board r7: 2 dusk tabard tris
+    kilt_B_1 <-> kilt_L_1; in-game diag c2r8/kiltdiag_r7: the edges at the back-left diagonal under the belt, 6 cm at
+    rest -> 27 cm). Only kilt / hips / thigh bones are allowed here, so no anatomical bleed is possible."""
+    kilt_bones = ["hips", "thigh_L", "thigh_R"] + [b.name for b in arm.data.bones if b.name.startswith("kilt_")]
+    top = kp["top_z"]
+
+    def post(P, names, W):
+        for t in ("thigh_L", "thigh_R"):
+            W[:, names.index(t)] = 0.0
+        W = charkit.kilt_angular_blend(P, names, W, kp, n)
+        W, _ = skin.top_k(W, 4)
+        return skin.skirt_weights(P, names, W, top, kp["hem_z"], share=share, seam=0.12)
+    return skin.skin(kilt_lo, arm, method="sdf", allowed=kilt_bones, power=3.0, post=post, restrict=False,
+                     overrides=[(lambda P: np.clip((P[:, 2] - (top - 0.05)) / 0.04, 0, 1), "hips")])
+
+
 def crotch_mask(P):
     ax = np.clip(1.0 - (np.abs(P[:, 0]) - 0.03) / 0.04, 0, 1)
     az = np.clip(1.0 - np.abs(P[:, 2] - (LEG_GAP_TOP + 0.03)) / 0.1, 0, 1)
@@ -1268,7 +1337,7 @@ def build(args):
     for s in ("L", "R"):
         skin.skin(los["hand_" + s], arm, method="sdf", allowed=["forearm_" + s, "hand_" + s],
                   overrides=[(charkit.wrist_mask(L, s), "hand_" + s)], smooth=2)
-    charkit.skin_kilt(los["kilt"], arm, KP, KILT_CHAIN)
+    viper_skin_kilt(los["kilt"], arm, KP, KILT_CHAIN)
     charkit.rigid_bind(los["fangs"], arm, "hips")
     root = np.array(arm.data.bones["hair_1"].head_local)
 

@@ -43,7 +43,7 @@
 // KCA_READBACK_CHECK=0: skip the frame scan (~25 ms per frame).
 
 import { launchBrowser, gpuRenderer, isSoftwareRenderer } from './lib/browser.mjs';
-import { KCA_HOST } from './lib/platform.mjs';
+import { KCA_HOST, IS_WIN, IS_WSL } from './lib/platform.mjs';
 import { memGate } from './lib/memgate.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -80,6 +80,7 @@ const every = Number(opt.every || (nFrames > 12 ? Math.ceil(nFrames / 12) : 1));
 const report = { url, outDir, size: [W, H], consoleErrors: [], pageErrors: [], warnings: [], files: [], info: null, ok: false };
 const t0 = Date.now();
 const frameFiles = []; // every frame PNG written by frames() (declared early: the GPU-event binding below reads it)
+const frameWall = []; // C2 r15 (bosses): wall-clock seconds since t0 at which each frameFiles[i] was read back
 const warningCounts = new Map(); // all warnings, deduplicated (report.warnings keeps only the first 30)
 let gpuLostFlagged = process.env.KCA_EXPECT_CONTEXT_LOSS === '1'; // tools/scenarios/context_loss.mjs loses it on purpose
 const flagGpuLost = (how) => {
@@ -178,6 +179,31 @@ async function checkReadback() {
   if (bad.length) report.pageErrors.push(`GPU READBACK GARBAGE: ${bad.length} striped frame(s) from ${bad[0]} — the GPU was reset mid-capture (Windows TDR); these frames are not the game. Rerun.`);
 }
 
+/** C2 r15 (bosses): Windows GPU resets (System log, nvlddmkm 153 = TDR) during this capture, cross-referenced with the
+ * first bad frame. report.startedAt (ISO), report.frameWall (s since start per frame), report.windowsResets [{at, t}] and,
+ * when a frame went bad, report.gpuResetXref { firstBad, firstBadT, nearestReset, deltaS }. A bad frame with NO reset logged
+ * within 30 s adds a pageError (that would not be a TDR — investigate). KCA_WIN_RESETS=0 skips the query (~3 s). */
+function windowsResetXref() {
+  report.startedAt = new Date(t0).toISOString();
+  if (frameWall.length) report.frameWall = frameWall;
+  if (!(IS_WIN || IS_WSL) || process.env.KCA_WIN_RESETS === '0') return;
+  const secs = Math.ceil((Date.now() - t0) / 1000) + 60;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', `Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='nvlddmkm'; StartTime=(Get-Date).AddSeconds(-${secs})} -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated.ToUniversalTime().ToString('o') }; Write-Output 'KCA_OK'`], { encoding: 'utf8', timeout: 30000 });
+  if (!/KCA_OK/.test(r.stdout || '')) { report.warnings.push('windows reset query failed'); return; }   // no events = exit 1 + only the marker
+  const ts = (r.stdout || '').split(/\r?\n/).map((l) => Date.parse(l.trim())).filter(Number.isFinite).sort((a, b) => a - b);
+  report.windowsResets = ts.map((ms) => ({ at: new Date(ms).toISOString(), t: +((ms - t0) / 1000).toFixed(1) }));
+  let firstBad = null, firstBadT = null;
+  const fs0 = report.readback && report.readback.firstStriped;
+  if (fs0) { const i = frameFiles.findIndex((f) => path.basename(f) === fs0); if (i >= 0) { firstBad = fs0; firstBadT = frameWall[i]; } }
+  const lost = report.gpuEvents.find((e) => e.type === 'webglcontextlost');
+  if (lost && (firstBadT == null || lost.t < firstBadT)) { firstBad = 'contextlost@frame' + lost.atFrame; firstBadT = lost.t; }
+  if (firstBadT == null) return;
+  let best = null;
+  for (const e of report.windowsResets) if (!best || Math.abs(e.t - firstBadT) < Math.abs(best.t - firstBadT)) best = e;
+  report.gpuResetXref = { firstBad, firstBadT, nearestReset: best ? best.at : null, deltaS: best ? +(best.t - firstBadT).toFixed(1) : null };
+  if (!best || Math.abs(best.t - firstBadT) > 30) report.pageErrors.push(`GPU CORRUPTION WITHOUT A LOGGED WINDOWS RESET: ${firstBad} at ${firstBadT} s — not a TDR; report it on the coord board (bosses r15)`);
+}
+
 async function finish(code) {
   try { report.info = await page.evaluate(() => (window.__KCA && window.__KCA.info) ? window.__KCA.info() : null); } catch {}
   // the renderer can change mid-run (GPU reset → SwiftShader): check it again at the end
@@ -186,6 +212,7 @@ async function finish(code) {
     if (isSoftwareRenderer(report.gpuEnd) && !isSoftwareRenderer(report.gpu)) report.pageErrors.push('SOFTWARE RENDERER at the end of the run (the GPU was lost mid-capture): ' + report.gpuEnd);
   } catch {}
   try { await checkReadback(); } catch (e) { report.warnings.push('readback check failed: ' + e.message.slice(0, 200)); }
+  try { windowsResetXref(); } catch (e) { report.warnings.push('windows reset xref failed: ' + e.message.slice(0, 200)); }
   if (warningCounts.size) report.warningCounts = Object.fromEntries([...warningCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20));
   report.seconds = (Date.now() - t0) / 1000;
   report.ok = code === 0;
@@ -238,7 +265,7 @@ const frames = async (n, stepMs = step, prefix = 'frame') => {
     await advance(stepMs);
     const p = path.join(outDir, `${prefix}_${String(frameFiles.length).padStart(4, '0')}.png`);
     await page.screenshot({ path: p });
-    frameFiles.push(p); list.push(p);
+    frameFiles.push(p); list.push(p); frameWall.push(+((Date.now() - t0) / 1000).toFixed(2));
   }
   return list;
 };

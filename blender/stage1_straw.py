@@ -8,10 +8,10 @@ def material():
     alpha=np.zeros((h,w),np.float32);height=np.zeros_like(alpha)
     rng=random.Random(1127)
     for layer in range(3):
-        for i in range(115):
-            cx=(i+rng.uniform(-.35,.35))/115
-            length=min(.995,rng.uniform(.67,.94)+.055*math.sin(i*.73)) if layer==2 else rng.uniform(.54,.86)
-            width=rng.uniform(1.5,3.4);phase=rng.random()*6.28
+        for i in range(77):
+            cx=(i+rng.uniform(-.35,.35))/77
+            length=min(.995,rng.uniform(.53,.98)+.12*math.sin(i*.39)) if layer==2 else rng.uniform(.54,.86)
+            width=rng.uniform(2.1,5.2);phase=rng.random()*6.28
             centre=cx*w+np.sin(y*4+phase)*rng.uniform(2,7)+y*y*rng.uniform(-9,9)
             dist=np.abs(xx-centre);radius=width*(1-.58*y**3)
             mask=(dist<radius)&(y<length)&(y>.015)
@@ -93,20 +93,20 @@ def roof(B,C,rng,hx,H,slope,D,N,hole,paint,rim,side,sag):
                     C.face(pts,-1,[(0,1),(1,1),(1,0),(0,0)],
                            col=(tone,tone*.80,tone*.53),smooth=True)
                 x+=width+rng.uniform(.08,.22)
-    for row in range(8):
+    for row in range(7):
         x=-hx-.48
         while x<hx+.40:
-            width=min(rng.uniform(.48,.86),hx+.52-x);start=row*slope/8-.10+.07*math.sin(x*1.6+row*2.2)+rng.uniform(-.035,.035)
-            length=slope/8+rng.uniform(.34,.43);phase=rng.random()*6.28
+            width=min(rng.uniform(.43,.91),hx+.52-x);start=row*slope/7-.12+.16*math.sin(x*1.9+row*2.2)+rng.uniform(-.07,.07)
+            length=slope/7+rng.uniform(.39,.64);phase=rng.random()*6.28
             # Individual sheaves end at different lengths. Fine serrations and
             # sparse drooping tips belong to these alpha cards, never to a rim.
             def field(px,v):
                 return hole(px,v)+.035*math.sin(px*47+phase)+.035*math.sin(px*23-v*13+phase)
             def card(u,t):
-                px=x+width*u+.025*math.sin(t*3+phase)
-                v=start+t*length+.065*math.sin(u*4+phase)*t
+                px=x+width*u+.06*math.sin(t*3+phase)*t
+                v=start+t*length+.13*math.sin(u*4+phase)*t
                 h=hole(px,v);burn=max(0,min(1,(1.45-h)/.45))
-                lift=.055+(7-row)*.009+.075*t*t+.012*math.sin(u*7+phase)
+                lift=.055+(6-row)*.011+.075*t*t+.012*math.sin(u*7+phase)
                 lift-=burn*(.025+.06*math.sin(phase)**2)
                 return px,v,Vector((px,0,H-sag(px,v)))+D*v+N*lift,u,t
             def heat(a):

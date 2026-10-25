@@ -471,5 +471,10 @@ export function injectStyles() {
   s.id = 'kca-ui-styles';
   s.textContent = CSS;
   document.head.appendChild(s);
-  if (document.fonts && document.fonts.load) for (const w of [400, 500, 700]) document.fonts.load(`${w} 16px "EB Garamond"`).catch(() => {});
+  // C2 r15 (board r14 'EB Garamond 400 italic: unloaded' while the ranking uses italic titles): preload the italic face with the three upright weights,
+  // otherwise the first italic run synthesises a faux-italic until the lazy fetch lands.
+  if (document.fonts && document.fonts.load) {
+    for (const w of [400, 500, 700]) document.fonts.load(`${w} 16px "EB Garamond"`).catch(() => {});
+    document.fonts.load('italic 400 16px "EB Garamond"').catch(() => {});
+  }
 }

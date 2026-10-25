@@ -377,7 +377,7 @@ Scenario gotchas:
 The atlas is original offline painting (`python3 src/vfx/author_atlas.py`, requires numpy + Pillow),
 `public/assets/vfx/fire-hit-atlas.png`: 2048² RGBA8, 8×8 cells of256px, trilinear mipmaps (~21.3MiB GPU). Shader gradients clamp mip selection to level3,
 so transparent eight-pixel gutters isolate adjacent clips at gameplay sizes.
-The concept reference sheets are never sampled or shipped. Rows: `flame` loop; `fireBurst` incandescent contact→cooling flame lobes (soot is a separate `smoke` instance); `smoke` advected irregular density masses; `embers`; `slash` four-pose directional light wedge; `blunt` distinct four-pose heavy fan; `knockdown`; `storm`.
+The concept reference sheets are never sampled or shipped. Rows: `flame` loop; `fireBurst` incandescent contact→cooling flame lobes (soot is a separate `smoke` instance); `smoke` advected irregular density masses; `embers`; `slash` four-pose transverse light burst; `blunt` distinct four-pose heavy fan; `knockdown`; `storm`.
 
 ```js
 import { FirePool, preloadFireLibrary } from '../vfx/fireLib.js';
@@ -414,26 +414,30 @@ padding. Packing applies an8-18px smooth gutter and6px RGB bleed; runtime clamps
 uses ClampToEdgeWrapping, and bounds mip gradients to level3 to prevent neighbouring-frame bleed.
 
 C2 r7 contact authoring: `slash`/`blunt` use four authored poses at 0/33/66/99ms
-(the remaining atlas cells duplicate the final pose); each billboard rotates to the
+(the remaining atlas cells duplicate the final pose); the main burst axis crosses the
 weapon-tip velocity projected onto the camera basis. Other rows retain eight frames.
 Incandescent physical chips use `vfx.debris.emit({kind:'metal', ...})`; only magic-earth
 may use stone. Both kinds share the existing pool/program.
 `contactFill(root, worldPoint, {radius,strength,life,heavy})` in `render/characterLook.js`
 drives per-material warm fill and an optional restrained 28ms warm heavy rim. VfxSystem advances
 and clears this render-clock state; defaults have zero gain and all uniforms warm at load.
-Rooted non-bed flame cards widen 1.95x / height 1.38x around the supplied floor anchor;
+Rooted non-bed flame cards widen 1.60x / height 3.30x, raising the centre to preserve their supplied root;
 looping smoke widens 1.38x and gains 1.45x alpha (capped at one), with neutralized tint for dusk contrast. No cross-aperture
 geometry, lights, passes, extra pools or implicit smoke emitters are added. Tall looping
 smoke cards (height>=4m) also rise by22% of their original height and extend18%,
 so the dense part clears a roof crest while the separate low wisp stays in the hole.
 
-C2 r8: `fire.emitCombustion({pos:[x,y,z],target,scale=1,dir=1})` emits three unequal
-fireBurst instances plus independently advected soot in the same pool/draw. The flame
-centres follow target's posed chest bone (modelRoot/actor position fallback), with
-independent phase/mirror/skew and 280/310/355ms lifetimes. Handles are returned for the
-three flames; capacity remains bounded. `emit({follow:()=>deltaVector3,...})` accepts a
-world-space displacement from the emission point; it is evaluated each render update,
-including update(0). Flames release node references when they expire/clear/dispose.
-Use a world-aligned pool for these world attachments. No terrain/bone geometry is
-modified. Eight fireBurst poses now change shape, opening holes and burning away;
-phase offsets advance toward the last pose without wrapping to ignition.
+C2 r9: `fire.emitCombustion({pos:[x,y,z],target,scale=1,dir=1})` emits a connected
+495ms combustion mantle, delayed attached ember residue (220–620ms), and soot
+(110–650ms) in the same pool/draw. It returns mantle/residue handles (null entries
+when capacity is full). All three layers follow the target's posed chest bone
+(modelRoot/actor position fallback), including during knockback and knockdown.
+`emit({follow:()=>deltaVector3,...})` accepts world displacement from the emission
+point, evaluated on every render update including update(0). Instances release node
+references on expiry/clear/dispose. Use a world-aligned pool for these attachments.
+Eight fireBurst poses share an irregular fuel mass; tips split and burn down into
+body-local embers. No terrain/bone geometry is modified.
+Physical Light/Heavy paint fits its entire rotated quad inside the struck hurtbox's
+camera projection. The ivory Light kernel holds through33ms; Heavy through66ms,
+then cools. The victim's material fill remains local and additive. Metal splinters
+use the existing debris program; earth stone dimensions/materials stay unchanged.

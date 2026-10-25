@@ -1,14 +1,14 @@
-"""Seraphine hair CARDS (Wave C2 r3, iter 10): alpha-tested strand cards over the solid under-mass.
+"""Seraphine swept locks and braid (Wave C2 r5, iter 12): alpha-tested strand cards over the solid under-mass.
 
 Six rounds of sculpted-solid hair read as a segmented shell (board C2 r9). This module provides
   1. make_atlas(out_dir)     -- the strand texture atlas (1024 x 1024, 8 strips of 128 px: dense lock strips with
                                 tapered split tips, medium strips with ragged edges, wispy hairline strips), written as
                                 PNG albedo (RGBA, alpha = coverage), tangent-space normal, ORM. Pure numpy (no Blender
                                 slot): `python blender/seraphine_hair_cards.py atlas [out_dir]`.
-  2. design_cards(...)       -- card layout (numpy only): two shingled layers of lock cards riding the under-mass,
-                                hairline wisps, temple tendrils resting on the cheek, nape wisps.
-  3. card_mesh(cards)        -- ribbons (3 verts across, cupped) with UVs into the atlas strips and SCALP normals
-                                (so the cards shade like one hair volume, not like paper).
+  2. design_cards(...)       -- card layout (numpy only): two full-length interleaved lock fans riding the under-mass,
+                                restrained hairline/temple locks and an explicit strand-UV braid.
+  3. card_mesh(cards)        -- ribbons (3 verts across, cupped) with UVs into the atlas strips and lock-local normals
+                                with per-lock cylindrical roll and lengthwise fibre variation).
   4. build_card_object(...)  -- bpy: mesh object + UVs + custom normals + 'head' vertex group + armature bind;
      card_material(...)      -- bpy: Principled with alpha -> Math GREATER_THAN cutoff -> Alpha (the 5.2 glTF exporter
                                 emits alphaMode MASK + alphaCutoff from that node pattern), double sided.
@@ -77,16 +77,16 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
     """One atlas strip. Rows 0..H-1 = root..tip. Returns alpha (H,W), albedo (H,W,3 linear), height (H,W),
     strand coverage (H,W)."""
     pal = pal or {}
-    base = pal.get("hair", _srgb(150, 54, 16))
+    base = pal.get("hair", _srgb(150, 54, 16)) * rng.uniform(0.84, 1.14) * np.array([rng.uniform(.97,1.03), rng.uniform(.94,1.06), 1.0])
     hi = pal.get("hair_hi", _srgb(236, 150, 78))
     dark = pal.get("hair_dark", _srgb(74, 22, 6))
     rows = np.arange(H)[:, None]
     cols = np.arange(W)[None, :] + 0.5
     v = rows / (H - 1.0)
     if kind == "dense":
-        n, b_end, b_fade, e_fade, t_rng, conv = 50, 0.62, 0.26, 24.0, (1.8, 4.6), 0.22
+        n, b_end, b_fade, e_fade, t_rng, conv = 62, 0.80, 0.18, 8.0, (1.1, 2.8), 0.12
     elif kind == "medium":
-        n, b_end, b_fade, e_fade, t_rng, conv = 36, 0.46, 0.30, 16.0, (1.8, 4.2), 0.28
+        n, b_end, b_fade, e_fade, t_rng, conv = 50, 0.72, 0.24, 10.0, (1.1, 2.6), 0.16
     else:
         n, b_end, b_fade, e_fade, t_rng, conv = 11, 0.10, 0.22, 24.0, (2.6, 4.8), 0.34
     alpha_s = np.zeros((H, W))
@@ -96,11 +96,11 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
     cx = W * 0.5
     for i in range(n):
         x0 = rng.uniform(-0.04, 1.04) * W
-        amp = rng.uniform(1.5, 6.5) if kind != "wispy" else rng.uniform(3.0, 10.0)
+        amp = rng.uniform(0.6, 1.8) if kind != "wispy" else rng.uniform(3.0, 10.0)
         lam = rng.uniform(0.28, 0.9)
         ph = rng.uniform(0, 2 * math.pi)
         thick = rng.uniform(*t_rng)
-        end = rng.uniform(0.62, 1.0) if kind != "wispy" else rng.uniform(0.45, 0.84)
+        end = rng.uniform(0.88, 1.0) if kind != "wispy" else rng.uniform(0.45, 0.84)
         start = 0.0 if kind != "wispy" else rng.uniform(0.0, 0.15)
         val = rng.choice([0.62, 0.8, 0.95, 1.05, 1.18, 1.32], p=[0.1, 0.22, 0.28, 0.2, 0.13, 0.07])
         xc = cx + (x0 - cx) * (1 - conv * v) + amp * np.sin(2 * math.pi * v / lam + ph) + \
@@ -127,7 +127,7 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
     b_edge = b_end + 0.10 * nz[None, :] + 0.03 * nz2[:, None]
     backing = np.clip(1 - (v - b_edge) / b_fade, 0, 1) ** 1.2
     lat = np.minimum(cols, W - cols)
-    e = e_fade * (1 + 0.7 * nz2[:, None] + 0.35 * _noise1(H, 22.0, rng)[:, None])      # torn lateral edges
+    e = e_fade * (1 + 0.12 * nz2[:, None])      # torn lateral edges
     backing = backing * np.clip(lat / np.maximum(e, 1.0), 0, 1) ** 0.8
     # r13: the root end dissolves into strands over the first ~6 % (ragged), so a card root on skin is not a cut edge
     root_in = np.clip((v - 0.004 - 0.02 * (0.5 + 0.5 * nz[None, :])) / 0.055, 0, 1) ** 0.7
@@ -145,10 +145,10 @@ def _strip(kind, rng, H=ATLAS_RES, W=STRIP_W, pal=None):
     rgb = scol * w_s[..., None] + bcol * (1 - w_s)[..., None]
     # along-length shading: roots in shadow, a painted sheen band a third of the way down, tips a touch warmer
     shade = 0.62 + 0.38 * np.clip(v / 0.22, 0, 1) ** 0.8
-    band = np.exp(-((v - 0.40 - 0.12 * nz[None, :]) / 0.22) ** 2) * (0.55 + 0.45 * st)
+    band = np.exp(-((v - rng.uniform(.23,.67) - 0.05 * nz[None, :]) / .085) ** 2) * (0.35 + 0.65 * st)
     rgb = rgb * shade[..., None]
-    rgb = rgb + (hi - rgb) * (0.09 * band)[..., None]
-    rgb = rgb + (hi * 0.8 - rgb) * (0.12 * np.clip((v - 0.8) / 0.2, 0, 1))[..., None]
+    rgb = rgb + (hi - rgb) * (0.055 * band)[..., None]
+    rgb = rgb + (hi * 0.8 - rgb) * (0.025 * np.clip((v - 0.8) / 0.2, 0, 1))[..., None]
     # dilate colour under zero alpha (mip bleed): fall back to the backing colour
     rgb = np.where(alpha[..., None] > 0.02, rgb, bcol * shade[..., None])
     height = height + 0.8 * backing * (0.5 + 0.5 * st)
@@ -181,8 +181,12 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
         bx, by, br = grng.uniform(-1, 1), grng.uniform(-1, 1), grng.uniform(0.10, 0.22)
         bump += np.clip(1 - ((px - bx) ** 2 + (py - by) ** 2) / (br * br), 0, 1) ** 1.5 * grng.uniform(0.4, 1.0)
     bump = np.clip(bump, 0, 1.2)
-    gold = pal.get("gold", _srgb(236, 190, 98)) if pal else _srgb(236, 190, 98)
+    gold = pal.get("gold", _srgb(212, 156, 64)) if pal else _srgb(212, 156, 64)
     gcol = gold[None, None, :] * (0.86 + 0.18 * (1 - bump) - 0.10 * np.clip((rad - 0.6) / 0.4, 0, 1))[..., None]
+    # Incised circular border on the sun-disc UV footprint (disc radius is ~.49
+    # of this patch). A shaded gold mid-tone survives the three-quarter key.
+    engraving = np.exp(-((rad - .425) / .015)**2)
+    gcol *= (1 - .36*engraving)[..., None]
     rgb[r0:res, c0:c1] = np.clip(gcol, 0, 1)
     alpha[r0:res, c0:c1] = 1.0
     height[r0:res, c0:c1] = 1.6 * (1 - bump)                   # px-ish height for the normal (dents go in)
@@ -199,10 +203,11 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
     nl = np.sqrt(nx * nx + ny * ny + nz * nz)
     nrm = np.stack([nx / nl, ny / nl, nz / nl], -1) * 0.5 + 0.5
     v = (np.arange(res) / (res - 1.0))[:, None]
-    occ = (0.58 + 0.42 * np.clip(v / 0.3, 0, 1)) * (0.86 + 0.14 * cov)
-    rough = 0.90 + 0.06 * (1 - cov) + 0.03 * np.sin(np.arange(res)[None, :] * 0.37 + v * 9.0)
+    edge = np.sin(np.pi * ((np.arange(res)[None, :] % W + .5) / W)) ** .25
+    occ = (0.76 + 0.24 * np.clip(v / 0.15, 0, 1)) * (0.66 + 0.34 * edge) * (0.90 + 0.10 * cov)
+    rough = 0.93 + 0.035 * (1 - cov) + 0.03 * np.sin(np.arange(res)[None, :] * 0.37 + v * 9.0)
     metal = np.zeros_like(occ)
-    rough = np.where(gold_patch, 0.34 + 0.08 * np.sin(np.arange(res)[None, :] * 0.61 + v * 23.0), rough)
+    rough = np.where(gold_patch, 0.47 + 0.04 * np.sin(np.arange(res)[None, :] * 0.61 + v * 23.0), rough)
     occ = np.where(gold_patch, 1.0, occ)
     metal = np.where(gold_patch, 1.0, metal)
     orm = np.stack([occ, np.clip(rough, 0.3, 0.98), metal], -1)
@@ -307,15 +312,26 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
             P = P + Sd * (bow * np.sin(math.pi * ts / max(length_f, 1e-3)))[:, None]
         P = _lift_out(dist_fn, grad_fn, P, lift * 0.85)
         N = grad_fn(P)
-        w = np.full(n, width) * np.interp(np.linspace(0, 1, n), [0, 0.12, 0.70, 1.0], [0.72, 1.0, 0.95, 0.28])
+        w = np.full(n, width) * np.interp(np.linspace(0, 1, n), [0, 0.14, 0.62, 0.88, 1.0], [0.82, 1.0, 1.0, 0.68, 0.12])
         return dict(path=P, normal=N, width=w, strip=strip, flip=bool(rng.rand() < 0.5), kind=kind,
                     scalp=(dist_fn, grad_fn, hc), clearance=lift)
 
-    # ---- layer A: one wide card per designed lock, riding the under-mass (the lock's own strand read)
+    # Dense strand foundation sits below the separated locks. Its UVs stay in the
+    # opaque part of the strip: gaps reveal matte fibres, never the body atlas's
+    # bright scalp rim. It replaces the hidden decimated solid support at export.
     for lk in locks:
-        rd = _rot_az(lk["root_dir"], math.radians(rng.uniform(-1.5, 1.5)))
-        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * 1.12, 0.0028 * s, 1.0, 14,
-                               rng.choice(KIND_IDX["dense"]), bow=rng.uniform(-0.002, 0.002) * s))
+        c = lock_card(lk["root_dir"], lk["g_dir"], lk["width"]*1.32, .0025*s, 1.0, 12,
+                      int(rng.choice(KIND_IDX["dense"])), kind="underlay")
+        c["width"] = np.full(12, lk["width"]*1.32) * np.interp(np.linspace(0,1,12),[0,.10,.8,1],[.75,1,1,.55])
+        c["uv_opaque"] = True
+        cards.append(c)
+    # Two narrower locks per support lane; same triangle budget as coarse 16-row
+    # ribbons, but a consistent strand scale across the crown and temples.
+    for lk in locks:
+        for split in (-1, 1):
+            rd = _rot_az(lk["root_dir"], math.radians(split*4 + rng.uniform(-.5,.5)))
+            cards.append(lock_card(rd, lk["g_dir"], lk["width"]*.63, (.0032 + .00035*split)*s, 1.0, 12,
+                                   rng.choice(KIND_IDX["dense"]), bow=split*.001*s))
     # ---- layer A': interleaved narrower cards between the A roots at the same height (denser shingle, fewer flat
     #      plates showing their full width)
     for lk in locks:
@@ -324,17 +340,8 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
         az = math.atan2(rd[0], -rd[1])
         el = math.asin(float(rd[2]))
         rd = _dir(az, el - math.radians(6.0 if abs(az) < 1.3 else 2.0))
-        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.76, 0.88), 0.0036 * s, 1.0, 12,
+        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.55, 0.65), 0.0043 * s, 1.0, 12,
                                rng.choice(KIND_IDX["dense"]), bow=rng.uniform(-0.002, 0.002) * s, kind="lock"))
-    # ---- layer B: a half-offset shingle of narrower cards (between the A roots), a little higher, shorter -> the
-    #      tapered tips end mid-crown / mid-side so the mass breaks into strands without crossing flows
-    for lk in locks[::2]:
-        sx = 1.0 if lk["root_dir"][0] >= 0 else -1.0
-        rd = _rot_az(lk["root_dir"], math.radians(sx * 7.5 + rng.uniform(-1.5, 1.5)))
-        rd = _slerp(rd, lk["g_dir"], rng.uniform(0.02, 0.06))
-        cards.append(lock_card(rd, lk["g_dir"], lk["width"] * rng.uniform(0.46, 0.58), rng.uniform(0.0045, 0.0055) * s,
-                               rng.uniform(0.88, 1.0), 10, rng.choice(KIND_IDX["medium"]),
-                               bow=rng.uniform(-0.002, 0.002) * s, kind="lock2"))
     # ---- hairline wisps: short narrow cards from the hairline ring, flowing back into the mass
     # Bridge the upper/back seam where the first fan's tapered tips meet the plait.
     # These continue the same swept flow; their roots lie under the crown fan.
@@ -345,7 +352,7 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
                                    1.0, 12, int(rng.choice(KIND_IDX["dense"])), kind="lock"))
     el_fn = hairline_el or (lambda az: math.radians(30.0 - 26.0 * _smooth((abs(az) - 22.0) / 50.0) -
                                                     18.0 * _smooth((abs(az) - 105.0) / 50.0)))
-    for az in list(np.arange(-150, 151, 8.0)):
+    for az in list(np.arange(-70, 71, 14.0)):
         a = abs(az)
         if 84.0 < a < 114.0:            # the ear
             continue
@@ -368,11 +375,11 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
                 break
             P[bad] -= skin_grad(P[bad]) * dd[bad][:, None]
         N = skin_grad(P)
-        wid = np.full(len(P), rng.uniform(0.0105, 0.0125) * s) * np.interp(np.linspace(0, 1, len(P)), [0, 0.2, 1], [0.6, 1.0, 0.75])
-        cards.append(dict(path=P, normal=N, width=wid, strip=int(rng.choice(KIND_IDX["wispy"])), flip=bool(rng.rand() < 0.5),
+        wid = np.full(len(P), rng.uniform(0.0105, 0.0125) * s) * np.interp(np.linspace(0, 1, len(P)), [0, 0.2, .7, 1], [0.4, 1.0, .5, .01])
+        cards.append(dict(path=P, normal=N, width=wid, strip=int(rng.choice(KIND_IDX["dense"])), flip=bool(rng.rand() < 0.5),
                           kind="tendril"))
     # ---- nape wisps under the gather
-    for az in (118, 132, 146, 160, 172, -118, -132, -146, -160, -172):
+    for az in (126, 150, -126, -150):
         a = abs(az)
         el = -4.0 - 16.0 * _smooth((a - 118.0) / 54.0) + rng.uniform(-2, 2)
         rd = _dir(math.radians(az), math.radians(el))
@@ -383,8 +390,8 @@ def design_cards(dist_fn, grad_fn, skin_dist, skin_grad, hc, locks, tendrils, ga
     # ---- r13: the rayed sun-disc medallion as geometry (see medallion_geom)
     if medallion is not None:
         cards.append(medallion_geom(dist_fn, grad_fn, medallion, s=s))
-        if "ring" in medallion:
-            cards.append(band_geom(dist_fn, medallion, s=s))
+        # The band is fitted after the braid has joined the groom (caller).
+
     return cards
 
 
@@ -486,26 +493,101 @@ def medallion_geom(dist_fn, grad_fn, med, s=1.0, n_rays=16, r_disc=0.0160, ray_l
                 normal=NN)
 
 
-def band_geom(dist_fn, med, s=1.0):
-    """A 6 mm wide, 2 mm thick gold band; explicit geometry survives decimation."""
+def braid_geometry(strands, ties):
+    """Continuous interlaced sweeps with longitudinal strand UVs, sharing the lock atlas.
+
+    Eight-sided sections avoid decimated scallops; no baked body surface or white
+    alpha edges at the scalp. Gold wraps use the existing metallic atlas patch.
+    """
+    out = []
+    for ci, strand in enumerate(strands):
+        raw = np.asarray(strand["path"])
+        arc = np.r_[0, np.cumsum(np.linalg.norm(np.diff(raw,axis=0),axis=1))]
+        n = max(12, int(math.ceil(arc[-1] / (.0075 if strand["tag"]=="french" else .0095)))+1)
+        # Match longitudinal sampling to the real curved strand, not the plait axis.
+        P = _resample(raw, n)
+        R = np.interp(np.linspace(0,arc[-1],n), arc, strand["R"])
+        T,N,Sd = _frames(P, strand["normal"])
+        # French scalp root grows smoothly out of the groom.
+        if strand["tag"] == "french":
+            R *= np.interp(np.linspace(0,1,n), [0,.12,1], [.18,1,1])
+        V,NN,UV,Q = [],[],[],[]
+        u0,u1 = strip_uv(ci % 4, False)
+        sides=8 if strand["tag"]=="french" else 6
+        for j in range(n):
+            for k in range(sides+1):
+                a=2*math.pi*k/sides
+                normal=_norm(Sd[j]*math.cos(a)/.58 + N[j]*math.sin(a)/.43)
+                V.append(P[j] + R[j]*(Sd[j]*.58*math.cos(a)+N[j]*.43*math.sin(a)))
+                NN.append(normal)
+                # Central opaque portion of the dense strip; no torn tube edges.
+                UV.append((u0+(u1-u0)*(.12+.76*k/sides), 1-(.16+.55*j/(n-1))))
+        for j in range(n-1):
+            for k in range(sides):
+                i=j*(sides+1)+k
+                Q.append((i,i+1,i+sides+2,i+sides+1))
+        out.append(dict(kind="braid",verts=np.array(V),normal=np.array(NN),uv=np.array(UV),
+                        quads=np.array(Q),tris=np.empty((0,3),np.int64),moving=strand["tag"]=="free"))
+    # One compact gold cuff at nape and tail, with rolled/chamfered rims.
+    u0,u1,v0,v1=gold_uv_rect()
+    for key in ("top", "bottom"):
+        c,t,r=ties[key]; t=_norm(t)
+        side=_norm(np.cross(t, [1,0,0])); up=_norm(np.cross(t,side))
+        V,NN,UV,Q=[],[],[],[]
+        height=.014 if key=="top" else .011
+        for j,(z,radius) in enumerate(((-height,.86),(-height+.002,1), (height-.002,1),(height,.86))):
+            for k in range(24):
+                a=k*2*math.pi/24; rad=side*math.cos(a)+up*math.sin(a)
+                V.append(c+t*z+rad*r*radius)
+                NN.append(_norm(rad+t*((-.35 if j==0 else .35) if j in (0,3) else 0)))
+                UV.append((u0+(u1-u0)*(.1+.8*k/24),v0+(v1-v0)*(.1+.8*j/3)))
+        for j in range(3):
+            for k in range(24):
+                Q.append((j*24+k,j*24+(k+1)%24,(j+1)*24+(k+1)%24,(j+1)*24+k))
+        out.append(dict(kind="wrap",verts=np.array(V),normal=np.array(NN),uv=np.array(UV),
+                        quads=np.array(Q),tris=np.empty((0,3),np.int64),moving=True))
+    return out
+
+
+def band_geom(dist_fn, med, s=1.0, groom=None):
+    """Bevelled band fitted onto actual groom triangles, including the crown braid."""
     hc = np.asarray(med["hc"])
-    ring = np.asarray(med["ring"])[::2]
+    ring = np.asarray(med["ring"])
     V, NN, Q, UV, lifts = [], [], [], [], []
     u0, u1, v0, v1 = gold_uv_rect()
     for p in ring:
         d = _norm(p - hc)
         up = _norm(np.array([0, 0, 1.0]) - d * d[2])
-        for z, lift in ((-0.003, 0.006), (0.003, 0.006), (0.003, 0.008), (-0.003, 0.008)):
+        for z, lift in ((-0.0028, 0.0014), (0.0028, 0.0014), (0.0023, 0.0030), (-0.0023, 0.0030)):
             ray = _norm(p + up * z * s - hc)
             V.append(ray)
             lifts.append(lift * s)
             NN.append(_norm(ray + up * (0.35 if z > 0 else -0.35)))
-            UV.append(((u0 + u1) / 2, v0 + (v1-v0) * (0.25 if lift < 0.007 else 0.75)))
+            UV.append(((u0 + u1) / 2, v0 + (v1-v0) * (0.25 if lift < 0.002 else 0.75)))
     for i in range(len(ring)):
         for j in range(4):
             Q.append((4*i+j, 4*i+(j+1)%4, 4*((i+1)%len(ring))+(j+1)%4, 4*((i+1)%len(ring))+j))
     rays = np.array(V)
-    V = hc + rays * (scalp_ray(dist_fn, hc, rays) + np.array(lifts))[:, None]
+    radii = scalp_ray(dist_fn, hc, rays)
+    if groom:
+        vertices,quads,_,_,_,tri = card_mesh(groom)
+        triangles=np.concatenate([quads[:,[0,1,2]],quads[:,[0,2,3]],tri])
+        A=vertices[triangles[:,0]]; E1=vertices[triangles[:,1]]-A; E2=vertices[triangles[:,2]]-A
+        tv=hc-A; qv=np.cross(tv,E1)
+        # Moller-Trumbore radial hit on the visible geometry; no SDF-only floating ring.
+        for j,ray in enumerate(rays):
+            pv=np.cross(np.broadcast_to(ray,E2.shape),E2)
+            det=np.einsum('ij,ij->i',E1,pv)
+            inv=np.divide(1.,det,out=np.zeros_like(det),where=np.abs(det)>1e-10)
+            u=np.einsum('ij,ij->i',tv,pv)*inv
+            v=(qv@ray)*inv
+            t=np.einsum('ij,ij->i',E2,qv)*inv
+            hit=(np.abs(det)>1e-10)&(u>=0)&(v>=0)&(u+v<=1)&(t>0)&(t<.3)
+            if hit.any():radii[j]=max(radii[j],float(t[hit].max()))
+    shaped = radii.reshape(-1,4)
+    shaped = np.maximum.reduce([shaped, np.roll(shaped,1,axis=0), np.roll(shaped,-1,axis=0)])
+    radii = shaped.ravel()
+    V = hc + rays * (radii + np.array(lifts))[:, None]
     return dict(kind="medallion", verts=V, normal=np.array(NN), uv=np.array(UV),
                 quads=np.array(Q), tris=np.empty((0, 3), np.int64))
 
@@ -516,9 +598,10 @@ def card_mesh(cards, n_across=3, cup=0.0012):
     V, Q, UV, NN, ID = [], [], [], [], []
     TRI = []
     projections = {}
+    rolls = {}
     base = 0
     for ci, c in enumerate(cards):
-        if c.get("kind") == "medallion":
+        if "verts" in c:
             for p, uv, n in zip(c["verts"], c["uv"], c["normal"]):
                 V.append(np.asarray(p, float))
                 UV.append(tuple(uv))
@@ -535,21 +618,29 @@ def card_mesh(cards, n_across=3, cup=0.0012):
         T, N, Sd = _frames(P, c["normal"])
         w = np.asarray(c["width"], float)
         u0, u1 = strip_uv(c["strip"], c["flip"])
+        if c.get("uv_opaque"):
+            u0,u1 = u0+(u1-u0)*.10, u0+(u1-u0)*.90
         v_span = 0.835 if c["strip"] in GOLD_STRIPS else 1.0     # r13: wispy tips stop above the gold patch
         xs = np.linspace(-0.5, 0.5, n_across)
         for j in range(n):
             for a, x in enumerate(xs):
                 bulge = cup * (1 - (2 * x) ** 2)
                 V.append(P[j] + Sd[j] * (x * w[j]) + N[j] * bulge)
-                UV.append((u0 + (u1 - u0) * (x + 0.5), 1.0 - v_span * j / (n - 1.0)))
-                NN.append(N[j])
+                v = .16 + .55*j/(n-1.0) if c.get("uv_opaque") else v_span*j/(n-1.0)
+                UV.append((u0 + (u1 - u0) * (x + 0.5), 1.0 - v))
+                phase = ci * 2.39996
+                roll = 0 if c.get("uv_opaque") else x * .72 + .10 * math.sin(j / max(n-1,1) * 2*math.pi + phase)
+                rolls[len(V)-1] = (Sd[j] * roll + T[j] * (.045 * math.sin(phase + j*.37)))
+                NN.append(_norm(N[j] + rolls[len(V)-1]))
                 ID.append(ci)
         if "scalp" in c:
             dist_fn, grad_fn, hc = c["scalp"]
             # Fit BOTH edges to the outer surface. A tangent-plane ribbon otherwise
             # cuts through convex locks or sticks out as a pale plate at the temple.
             along = np.repeat(np.linspace(0, 1, n), n_across)
-            clearance = c["clearance"] * np.interp(along, [0, .10, .85, 1], [.75, 1, 1, .70])
+            lateral = np.tile(xs, n)
+            clearance = c["clearance"] * np.interp(along, [0, .10, .85, 1], [.40, 1, 1, .45])
+            clearance += cup * (1 - (2*lateral)**2) * np.sin(np.pi * along)**.5
             group = projections.setdefault(id(dist_fn), (dist_fn, grad_fn, hc, [], []))
             group[3].extend(range(base, base + n * n_across))
             group[4].extend(clearance)
@@ -568,10 +659,10 @@ def card_mesh(cards, n_across=3, cup=0.0012):
         rays /= np.linalg.norm(rays, axis=1, keepdims=True)
         radii = scalp_ray(dist_fn, hc, rays)
         V[ids] = hc + rays * (radii + np.array(clearance))[:, None]
-        # The outer lock/ear SDF gradient changes abruptly at contacts and made
-        # individual triangles catch the full rim. Smooth SCALP normals keep the
-        # continuous strand surface lit consistently across those contacts.
-        NN[ids] = rays
+        # A radial base avoids contact-gradient discontinuities. Add each lock's
+        # own cylindrical roll/longitudinal phase: a common radial field made the
+        # entire groom share one smooth highlight in r11.
+        NN[ids] = np.array([_norm(ray + rolls.get(i, 0)) for i, ray in zip(ids, rays)])
     return (V, np.array(Q, np.int64), np.array(UV), NN, np.array(ID, np.int32),
             np.array(TRI, np.int64).reshape(-1, 3))
 
@@ -599,14 +690,17 @@ def build_card_object(name, cards, arm=None, n_across=3, cup=0.0012):
     inward = int(np.count_nonzero(np.sum(cross * NN[oriented].mean(1), axis=1) < -1e-10))
     if inward:
         raise RuntimeError(f"{name}: {inward} inward hair triangles after orientation")
-    # custom (scalp) normals -> the cards shade as one volume (re-applied after strip_for_export: reapply_normals)
+    # custom lock-local normals -> individual swept locks keep their relief (re-applied after strip_for_export: reapply_normals)
     _NORMALS[ob.name] = NN.astype(np.float32)
     reapply_normals(ob)
     if arm is not None:
         from lib import skin
-        W = np.ones((len(V), 1))
-        skin.write_groups(ob, ["head"], W)
-        skin.bind(ob, arm)
+        moving = np.array([cards[int(i)].get("moving", False) for i in ID])
+        bones = ["head"] + [b.name for b in arm.data.bones if b.name.startswith("hair_")]
+        tie_z = arm.data.bones["hair_1"].head_local.z
+        def fixed_head(P):
+            return np.maximum((~moving).astype(float), np.clip((P[:,2] - tie_z) / .025, 0, 1))
+        skin.skin(ob, arm, method="sdf", allowed=bones, power=3.0, overrides=[(fixed_head, "head")])
     return ob, dict(tris=meshutil.tri_count(ob), cards=len(cards), verts=len(V), inward_triangles=inward,
                     medallion=bool(any(c.get("kind") == "medallion" for c in cards)))
 

@@ -454,9 +454,9 @@ export default {
     select_stand: {
       frames: 120, loop: true, plant: 1, breathe: 0.8, tags: ['idle'],
       keys: [
-        { f: 0, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
-        { f: 60, pose: torso({ pelvis: -14, yaw: 7, pitch: 1, look: 0.6 }), hips: [0, -0.085, 0], ...ST_W, wpn: W([0.3, 0.0, 0.42], dir(25, 63), [0.92, 0.19, 0.35]), wpnL: WL([0.33, -0.47, -0.44], dir(-45, -35), [0.92, 0.19, 0.35]) },
-        { f: 120, pose: torso({ pelvis: -14, yaw: 6, pitch: 2, look: 0.6 }), hips: [0, -0.07, 0], ...ST_W, wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
+        { f: 0, pose: torso({ pelvis: -18, yaw: 10, pitch: 1, roll: -5, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.045, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
+        { f: 60, pose: torso({ pelvis: -18, yaw: 11, pitch: 1, roll: -4, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.05, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.0, 0.42], dir(25, 63), [0.92, 0.19, 0.35]), wpnL: WL([0.33, -0.47, -0.44], dir(-45, -35), [0.92, 0.19, 0.35]) },
+        { f: 120, pose: torso({ pelvis: -18, yaw: 10, pitch: 1, roll: -5, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.045, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
       ],
     },
     // magic: blades crossed low, then flung up into a burning V (castPeak)

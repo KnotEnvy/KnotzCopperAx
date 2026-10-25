@@ -56,49 +56,49 @@
       "clip": "fireBurst",
       "frame": 0,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 17
+      "transparentPaddingPx": 9
     },
     {
       "clip": "fireBurst",
       "frame": 1,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 24
+      "transparentPaddingPx": 9
     },
     {
       "clip": "fireBurst",
       "frame": 2,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 29
+      "transparentPaddingPx": 9
     },
     {
       "clip": "fireBurst",
       "frame": 3,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 32
+      "transparentPaddingPx": 9
     },
     {
       "clip": "fireBurst",
       "frame": 4,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 38
+      "transparentPaddingPx": 13
     },
     {
       "clip": "fireBurst",
       "frame": 5,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 50
+      "transparentPaddingPx": 15
     },
     {
       "clip": "fireBurst",
       "frame": 6,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 55
+      "transparentPaddingPx": 30
     },
     {
       "clip": "fireBurst",
       "frame": 7,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 256
+      "transparentPaddingPx": 27
     },
     {
       "clip": "smoke",
@@ -200,97 +200,97 @@
       "clip": "slash",
       "frame": 0,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 32
+      "transparentPaddingPx": 23
     },
     {
       "clip": "slash",
       "frame": 1,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 18
+    },
+    {
+      "clip": "slash",
+      "frame": 2,
+      "border2pxMaxAlpha": 0,
+      "transparentPaddingPx": 17
+    },
+    {
+      "clip": "slash",
+      "frame": 3,
       "border2pxMaxAlpha": 0,
       "transparentPaddingPx": 27
     },
     {
       "clip": "slash",
-      "frame": 2,
-      "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 22
-    },
-    {
-      "clip": "slash",
-      "frame": 3,
-      "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 16
-    },
-    {
-      "clip": "slash",
       "frame": 4,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 16
+      "transparentPaddingPx": 27
     },
     {
       "clip": "slash",
       "frame": 5,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 16
+      "transparentPaddingPx": 27
     },
     {
       "clip": "slash",
       "frame": 6,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 16
+      "transparentPaddingPx": 27
     },
     {
       "clip": "slash",
       "frame": 7,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 16
+      "transparentPaddingPx": 27
     },
     {
       "clip": "blunt",
       "frame": 0,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 21
+      "transparentPaddingPx": 11
     },
     {
       "clip": "blunt",
       "frame": 1,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 20
+      "transparentPaddingPx": 11
     },
     {
       "clip": "blunt",
       "frame": 2,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 19
+      "transparentPaddingPx": 11
     },
     {
       "clip": "blunt",
       "frame": 3,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 10
+      "transparentPaddingPx": 14
     },
     {
       "clip": "blunt",
       "frame": 4,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 10
+      "transparentPaddingPx": 14
     },
     {
       "clip": "blunt",
       "frame": 5,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 10
+      "transparentPaddingPx": 14
     },
     {
       "clip": "blunt",
       "frame": 6,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 10
+      "transparentPaddingPx": 14
     },
     {
       "clip": "blunt",
       "frame": 7,
       "border2pxMaxAlpha": 0,
-      "transparentPaddingPx": 10
+      "transparentPaddingPx": 14
     },
     {
       "clip": "knockdown",

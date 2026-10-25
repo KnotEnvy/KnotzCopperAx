@@ -1,159 +1,62 @@
-// Packed metric soil detail: reflectance, relief, ash and sparse live coal.
-// Two fixed world-space scales share one map; a unique stage-wide mask holds scuffs.
+// Offline-authored metric lane: colour/AO and height-derived world normals.
+// Two maps replace the former three procedural mask/detail lookups. No per-frame JS.
 import * as THREE from 'three';
-import { rngFrom } from './geo.js';
-import { groundZones } from './groundZones.js';
 
-function roadTile() {
-  const N = 1024, rng = rngFrom(717), data = new Float32Array(N * N * 4);
-  const wrap = n => (n + N) % N;
-  const noise = [];
-  for (const size of [16, 96, 384]) {
-    const values = Float32Array.from({ length: size * size }, () => rng.next());
-    noise.push((x, y) => {
-      x = x / N * size; y = y / N * size;
-      const i = Math.floor(x), j = Math.floor(y);
-      let u = x - i, v = y - j; u *= u * (3 - 2 * u); v *= v * (3 - 2 * v);
-      const at = (a, b) => values[((b + size) % size) * size + (a + size) % size];
-      return (at(i, j) * (1 - u) + at(i + 1, j) * u) * (1 - v)
-        + (at(i, j + 1) * (1 - u) + at(i + 1, j + 1) * u) * v;
-    });
+export async function roadDetail(material) {
+  const loader = new THREE.TextureLoader();
+  const [albedo, relief] = await Promise.all([
+    loader.loadAsync('/assets/textures/stage1/lane-albedo.png'),
+    loader.loadAsync('/assets/textures/stage1/lane-relief.png'),
+  ]);
+  for (const tex of [albedo, relief]) {
+    tex.flipY = false;
+    tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter; tex.anisotropy = 4;
+    tex.needsUpdate = true;
   }
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const k = (y * N + x) * 4;
-    const a = noise[0](x, y), b = noise[1](x, y), c = noise[2](x, y);
-    const ash = Math.max(0, (a - .48) * 2.8);
-    data[k] = .15 + a * .28 + b * .16 + c * .38 + (rng.next()-.5)*.18;
-    data[k + 1] = .18 + a * .28 + b * .08 + c * .23;
-    data[k + 2] = ash;
-  }
-  // All stamps wrap at the tile boundary. Different silhouettes and split faces
-  // distinguish pale angular grit, compacted scuffs, and elongated char flakes.
-  const stamp = (cx, cy, rx, ry, angle, kind) => {
-    const ca = Math.cos(angle), sa = Math.sin(angle), R = Math.ceil(Math.max(rx, ry) + 2);
-    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
-      const u = (dx * ca + dy * sa) / rx, v = (-dx * sa + dy * ca) / ry;
-      const d = kind === 1 ? Math.max(Math.abs(u + .09 * Math.sin(v * 8)), Math.abs(v) / Math.max(.12, .83 - .48 * u + .17 * Math.sin(u * 13 + cx)))
-        : kind === 0 ? Math.max(Math.abs(u*.84+v*.27), Math.abs(v*.92-u*.15), Math.abs(u-v)*.68) : Math.hypot(u, v);
-      if (d > 1) continue;
-      const k = (wrap(Math.round(cy) + dy) * N + wrap(Math.round(cx) + dx)) * 4;
-      const edge = Math.min(1, (1 - d) * 8), raised = Math.sqrt(Math.max(0, 1 - d * d));
-      const tone = kind === 1 ? .20 + .13 * (u > .1) : kind === 2 ? .25 : .31 + .22 * (u + v < -.1) + .11*Math.sin(cx*7+cy*3);
-      data[k] += (tone - data[k]) * edge;
-      data[k + 1] += ((kind === 2 ? .24 : .43 + raised * .4) - data[k + 1]) * edge;
-      data[k + 2] *= 1 - edge * .75;
-      if (kind === 1 && rx > 11 && Math.abs(v) < .11 && u > -.7 && u < .45) data[k + 3] = .85;
-    }
-  };
-  for (let i = 0; i < 1100; i++) {
-    const char = i % 23 === 0, r = 2.0 + Math.pow(rng.next(), 2) * (char ? 18 : 14);
-    stamp(rng.next() * N, rng.next() * N, r, char ? 1.2 + rng.next() * 2 : r * (.45 + rng.next() * .4), rng.next() * 6.28, char ? 1 : 0);
-  }
-  for(let i=0;i<130;i++) {
-    let x=rng.next()*N,y=rng.next()*N,a=rng.next()*6.28;
-    for(let j=0;j<12+rng.next()*35;j++) {
-      x+=Math.cos(a)*1.6;y+=Math.sin(a)*1.6;a+=(rng.next()-.5)*.65;
-      const k=(wrap(Math.floor(y))*N+wrap(Math.floor(x)))*4;
-      data[k]*=.55;data[k+1]=.21;
-    }
-  }
-  // A few uneven char clusters replace the regular black confetti distribution.
-  for (let i = 0; i < 27; i++) {
-    const cx = rng.next() * N, cy = rng.next() * N, angle = rng.next() * 6.28;
-    for (let j = 0; j < 5; j++) stamp(wrap(cx + (rng.next() - .5) * 42), wrap(cy + (rng.next() - .5) * 32),
-      3 + rng.next() * 14, .8 + rng.next() * 2, angle + rng.next() * .5, 1);
-  }
-  // No broad heel/toe stamps: they became repeating dark ovals in the mips.
-  const bytes = new Uint8Array(data.length);
-  for (let i = 0; i < data.length; i++) bytes[i] = Math.round(THREE.MathUtils.clamp(data[i], 0, 1) * 255);
-  const tex = new THREE.DataTexture(bytes, N, N);
-  tex.name = 'stage1-packed-earth-char-ash-relief';
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter; tex.anisotropy = 4; tex.needsUpdate = true;
-  return tex;
-}
-
-export function roadDetail(material, huts = []) {
-  const w = 2048, h = 512, bytes = new Uint8Array(w * h * 4);
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-    const x = -40 + (i + .5) / w * 150, depth = -28 + (j + .5) / h * 46;
-    const z = groundZones(x, depth);
-    let scorch = 0;
-    for (const hut of huts) {
-      const d = ((x-hut.x)/2.7)**2 + ((depth-hut.z-2.2)/1.65)**2;
-      if (d < 8) scorch = Math.max(scorch, Math.exp(-d)*(.65+z.track*.35)*(hut.burning || 0));
-    }
-    z.char = Math.max(z.char, scorch);
-    bytes.set([z.track, z.ash, z.char, z.clump].map(v => Math.round(v * 255)), (j * w + i) * 4);
-  }
-  // Unique, incomplete foot scuffs in the fight lane; authored in world metres
-  // in the stage-wide mask, so there is no repeated footprint tile.
-  const tracks=rngFrom(741);
-  for(const cx of [-4,8,23,31,43,57,69]) {
-    const cz=(tracks.next()-.5)*2.7,angle=(tracks.next()-.5)*.6;
-    for(let step=0;step<7;step++) {
-      if(tracks.next()<.25)continue;
-      const x=cx+step*.57,z=cz+step*angle+(step%2? .16:-.16);
-      const ix=Math.round((x+40)/150*w),iy=Math.round((z+28)/46*h);
-      for(let dy=-3;dy<=3;dy++)for(let dx=-4;dx<=4;dx++) {
-        const u=dx/(w/150*.18),v=(dy-dx*angle)/(h/46*.09);
-        if(u*u+v*v>1||ix+dx<0||ix+dx>=w||iy+dy<0||iy+dy>=h)continue;
-        const k=((iy+dy)*w+ix+dx)*4;
-        bytes[k+2]=Math.max(bytes[k+2],Math.round((1-u*u-v*v)*140));
-        bytes[k+1]*=.65;
-      }
-    }
-  }
-  const zones = new THREE.DataTexture(bytes, w, h);
-  zones.generateMipmaps = true; zones.minFilter = THREE.LinearMipmapLinearFilter;
-  zones.magFilter = THREE.LinearFilter; zones.needsUpdate = true;
-  material.userData.prepassSafe = true; // fragment colour/normal only
-  const tex = roadTile(), prev = material.onBeforeCompile, key = material.customProgramCacheKey;
+  albedo.colorSpace = THREE.SRGBColorSpace;
+  albedo.name = 's1-authored-lane-pigment-AO'; relief.name = 's1-authored-lane-normal-wet-ash';
+  material.userData.prepassSafe = true;
+  const prev = material.onBeforeCompile, key = material.customProgramCacheKey;
   material.onBeforeCompile = (shader, renderer) => {
     prev.call(material, shader, renderer);
-    shader.uniforms.s1SoilMap = { value: tex };
-    shader.uniforms.s1Zones = { value: zones };
+    shader.uniforms.s1LaneColor = { value: albedo };
+    shader.uniforms.s1LaneRelief = { value: relief };
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-uniform sampler2D s1SoilMap;
-uniform sampler2D s1Zones;
-vec4 s1Soil; float s1Reflectance; float s1Ash; float s1Shoulder;`)
-      // Replace the complete shared painterly albedo section locally. Keeping
-      // its broad stretched flow field under a fine layer still looked muddy.
+uniform sampler2D s1LaneColor;
+uniform sampler2D s1LaneRelief;
+vec4 s1Soil; vec3 s1Pigment; vec3 s1WorldNormal;
+float s1Reflectance; float s1Ash; float s1Shoulder;`)
       .replace(/  vec2 p = vKW.xz;[\s\S]*?diffuseColor.rgb \*= col;/, `
   vec2 p = vKW.xz;
-  vec4 zone = texture2D(s1Zones, (p + vec2(40.,28.)) / vec2(150.,46.));
-  // Fixed metric UVs: no zone-driven UV distortion. Two differently oriented
-  // detail samples hide the tile; macro variation is unique across the stage.
-  s1Soil = texture2D(s1SoilMap, p / 4.1);
-  vec4 soilB = texture2D(s1SoilMap, mat2(.6,-.8,.8,.6)*p / 3.17 + .37);
-  float detail = s1Soil.r*.68 + soilB.r*.32;
-  // Break broad masks with decimetre clods already packed in the soil map.
-  // Sharply chipped edges avoid soft airbrushed cloud bands at game distance.
-  zone.r = smoothstep(.16,.84,zone.r+(soilB.b-.35)*.42);
-  zone.b = smoothstep(.12,.82,zone.b+(s1Soil.b-.35)*.32);
-  s1Ash = smoothstep(.13,.70,zone.g+(soilB.b-.4)*.28)*(1.-zone.b*.65);
-  // Separate wet compacted earth, dry raised clods and pale ash in BOTH
-  // pigment and bounced light. The former constant bounce hid the mask.
-  float soilValue = mix(.43,1.30,zone.r) * (1.-zone.b*.68);
-  s1Reflectance = clamp((.12+detail*1.25)*soilValue + s1Ash*.33,.13,1.08);
-  float wear = smoothstep(.18,.65,zone.r+zone.b*.5);
-  float centre = .1 + sin(p.x*.17)*.26 + sin(p.x*.43+1.7)*.09;
-  float lateral = abs(p.y-centre)-(.88+sin(p.x*.27)*.06);
-  float rut = exp(-lateral*lateral/.026)*wear;
-  float shoulder = exp(-pow(lateral-.20,2.)/.009)*wear;
-  float rimShade = exp(-pow(lateral+.17,2.)/.006)*wear;
-  s1Shoulder=shoulder;
-  kgRoad=zone.r; kgRut=rut; kgBurn=zone.b; kgPuddle=0.;
-  vec3 col=mix(vec3(.054,.045,.036),vec3(.145,.122,.087),zone.r);
-  col=mix(col,vec3(.16,.151,.128),s1Ash*.8);
-  col*=1.-zone.b*.60;
-  col*=.72*(.28+detail*.95)*(1.-rut*.53-rimShade*.15)+shoulder*.18;
-  kgH=(s1Soil.g*.65+soilB.g*.35)*.038-rut*.055+shoulder*.037;
-  diffuseColor.rgb*=col;`);
-
+  vec2 uvLane = (p + vec2(20.,16.)) / vec2(96.,24.);
+  vec4 surface = texture2D(s1LaneRelief, uvLane);
+  s1Pigment = texture2D(s1LaneColor, uvLane).rgb;
+  float inLaneBake = smoothstep(-16.,-14.,p.y)*(1.-smoothstep(7.,8.,p.y))
+    *smoothstep(-20.,-18.,p.x)*(1.-smoothstep(74.,76.,p.x));
+  s1Pigment = mix(vec3(.031,.026,.022), s1Pigment, inLaneBake);
+  surface.ba *= inLaneBake;
+  vec2 slopes = surface.rg*2.-1.;
+  s1WorldNormal = normalize(vec3(slopes.x, sqrt(max(.01,1.-dot(slopes,slopes))), slopes.y));
+  s1Ash = surface.a;
+  s1Reflectance = dot(s1Pigment,vec3(.2126,.7152,.0722))*3.2;
+  s1Shoulder = 0.; s1Soil = vec4(0.);
+  kgRoad = 1.-s1Ash; kgRut = surface.b; kgPuddle = surface.b; kgBurn = 0.; kgH = 0.;
+  diffuseColor.rgb *= s1Pigment;`)
+      .replace('normal = kBump(-vViewPosition, normal, kgH, 1.0, faceDirection);', `
+  // Baked height derivatives carry the concave wheel walls and raised crust.
+  // Fade to mesh normals outside the authored village footprint.
+  float laneCoverage = (1.-smoothstep(7.0,8.0,vKW.z))*smoothstep(-16.,-14.,vKW.z)
+    * smoothstep(-20.,-18.,vKW.x)*(1.-smoothstep(74.,76.,vKW.x));
+  normal = normalize(mix(normal, mat3(viewMatrix)*s1WorldNormal, laneCoverage));`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+  // Restrained view-dependent sky sheen only in the compressed wet trough.
+  vec3 laneView = normalize(vViewPosition);
+  vec3 skyHalf = normalize(laneView + mat3(viewMatrix)*normalize(vec3(-.25,.7,-.65)));
+  float wetSheen = pow(max(0.,dot(normal,skyHalf)),24.) * kgPuddle;
+  reflectedLight.directDiffuse += vec3(.065,.060,.048)*wetSheen;`);
   };
-  material.customProgramCacheKey = () => key.call(material) + '|s1RoadDetail-r15';
-  material.addEventListener('dispose', () => { tex.dispose(); zones.dispose(); });
+  material.customProgramCacheKey = () => key.call(material) + '|s1AuthoredLane-r16';
+  material.addEventListener('dispose', () => { albedo.dispose(); relief.dispose(); });
 }

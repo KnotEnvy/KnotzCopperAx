@@ -56,8 +56,13 @@ export default {
       cards.forEach((c, k) => {
         const p1 = cur[0].joined && cur[0].i === k, p2 = cur[1].joined && cur[1].i === k;
         c.classList.toggle('locked', (p1 && cur[0].locked) || (p2 && cur[1].locked)); c.classList.toggle('p1', p1); c.classList.toggle('p2', p2); c.classList.toggle('hov', p1 || p2);
-        c.querySelector('.f1').classList.toggle('on', p1); c.querySelector('.f2').classList.toggle('on', p2);
-        c.querySelector('.s1').classList.toggle('on', p1 && cur[0].locked); c.querySelector('.s2').classList.toggle('on', p2 && cur[1].locked);
+        // C2 r15: the flag drop-in + READY plaque slam run on the UI clock (ui.clockAnims), not the browser's wall clock
+        for (const [sel, on] of [['.f1', p1], ['.f2', p2], ['.s1', p1 && cur[0].locked], ['.s2', p2 && cur[1].locked]]) {
+          const n = c.querySelector(sel);
+          if (n.classList.contains('on') === on) continue;
+          n.classList.toggle('on', on);
+          if (on && ui.clockAnims) ui.clockAnims(n);
+        }
         c.dataset.taken = lockedBy(k, -1) >= 0 ? 'yes' : '';
       });
       join2.style.display = cur[1].joined ? 'none' : '';

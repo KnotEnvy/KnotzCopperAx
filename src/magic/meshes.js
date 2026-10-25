@@ -202,7 +202,7 @@ export async function preloadBasalt(vfx) {
   const chip = geos[3].clone(); chip.translate(0, -.40, 0); rockField(vfx, 'chip').geometry(chip);
 }
 const CAPS = { spike: 96, column: 40, boulder: 40, chip: 320, fist: 2 };
-const TINT = { spike: '#737477', column: '#777e89', boulder: '#747476', chip: '#737478', fist: '#8b9099' };
+const TINT = { spike: '#737477', column: '#7c7974', boulder: '#7a7772', chip: '#827b70', fist: '#898780' };
 
 const fields = new WeakMap();
 
@@ -220,6 +220,7 @@ export function rockField(vfx, kind, { glow = '#ffad42', variant = 0 } = {}) {
   const tex = veinTexture();
   const protect = kind === 'column' || kind === 'spike';
   const mat = stoneMaterial(TINT[kind], glow, tex, protect, basalt);
+  if (kind === 'fist') mat.userData.stoneFill.value = .72;
   const cap = CAPS[kind];
   const collapse = new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2).setUsage(THREE.DynamicDrawUsage);
   const energy = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(THREE.DynamicDrawUsage);

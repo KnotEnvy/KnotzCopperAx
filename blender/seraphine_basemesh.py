@@ -75,14 +75,15 @@ PARAMS = dict(
     chin_fwd=0.0035, chin_down=0.0030,
     jaw_in=0.0040,              # gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
     nose_w=0.93,                # alae narrower
-    lip_lower_fwd=-0.0002, lip_upper_fwd=0.0012,
+    lip_lower_fwd=-0.0010, lip_upper_fwd=0.0007,
+    lip_corner=0.0015, philtrum_soft=0.0007,
     neck_slim=0.90,             # neck xy about its axis below the jaw
     skull_w=1.0,
     brow_soft=0.0020,           # brow ridge pushed back (soft natural brows; C2 r3: 2 mm, board r9 "heavy brow")
     lid_drop=0.0028,            # C2 r3: upper lid margin lowered over the iris (board r9: exposed round irises)
     sulcus_fill=0.0018,         # r4: firmer chin transition / lighter lower vermilion
     nostril_soft=0.0012,       # soften the continuous alar rim while retaining the downward nostril cavities
-    lip_close=0.0034,           # morphological closing radius (m) in a box round the mouth: the base mesh's deep
+    lip_close=0.0022,           # morphological closing radius (m) in a box round the mouth: the base mesh's deep
                                 # lip slit baked as a black line (fast build #1); the slit is filled to ~1.6 mm
 )
 
@@ -209,6 +210,9 @@ def fit(params):
     W = move(W, chin + np.array([0, 0.0, 0.006]), 0.022, (0, -p["chin_fwd"], -p["chin_down"]))
     W = move(W, lip + np.array([0, 0, -0.007]), 0.013, (0, -p["lip_lower_fwd"], 0), axes=(0.7, 1, 1))
     W = move(W, lip + np.array([0, 0, 0.006]), 0.012, (0, -p["lip_upper_fwd"], 0), axes=(0.7, 1, 1))
+    for sx in (-1,1):
+        W = move(W, lip + np.array([sx*.023,.001,0]), .009, (0,p["lip_corner"],.0006), axes=(1,.9,.7))
+    W = move(W, lip + np.array([0,.002,.012]), .010, (0,-p["philtrum_soft"],0), axes=(.6,1,1))
     if p.get("sulcus_fill", 0.0):       # C2 r3: fill the mentolabial crease (baked as a dark under-lip slit)
         W = move(W, lip + np.array([0, 0.004, -0.012]), 0.009, (0, -p["sulcus_fill"], 0), axes=(0.8, 1, 1))
     if p["skull_w"] != 1.0:

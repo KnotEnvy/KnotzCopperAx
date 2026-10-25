@@ -9,9 +9,20 @@ export default async api => {
   const grab = async opts => {
     const result = await api.page.screenshot(opts);
     if (!/frame_\d+\.png$/.test(opts.path)) return result;
-    const masks = await api.evalGame(async () => {
+    const masks = await bladeMasks(api);
+    const frame=path.basename(opts.path).match(/frame_(\d+)/)[1];
+    for(const [hand,data] of Object.entries(masks))fs.writeFileSync(path.join(api.outDir,`mask_${hand}_${frame}.png`),Buffer.from(data,'base64'));
+    return result;
+  };
+  const page=new Proxy(api.page,{get(target,key){return key==='screenshot'?grab:typeof target[key]==='function'?target[key].bind(target):target[key];}});
+  await readProbe({...api,page});
+  await anchors(api);
+};
+
+export async function bladeMasks(api, heroId = null) {
+  return api.evalGame(async heroId => {
       const T = await import('/node_modules/three/build/three.module.js');
-      const g=__KCA.game, r=g.renderer.webgl, h=g.world.query({kind:'hero'})[0];
+      const g=__KCA.game, r=g.renderer.webgl, h=g.world.query({kind:'hero'}).find(h=>!heroId||h.def?.id===heroId||h.id===heroId);
       if (!h?.model) return {};
       const width=window.innerWidth,height=window.innerHeight;
       const rt=new T.WebGLRenderTarget(width,height,{minFilter:T.NearestFilter,magFilter:T.NearestFilter});
@@ -39,12 +50,5 @@ export default async api => {
         }
       } finally {r.setRenderTarget(old);r.setClearColor(clr,alpha);r.autoClear=auto;r.shadowMap.autoUpdate=shadow;rt.dispose();}
       return out;
-    });
-    const frame=path.basename(opts.path).match(/frame_(\d+)/)[1];
-    for(const [hand,data] of Object.entries(masks))fs.writeFileSync(path.join(api.outDir,`mask_${hand}_${frame}.png`),Buffer.from(data,'base64'));
-    return result;
-  };
-  const page=new Proxy(api.page,{get(target,key){return key==='screenshot'?grab:typeof target[key]==='function'?target[key].bind(target):target[key];}});
-  await readProbe({...api,page});
-  await anchors(api);
-};
+  }, heroId);
+}

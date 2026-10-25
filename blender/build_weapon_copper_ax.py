@@ -110,7 +110,7 @@ def face_frame(sx, sy):
     return np.stack([x, y, n], axis=1), n
 
 
-def head_sculpt():
+def head_sculpt(deep=False):
     S = Sculpt(materials=MATS, default_mat="copper")
     lo_all, hi_all = V(-0.09, -0.34 * HY, HEAD_Z - 0.38 * HZ), V(0.09, 0.34 * HY, HEAD_Z + 0.38 * HZ)
     for sy in (1, -1):
@@ -129,11 +129,11 @@ def head_sculpt():
                 a = i * 2 * math.pi / 3 + math.pi / 2
                 ey = M[:, 0] * sx                      # in-face axis along +-Y (follows the wedge slope)
                 cc = kc + ey * (sy * math.cos(a) * 0.023) + V(0, 0, math.sin(a) * 0.023)     # C2 r4: knot 1.2x with the head
-                S.sub(Torus(cc - n * 0.0004, 0.038, 0.0034, M), 0.0008)
-                S.paint(Torus(cc, 0.038, 0.0042, M), "rune", soft=0.001)
+                S.sub(Torus(cc - n * (0.0012 if deep else 0.0004), 0.038, 0.0050 if deep else 0.0034, M), 0.0008)
+                S.paint(Torus(cc - n * (0.0012 if deep else 0), 0.038, 0.0060 if deep else 0.0042, M), "rune", soft=0.001)
                 S.paint(Torus(cc, 0.038, 0.0095, M), "oxide", soft=0.005)     # C2 r6: dark oxidised halo round the groove
-            S.sub(Torus(kc - n * 0.0004, 0.066, 0.0034, M), 0.0008)
-            S.paint(Torus(kc, 0.066, 0.0042, M), "rune", soft=0.001)
+            S.sub(Torus(kc - n * (0.0012 if deep else 0.0004), 0.066, 0.0050 if deep else 0.0034, M), 0.0008)
+            S.paint(Torus(kc - n * (0.0012 if deep else 0), 0.066, 0.0060 if deep else 0.0042, M), "rune", soft=0.001)
             S.paint(Torus(kc, 0.066, 0.0095, M), "oxide", soft=0.005)
             # two short knot tails from the ring toward the beard tips
             for sz in (1, -1):
@@ -251,15 +251,21 @@ def p_copper(c, pal):
     # C2 r7: recessed teal has a dark inner channel as well as the oxide surround.
     # Ridge lips catch light; cavity depth darkens both pigment and emission.
     rune_depth = shaders.smooth01(c.cav, 0.04, 0.30)
-    rune_rgb = np.tile(pal["rune"], (c.n, 1)) * (1.0 - 0.72 * rune_depth)[:, None]
+    rune_rgb = np.tile(pal["rune"], (c.n, 1)) * (1.0 - 0.45 * rune_depth)[:, None]
     rgb = shaders.mix(rgb, rune_rgb, rune)
+    # r8: the wider HI-only cut bakes a rounded lip and shaded inner walls while
+    # the original LO silhouette stays unchanged. Teal lives inside the channel.
+    wall = rune * shaders.smooth01(c.cav, 0.015, 0.16)
+    rgb = shaders.mix(rgb, shaders.srgb(9, 30, 25), wall * 0.45)
+    lip = shaders.smooth01(c.ridge, 0.035, 0.28) * oxide * (1.0 - rune)
+    rgb = shaders.mix(rgb, pal["copper_spec"], lip * 0.30)
     rgb = shaders.mix(rgb, pal["copper_spec"], 0.6 * c.ridge * (1 - pat) * (1 - rune) * (1 - side) * (1 - oxide))
     # C2 r5: metal 0.78-0.9 on the cheeks (r2-r4 kept it at 0.5-0.7 because the mirror cheeks reflected the purple dusk
     # sky; the engine's hue lock now keeps those reflections copper), rough 0.30-0.42 so the key prints a real highlight
     # C2 r6: glossier cheeks (0.20-0.30; r5 0.30-0.42 blurred the key into a wash), tarnish rougher
     metal = (0.80 + 0.12 * grad) * (1 - 0.9 * pat) * (1 - 0.95 * rune) * (1 - 0.15 * oxide)
     rough = 0.30 - 0.10 * grad + 0.05 * n1 - 0.08 * c.ridge + 0.4 * pat + 0.12 * side + 0.3 * rune + 0.28 * oxide
-    emit = rune * (1.0 - 0.85 * rune_depth)
+    emit = rune * (1.0 - 0.90 * rune_depth) * 0.45
     return shaders.out(c.n, rgb, np.clip(rough, 0.14, 0.9), np.clip(metal, 0, 1), emit)
 
 
@@ -290,7 +296,7 @@ def p_brass(c, pal):
 
 PAINTERS = {"copper": p_copper, "steel": p_steel, "wood": p_wood, "brass": p_brass}
 KINDS = {"copper": "bronze", "steel": "iron", "wood": "leather", "brass": "bronze"}
-PAL = dict(copper=shaders.srgb(182, 74, 26), copper_hi=shaders.srgb(238, 132, 60), copper_spec=shaders.srgb(255, 206, 172),   # C2 r6: darker, more saturated mid copper
+PAL = dict(copper=shaders.srgb(162, 55, 20), copper_hi=shaders.srgb(221, 102, 41), copper_spec=shaders.srgb(255, 206, 172),   # C2 r6: darker, more saturated mid copper
            copper_deep=shaders.srgb(98, 34, 14), copper_dark=shaders.srgb(80, 28, 14),           # C2 r4: value range (r6 a step darker)
            copper_oxide=shaders.srgb(54, 20, 11),                                                 # C2 r6: dark oxidised recesses
            copper_patina=shaders.srgb(40, 110, 92), copper_patina_amt=0.34, rune=shaders.srgb(22, 132, 112),   # C2 r6: deeper teal
@@ -310,7 +316,9 @@ def build(args):
     S = head_sculpt()
     haft_sculpt(S)
     lo_b, hi_b = V(-0.075, -0.335 * HY, HAFT_BOT - 0.075), V(0.075, 0.335 * HY, HEAD_Z + 0.42)   # C2 r4: bigger head
-    hi = pipeline.sculpt_mesh(S, "ax_hi", 0.0011 if fast else 0.0006, lo_b, hi_b)
+    Shi = head_sculpt(deep=True)
+    haft_sculpt(Shi)
+    hi = pipeline.sculpt_mesh(Shi, "ax_hi", 0.0011 if fast else 0.0006, lo_b, hi_b)
     lo = pipeline.lowpoly(S, "ax_lo", 0.0022, getattr(args, "weapon_tris", 2900), lo_b, hi_b)
     report["tris_lo"] = meshutil.tri_count(lo)
     allf = np.ones(len(lo.data.polygons), bool)

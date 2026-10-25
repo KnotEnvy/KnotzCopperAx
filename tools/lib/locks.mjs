@@ -144,6 +144,46 @@ function familyWatch(name) {
 
 const FAMILY_STAGGER = { capture: ['KCA_CAPTURE_STAGGER_MS', 10000], blender: ['KCA_BLENDER_STAGGER_MS', 30000] };
 
+// ---- GPU turn-taking between captures and Blender (owner rule 2026-10-25) ------------------------------------------
+// 11 of the 12 Windows GPU resets (TDR) on 24 Oct happened while a Blender CUDA bake shared the GPU with capture browsers,
+// and every corrupted capture lined up with one. So the two families take turns on the GPU: a capture (any 'capture'
+// slot: capture.mjs, perfbench, ui-overlap, glboot, ...) does not start while a Blender GPU job holds a 'blender' slot,
+// and a Blender GPU job does not start while captures hold slots. Several captures still run together, and up to 3
+// Blenders together. Cross-family order is arrival order (queue tickets), so neither side starves: a later capture
+// waits behind an earlier queued Blender job, and that Blender job waits only for the captures already running/queued.
+// Blender jobs that render on the CPU (lock info gpu:false — blender-run sets it for KCA_CYCLES_DEVICE=CPU) are exempt.
+// KCA_GPU_SHARE=1 disables the rule for one process (emergency only).
+const GPU_PEER = { capture: 'blender', blender: 'capture' };
+function gpuPeerBusy(name, me, info) {
+  if (name === 'blender' && info.gpu === false) return '';
+  const peer = GPU_PEER[name];
+  const re = new RegExp(`^${peer}-\\d+\\.lock$`);
+  let names = [];
+  try { names = fs.readdirSync(LOCK_DIR); } catch { return ''; }
+  let running = 0;
+  for (const n of names) {
+    if (!re.test(n)) continue;
+    const file = path.join(LOCK_DIR, n);
+    const cur = readLock(file);
+    if (!cur || lockIsStale(file, cur)) continue;
+    if (peer === 'blender' && cur.gpu === false) continue;
+    running++;
+  }
+  const s = (k) => (k > 1 ? 's' : '');
+  if (running) {
+    return name === 'capture'
+      ? `paused: ${running} Blender GPU job${s(running)} running — captures wait while Blender uses the GPU (owner rule 2026-10-25, prevents GPU resets)`
+      : `waiting for ${running} capture/browser job${s(running)} to finish — Blender GPU jobs start when the GPU is free of captures (owner rule 2026-10-25)`;
+  }
+  const earlier = waiters(peer).filter((t) => (peer !== 'blender' || t.gpu !== false) && ticketOrder(t, me) < 0).length;
+  if (earlier) {
+    return name === 'capture'
+      ? `paused: ${earlier} earlier Blender GPU job${s(earlier)} queued — it goes first (owner rule 2026-10-25)`
+      : `waiting: ${earlier} earlier capture job${s(earlier)} queued ahead (owner rule 2026-10-25)`;
+  }
+  return '';
+}
+
 /**
  * Acquire one of `slots` interchangeable slots named `${name}-<i>.lock` (slots=1 → an exclusive lock).
  * Resolves to a release() function (release.slot = index, release.file = lock path, release.update(fields) = atomically
@@ -167,7 +207,7 @@ export async function acquire(name, { slots = 1, info = {}, pollMs = 3000, maxPo
   // queue ticket (FIFO among r13+ waiters); removed when we get a slot, give up, or exit
   let ticket = null;
   if (queue) {
-    const me = { pid: process.pid, pidns: PID_NS, since: Date.now(), seq: ticketSeq++, what: info.what || '', owner: info.owner || '' };
+    const me = { pid: process.pid, pidns: PID_NS, since: Date.now(), seq: ticketSeq++, what: info.what || '', owner: info.owner || '', ...(info.gpu === false ? { gpu: false } : {}) };
     const file = path.join(LOCK_DIR, `${name}-wait-${process.pid}-${me.seq}.ticket`);
     try { if (tryCreate(file, me)) ticket = { file, me, stopBeat: heartbeat(file) }; } catch { /* no ticket: wait unqueued (pre-r13 behaviour) */ }
   }
@@ -201,6 +241,9 @@ export async function acquire(name, { slots = 1, info = {}, pollMs = 3000, maxPo
       if (!reason && staggerMs > 0 && !mine && !claimant && newest && Date.now() - newest < staggerMs) {
         sleepMs = staggerMs - (Date.now() - newest) + 50;
         reason = `staggering starts: the last ${name} slot was granted ${((Date.now() - newest) / 1000).toFixed(1)} s ago (${staggerMs / 1000} s apart)`;
+      }
+      if (!reason && !info.holdOnly && GPU_PEER[name] && process.env.KCA_GPU_SHARE !== '1') {
+        reason = gpuPeerBusy(name, ticket ? ticket.me : { since: t0, pid: process.pid, seq: -1 }, info);
       }
       if (!reason && extraBusy) {
         const busy = await extraBusy();

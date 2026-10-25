@@ -94,10 +94,19 @@ export function bossGrade(root, { scene = [1, 1, 1], desat = 0, rim = null, rimM
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       if (!m || !m.userData.kcaChar || m.userData.bossGrade) continue;
       m.userData.bossGrade = true;
+      // C2 r15 (Enemy Art C, additive): a GLB material may lower the desaturation for itself via glTF extras
+      // kcaGradeDesat (Varkhul's cloth material: desat .3 turned the key-lit crimson cape salmon). Own grade uniform,
+      // same scene tint, registered in h.grades so bossShade dims it with the body. Uniform-only: program unchanged.
+      let mg = grade;
+      const gd = m.userData.kcaGradeDesat;
+      if (gd !== undefined && Number.isFinite(+gd) && !/[?&]clothdesat=0/.test(typeof location !== 'undefined' ? location.search : '')) {
+        mg = { value: new THREE.Vector4(scene[0], scene[1], scene[2], Math.min(desat, +gd)) };
+        h.grades.push({ u: mg, base: [scene[0], scene[1], scene[2]] });
+      }
       const prev = m.onBeforeCompile;
       m.onBeforeCompile = (sh, r) => {
         if (prev) prev.call(m, sh, r);
-        sh.uniforms.kSceneGrade = grade; sh.uniforms.kRimParams = uRimP; sh.uniforms.kRimEdge = uRimE;
+        sh.uniforms.kSceneGrade = mg; sh.uniforms.kRimParams = uRimP; sh.uniforms.kRimEdge = uRimE;
         if (uRimC) sh.uniforms.kRimColor = uRimC;
         if (uKey) sh.uniforms.kKeyColor = uKey;
         sh.uniforms.kKeyAmb = uAmbS;

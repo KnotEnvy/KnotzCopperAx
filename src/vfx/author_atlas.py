@@ -35,13 +35,13 @@ def flame(t, burst=False):
         d=np.abs(x-bend)/w
         torn=.12*noise+.08*np.sin(x*39+y*43-phase*3)
         body=(1-smooth(.83,1.02,d+torn))*(1-smooth(.86,1.02,yy))*smooth(.035,.10,y)
-        lick=np.clip(1.16-.66*yy-.29*d+.12*np.sin(y*35+x*21-phase*4)+.13*noise,0,1)
+        lick=np.clip(1.30-.83*yy-.29*d+.12*np.sin(y*35+x*21-phase*4)+.13*noise,0,1)
         # Narrow sinuous hot filaments inside each tongue, with cool breaks between them.
         filament=np.exp(-((x-bend+.025*np.sin(yy*23-phase*3+j))/(w*.17+.004))**2)
-        lick=np.clip(lick+filament*.39*(1-yy),0,1)
+        lick=np.clip(lick+filament*.43*(1-yy)+.10*np.sin(yy*51+x*35-phase*5)*noise,0,1)
         # Deep curved channels remain visible even when several ambient layers overlap.
         channel=np.exp(-((x-bend-w*.36*np.sin(yy*8+j))/(w*.25+.003))**2)
-        body*=1-channel*smooth(.13,.33,yy)*.48
+        body*=1-channel*smooth(.13,.33,yy)*.62
         field=np.maximum(field*(1-channel*smooth(.20,.40,yy)*.26),body)
         heat=np.maximum(heat,lick*body)
         # A detached curling tip changes position, brightness and silhouette every loop cell.
@@ -54,7 +54,9 @@ def flame(t, burst=False):
     roots=np.maximum.reduce([np.exp(-((x-c)/.13)**4) for c in [-.43,.03,.46]])
     field*=1-(1-roots)*(1-smooth(.10,.31,y))
     stops=np.array([[.26,.009,.002],[.67,.052,.003],[1,.24,.006],[1,.57,.025],[1,.86,.24],[1,.995,.88]])
-    value=np.clip(heat*5,0,4.999);i=value.astype(int);f=(value-i)[...,None]
+    value=np.clip(heat*5,0,4.999)
+    value=np.floor(value*1.5)/1.5+np.mod(value*1.5,1)*.14
+    i=value.astype(int);f=(value-i)[...,None]
     return rgba(stops[i]*(1-f)+stops[i+1]*f,field)
 
 def smooth(a, b, v):
@@ -93,35 +95,38 @@ def smoke(t):
 
 
 def fireball(t):
-    # A single churning ignition volume: unequal lobes lick/merge, open holes, then
-    # burn away at different times. All eight poses change contour, not only tint.
-    n=turbulence(x,y,t*2.7)
-    fine=turbulence(x,y,t*4.2+1.3)
-    field=np.zeros_like(x); heat=np.zeros_like(x)
-    for j,(root,base,height,width) in enumerate([
-            (-.22,.12,.66,.24),(.07,.09,.76,.29),(.32,.20,.54,.19),
-            (-.40,.27,.43,.14),(.17,.45,.34,.16)]):
-        phase=t*11.5+j*2.17
-        burn=smooth(.33+j*.085,.84+j*.038,t)
-        height*= (.82+.18*math.sin(phase))*(1-.28*burn)
-        base+=t*(.12+.018*j)
-        yy=(y-base)/height
-        along=np.clip(yy,0,1)
-        spine=root+.13*np.sin(along*7.8-phase)*along+.09*math.sin(phase*.8)
-        w=width*np.maximum(0,1-along)**.72*(1-.42*burn)
-        d=np.abs(x-spine+.045*n)/np.maximum(w,.004)
-        torn=n*.36+fine*.13+.07*np.sin(y*62+x*29-phase)
-        body=(1-smooth(.66,1.10,d+torn))*smooth(-.04,.07,yy)*(1-smooth(.80,1.,yy))
-        # Advected cool channels split the body into flickering ragged ribbons.
-        cut=np.exp(-((x-spine-.085*np.sin(yy*12-phase))/(.018+.026*along))**2)
-        body*=1-cut*smooth(.22,.55,along)*(.40+.60*burn)
-        body*=1-smooth(.40-burn*.25,.74-burn*.32,n*.5+.5+along*.18)
-        body*=1-burn
+    # One connected, turbulent combustion mantle, rooted across the lower torso.
+    # Lobes share an irregular fuel mass; only their tips split into little wisps.
+    n=turbulence(x,y,t*3.8);fine=turbulence(x,y,t*6.1+1.7)
+    burn=smooth(.32,1.,t)
+    base=.19+.012*math.sin(t*24)
+    root=np.sqrt(((x+.025)/(.61*(1-.66*burn)))**2+((y-base)/(.16*(1-.50*burn)))**2)
+    field=(1-smooth(.62,1.06,root+n*.25))*(1-.87*burn)
+    heat=np.clip(1.07-root*.49+n*.19-burn*.45,0,1)*field
+    for j,(root_x,height,width) in enumerate([(-.36,.58,.28),(-.04,.77,.34),(.31,.61,.29)]):
+        phase=t*15+j*2.13
+        h=height*(.86+.14*math.sin(phase))*(1-.64*burn)
+        yy=(y-base)/max(.08,h);v=np.clip(yy,0,1)
+        spine=root_x*(1-.65*burn)+(.19*np.sin(v*6-phase)+.075*np.sin(v*14+phase))*v
+        w=width*(1-.66*burn)*np.maximum(0,1-v)**.86+.005
+        d=np.abs(x-spine+n*.044)/w
+        contour=d+n*.34+fine*.18
+        body=(1-smooth(.70,1.06,contour))*smooth(-.18,.045,yy)*(1-smooth(.86,1.03,yy))
+        # Cool grooves above the connected root; curling cut-outs break the tips.
+        groove=np.exp(-((x-spine-.07*np.sin(v*11-phase))/(.013+.026*v))**2)
+        body*=1-groove*smooth(.32,.75,v)*.88
+        body*=1-smooth(.54,.86,n*.5+.5+v*.16)*smooth(.45,.85,v)
+        body*=1-.92*burn
         field=np.maximum(field,body)
-        hot=np.clip(1.36-.47*along-.66*d-.22*burn+n*.15,0,1)
-        heat=np.maximum(heat,hot*body)
-    stops=np.array([[.18,.004,.001],[.64,.022,.002],[1,.19,.006],
-                    [1,.52,.025],[1,.86,.32],[1,.995,.92]])
+        hval=np.clip(1.06-.69*v-.32*d+n*.20+fine*.12-.46*burn,0,1)
+        heat=np.maximum(heat,hval*body)
+    # As combustion subsides, small hot fragments stay at the body instead of a grey swap.
+    for j in range(8):
+        cx=.43*math.sin(j*2.4+t*8)*(1-.65*burn);cy=.18+(j%3)*.07+t*.035
+        rad=.012+.008*math.sin(j*3+t*19)**2
+        ember=(1-smooth(.3,1.,np.sqrt(((x-cx)/rad)**2+((y-cy)/(rad*1.9))**2)))*smooth(.44,.78,t)*(1-.65*smooth(.85,1.,t))
+        field=np.maximum(field,ember);heat=np.maximum(heat,ember*.86)
+    stops=np.array([[.28,.006,.001],[.78,.045,.002],[1,.25,.008],[1,.57,.035],[1,.87,.30],[1,.995,.93]])
     value=np.clip(heat*5,0,4.999);i=value.astype(int);f=(value-i)[...,None]
     return rgba(stops[i]*(1-f)+stops[i+1]*f,field)
 
@@ -177,51 +182,42 @@ def storm(t):
 
 
 def directional_impact(kind,t):
-    # Concentrated metal bite and open streaks. The contact is (0,0); fragments are
-    # detached already at +0 in Heavy and both weights are separated by +66 ms.
-    frame=min(3,round(t*3)); heavy=kind=='blunt'
-    s=768; im=Image.new('RGBA',(s,s))
+    # A torso-sized transverse bite. Opening and release are separately painted;
+    # the ivory kernel persists across the first TWO poses instead of a one-frame line.
+    frame=min(3,round(t*3));heavy=kind=='blunt'
+    s=768;im=Image.new('RGBA',(s,s))
     def polygon(points,color):
-        layer=Image.new('RGBA',(s,s));draw=ImageDraw.Draw(layer)
-        draw.polygon([(int((u+.5)*s),int((.5-v)*s)) for u,v in points],fill=color)
+        layer=Image.new('RGBA',(s,s));d=ImageDraw.Draw(layer)
+        d.polygon([(int((u+.5)*s),int((.5-v)*s)) for u,v in points],fill=color)
         return layer
-    bolts=([(.04,.36,.063),(.63,.32,.050),(-.55,.30,.044),(1.40,.26,.032),(-1.12,.22,.028),(.32,.43,.019)]
-           if heavy else [(0,.37,.037),(.43,.29,.023),(-.40,.27,.020)])
-    for j,(angle,length,width) in enumerate(bolts):
-        ca,sa=math.cos(angle),math.sin(angle)
-        start=(-.105 if j==0 else .055+j*.009) + [.0,.045,.15,.23][frame]
-        end=min(.44,length+[0,.02,.04,.0][frame])
-        if frame>=2:start=max(start,end-[.0,.0,.13,.065][frame])
-        width*= [1,.74,.46,.18][frame]
-        # Each ribbon has a torn rear and a missing flank, with open gaps between ribbons.
-        points=[(start,-width*.44),(start+.035,-width),
-                (start+(end-start)*.28,-width*.40),(end,0),
-                (start+(end-start)*.55,width*.30),(start+.055,width*.75),
-                (start+.02,width*.20),(start-.015,width*.43)]
-        for sc,col in [(1.6,(159,31,5,180)),(1,(255,105,9,245)),(.42,(255,219,105,250))]:
-            pts=[(u*ca-v*sc*sa,u*sa+v*sc*ca) for u,v in points]
-            im=Image.alpha_composite(im,polygon(pts,col))
-        # A fine offset inner streak is intentionally discontinuous at its root.
-        line=[(start+.065,-width*.10),(end-.025,0),(start+.12,width*.14)]
-        im=Image.alpha_composite(im,polygon([(u*ca-v*sa,u*sa+v*ca) for u,v in line],(255,250,204,230)))
-    if frame<2:
-        # Bright mass on the struck body, not at the exit of a long beam.
-        w=.060 if heavy else .035
-        pts=[(-.09,-w*.3),(-.035,-w),(.045,-w*.27),(.15,0),
-             (.04,w*.40),(.01,w*.85),(-.04,w*.30)]
-        im=Image.alpha_composite(im,polygon(pts,(255,255,243,255 if frame==0 else 190)))
-    for j,a in enumerate(([.27,-.62,.96,-1.35,.61,-.21,1.65] if heavy else [.36,-.49,.10])):
-        radius=.18+(j%3)*.065+frame*.037
+    angles=[-.98,-.42,.14,.73,1.34,2.10,2.77,3.73,4.62] if heavy else [-1.12,-.38,.43,1.34,2.42,3.67]
+    lengths=[.40,.36,.46,.35,.42,.32,.39,.29,.34] if heavy else [.36,.43,.31,.40,.28,.33]
+    for j,(a,length) in enumerate(zip(angles,lengths)):
+        ca,sa=math.cos(a),math.sin(a)
+        start=[-.025,.012,.16,.27][frame]
+        end=min(.46,length+[0,.025,.035,-.015][frame])
+        if start>=end:continue
+        w=(.055 if heavy else .039)*[1,.94,.66,.28][frame]*(1+(j%3)*.20)
+        pts=[(start,-w*.48),(start+.055,-w),(.16,-w*.38),(end,0),
+             (.20,w*.46),(.10,w*.72),(start+.02,w*.30)]
+        for sc,col in [(1.32,(194,43,5,235)),(1,(255,119,10,255)),(.56,(255,222,103,255))]:
+            im=Image.alpha_composite(im,polygon([(u*ca-v*sc*sa,u*sa+v*sc*ca) for u,v in pts],col))
+    if frame<3:
+        # Unequal compact impact mass, open in the attack's exit direction.
+        k=[1,.96,.53][frame]
+        pts=[(-.17,-.035),(-.095,-.12),(-.035,-.065),(.025,-.17),(.065,-.065),
+             (.22,-.015),(.11,.04),(.16,.11),(.035,.08),(-.045,.16),(-.075,.065),(-.15,.09)]
+        for sc,col in [(1.17,(255,121,12,255)),(.85,(255,225,114,255)),(.56,(255,255,250,255))]:
+            im=Image.alpha_composite(im,polygon([(u*k*sc,v*k*sc) for u,v in pts],col))
+    for j,a in enumerate([-.78,.18,.93,2.05,3.38] if heavy else [-.64,.85,2.63]):
+        radius=.24+(j%2)*.06+frame*.037
         cx=math.cos(a)*radius;cy=math.sin(a)*radius
-        length=(.041 if heavy else .027)*(1-frame*.16);w=.009 if heavy else .005
-        pts=[(cx-length,cy-w*.2),(cx,cy-w),(cx+length,cy+w*.1),(cx-.01,cy+w)]
-        im=Image.alpha_composite(im,polygon(pts,(255,186,63,240)))
-        im=Image.alpha_composite(im,polygon([(cx-length*.4,cy),(cx+length*.6,cy),(cx,cy+w*.5)],(255,255,221,250)))
-    im=im.resize((SIZE,SIZE),Image.Resampling.LANCZOS)
-    pixels=np.asarray(im).copy()
-    texture=np.clip(.91+turbulence(x,y,frame*.8)*.18,.74,1.)
-    pixels[...,:3]=(pixels[...,:3]*texture[...,None]).astype(np.uint8)
-    return Image.fromarray(pixels)
+        l=(.055 if heavy else .044)*(1-frame*.12);w=.015 if heavy else .012
+        ca,sa=math.cos(a),math.sin(a)
+        pts=[(-l,-w*.2),(0,-w),(l,w*.1),(-.012,w)]
+        im=Image.alpha_composite(im,polygon([(cx+u*ca-v*sa,cy+u*sa+v*ca) for u,v in pts],(255,203,83,255)))
+        im=Image.alpha_composite(im,polygon([(cx-l*.4*ca,cy-l*.4*sa),(cx+l*.7*ca,cy+l*.7*sa),(cx-w*sa,cy+w*ca)],(255,255,236,255)))
+    return im.resize((SIZE,SIZE),Image.Resampling.LANCZOS)
 
 
 def painted(kind,t):

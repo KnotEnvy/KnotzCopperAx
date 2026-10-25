@@ -12,6 +12,7 @@ import { FirePool, preloadFireLibrary } from '../vfx/fireLib.js';
 import { noiseTexture, normalFromNoise } from '../assets/proceduralTextures.js';
 import { createHero } from '../characters/spawnHero.js';
 import { flagstoneMaps, rockMaps, masonryMaps } from './selectTex.js';
+import { bossGrade } from '../enemies/bosses/_look.js';   // C2 r15: generic per-actor light grade (scene tint / key / ambient / rim) - used here for the three select heroes
 import { applySelectWeaponEnv } from '../render/weaponEnv.js';   // C2 r6 (hero-weapons, additive): hero weapon reflections on this set
 
 // C2 r12 (board r11 "monochrome terracotta band"): the set is lit COOL (slate moon from behind-left, a cool back lamp that edges every
@@ -26,7 +27,7 @@ export const SELECT_LIGHTING = {
   fog: { color: '#07060a', near: 22, far: 62 },
   env: { intensity: 0.22 },
   exposure: 1.05,
-  character: { rim: '#a8d4ff', intensity: 0.55, power: 3.2, floor: 0.02, base: 0.0, edge: 1.7, width: 2.4, maxNdv: 0.5, key: { color: '#ffd0a4', intensity: 1.55, wrap: 0.0, dir: [-0.72, 0.5, 0.48] }, ambient: '#6a7aa8', ambientIntensity: 0.12 },
+  character: { rim: '#a8d4ff', intensity: 0.55, power: 3.2, floor: 0.02, base: 0.0, edge: 1.7, width: 2.4, maxNdv: 0.5, key: { color: '#ffdcba', intensity: 1.7, wrap: 0.0, dir: [-0.72, 0.5, 0.48] }, ambient: '#6a7aa8', ambientIntensity: 0.13 },
   bloom: { intensity: 0.8, threshold: 0.85 },
 };
 export const HAND_X = [-3.9, 0, 3.9];
@@ -230,12 +231,49 @@ function buildVault(mat) {
     const m1 = Math.sin(x * 0.37 + Math.sin(y * 0.21 + 1.3) * 1.7) * Math.cos(y * 0.33 - x * 0.11 + 0.6), m2 = Math.sin(x * 0.93 + 2.1) * Math.sin(y * 0.71 + x * 0.19);
     const v = 1.7 * (0.8 + 0.2 * m1 + 0.07 * m2) * (1 - 0.5 * Math.min(1, Math.max(0, (y - 5.5) / 9))) * (1 - 0.35 * Math.min(1, Math.abs(x) / 14));
     const hue = 0.5 + 0.5 * Math.sin(x * 0.22 + y * 0.15 + z * 0.1);
-    col[i * 3] = v * (0.9 + 0.12 * hue); col[i * 3 + 1] = v * (0.97 + 0.04 * hue); col[i * 3 + 2] = v * (1.04 - 0.1 * hue);
+    // C2 r15: a darker value pocket behind each hero (centre deepest: Seraphine's teal / slate armour sat on the same mid-blue as the wall) so the figures part from it
+    let pocket = 1;
+    for (const [cx, amt] of [[-3.9, 0.20], [0, 0.34], [3.9, 0.20]]) pocket -= amt * Math.exp(-(((x - cx) / 1.7) ** 2)) * Math.exp(-(((y - 3.6) / 3.4) ** 2));
+    col[i * 3] = v * pocket * (0.9 + 0.12 * hue); col[i * 3 + 1] = v * pocket * (0.97 + 0.04 * hue); col[i * 3 + 2] = v * pocket * (1.04 - 0.1 * hue);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, mat); m.receiveShadow = true;
   return m;
+}
+
+// C2 r15 (board r14 'Brann's flank = a flat orange wash; Seraphine separates poorly from the blue wall and her legs read glossy; in the greyscale the centre hero
+// competes with the flames'): a per-hero light grade for this set only (enemies/bosses/_look.js bossGrade: scene-light tint, actor key colour / strength, ambient;
+// the heroes' materials are per-instance clones, so nothing leaks into play). Brann's key goes from flat orange toward a pale warm and his shadow side takes a
+// cool ambient (form instead of one orange plane); Seraphine's key is lifted and her scene light is pushed warm / slightly desaturated so she parts from the
+// blue-slate wall by hue AND value; Gorrim is lifted a touch. Seraphine's non-metal texels also get a roughness floor (cloth, not patent leather).
+const SELECT_GRADE = {
+  brann: { key: '#ffe2c8', keyMul: 0.92, amb: ['#7f93c8', 0.10], scene: [0.97, 1.0, 1.04] },
+  seraphine: { key: '#fff2e2', keyMul: 1.58, amb: ['#8a9ac8', 0.06], scene: [1.04, 1.0, 0.90], desat: 0.10, rough: 0.86 },
+  gorrim: { key: '#ffe6cc', keyMul: 1.12, amb: ['#7f93c8', 0.10] },
+};
+function gradeSelectHero(h, id) {
+  const g = SELECT_GRADE[id];
+  const root = h && h.modelRoot;
+  if (!g || !root) return;
+  bossGrade(root, { scene: g.scene || [1, 1, 1], desat: g.desat || 0, key: g.key, keyMul: g.keyMul, amb: g.amb });
+  if (!g.rough) return;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (!m || !m.isMeshStandardMaterial || m.userData.kcaSelRough) continue;
+      m.userData.kcaSelRough = true;
+      const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+      m.onBeforeCompile = (sh, r) => {
+        if (prev) prev.call(m, sh, r);
+        // metalnessmap_fragment follows roughnessmap_fragment in the physical shader, so the floor goes after it (metalnessFactor is declared there)
+        sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+  roughnessFactor = mix(max(roughnessFactor, ${g.rough.toFixed(2)}), roughnessFactor, smoothstep(0.25, 0.7, metalnessFactor));`);
+      };
+      m.customProgramCacheKey = () => (prevKey ? prevKey.call(m) : '') + '|kcaSelRough15';
+      m.needsUpdate = true;
+    }
+  });
 }
 
 // C2 r2 (hero-weapons, additive): the stand pose is the hero's `select_stand` clip when its clip set defines one
@@ -308,9 +346,10 @@ export async function buildSelectSet(game, heroIds) {
   const firePool = new FirePool({ capacity: 56, name: 'select_authored_fire' }); group.add(firePool.mesh);
   const smokers = [];
   const brazierFire = (x, y, z, k, ph) => {
-    const L = [[-0.07, 0.95, 1.0, 0.0, 0.00, 0.78], [0.0, 1.0, 0.92, 0.33, 0.31, 1.0], [0.08, 0.8, 0.8, 0.66, 0.62, 0.9]];
+    const FL = 0.74;   // C2 r15 (board r14 'in the greyscale the centre hero and hand compete with the brazier flames'): flame cards ~26 % dimmer, so the heroes are the brightest read
+    const L = [[-0.07, 0.95, 1.0, 0.0, 0.00, 0.78 * FL], [0.0, 1.0, 0.92, 0.33, 0.31, 1.0 * FL], [0.08, 0.8, 0.8, 0.66, 0.62, 0.9 * FL]];
     for (const [dz, w, h, phase, , a] of L) firePool.emit({ clip: 'flame', pos: [x + dz * 0.6 * k, y + 0.5 * h * k, z + dz * k], size: [0.9 * w * k, 1.15 * h * k], life: 0.95, loop: true, phase: (phase + ph) % 1, core: 0.8, soft: 0.1, floor: y - 0.02, alpha: a });
-    firePool.emit({ clip: 'flame', pos: [x, y + 0.34 * k, z + 0.02 * k], size: [0.46 * k, 0.72 * k], life: 0.7, loop: true, phase: (ph * 1.7) % 1, core: 1.3, additive: true, alpha: 0.7 });
+    firePool.emit({ clip: 'flame', pos: [x, y + 0.34 * k, z + 0.02 * k], size: [0.46 * k, 0.72 * k], life: 0.7, loop: true, phase: (ph * 1.7) % 1, core: 1.0, additive: true, alpha: 0.42 });
     firePool.emit({ clip: 'embers', pos: [x, y + 0.8 * k, z], size: [0.8 * k, 1.4 * k], life: 1.6, loop: true, phase: ph, alpha: 0.8, additive: true });
     smokers.push({ x, y: y + 1.0 * k, z, k, t: ph * 3.2 });
   };
@@ -334,13 +373,16 @@ export async function buildSelectSet(game, heroIds) {
     brazierFire(x, 1.5 * BS, z, 1.0, (x + 6) * 0.137);
     { const gm = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 4.4), new THREE.MeshBasicMaterial({ map: poolGlowTex, color: '#ff8a3c', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
       gm.rotation.x = -Math.PI / 2; gm.position.set(x, 0.02, z + 0.9); gm.renderOrder = 3; group.add(gm); }
-    fx.glow([x, 1.85 * BS, z], { size: 2.6, color: '#ff7a2a', intensity: 1.0 });
+    fx.glow([x, 1.85 * BS, z], { size: 2.6, color: '#ff7a2a', intensity: 0.62 });
     fx.sparks([x, 1.7 * BS, z], { count: 10, radius: 0.3, rise: 2.4 });
     // C2 r14 (board r13 "Brann's flank still washes warm from the brazier, flattening his shadow side"): the two INNER braziers sit between the heroes
     // and rim the neighbours' inner flanks; their real lights are cut hard (the warm pool is the painted floor decal above) and pulled behind the hero line
     const inner = Math.abs(x) < 3;
-    const base = inner ? 0.7 : 2.6;
-    const L = new THREE.PointLight(inner ? '#ff9a58' : '#ffb070', base, inner ? 7 : 10, 1.7); L.position.set(x, 2.0, z + (inner ? -0.9 : 0.3)); group.add(L);
+    // C2 r15 (board r14 'Brann's right flank / hip still a flat orange brazier wash'): the OUTER braziers stood 2 m beside Brann / Gorrim at the hero's own depth,
+    // so their point light flooded the near flank flat. Pulled back behind the hero line (z -1.7 -> -3.4) and lowered in power, the light grazes the far edge
+    // (a rim) and leaves the flank to the cool fill + key.
+    const base = inner ? 0.5 : 1.35;
+    const L = new THREE.PointLight(inner ? '#ff9a58' : '#ffb070', base, inner ? 7 : 9, 1.7); L.position.set(x + (inner ? 0 : Math.sign(x) * 0.6), 2.2, z + (inner ? -0.9 : -1.7)); group.add(L);
     torches.push({ L, base, phase: x });
   }
   const pm = new THREE.Mesh(mergeGeometries(ped), pedMat); pm.castShadow = true; pm.receiveShadow = true; group.add(pm);
@@ -413,6 +455,7 @@ export async function buildSelectSet(game, heroIds) {
       // C2 r3 (hero-weapons, additive): no crossfade from the spawn idle — a single-frame capture of this screen (the
       // board's) otherwise shows the last-created hero mid-fade, i.e. in his gameplay guard instead of the stand pose
       if (h.play) h.play(standClip(h), { fade: 0, restart: true });
+      gradeSelectHero(h, heroIds[i]);
       heroes.push(h);
     } catch (e) { heroes.push(null); }
   }
@@ -433,8 +476,10 @@ export async function buildSelectSet(game, heroIds) {
     if (dbg) { camera.position.set(...dbg.pos); camera.lookAt(...dbg.look); if (dbg.fov && camera.fov !== dbg.fov) { camera.fov = dbg.fov; camera.updateProjectionMatrix(); } return; }
     const sway = Math.sin(t * 0.35) * 0.25;
     camera.position.set(sway, 3.4 + Math.sin(t * 0.5) * 0.05, 10.4 - punch * 0.6);
-    camera.lookAt(sway * 0.4, 1.5, 0);
-    if (camera.fov !== 32) { camera.fov = 32; camera.updateProjectionMatrix(); }
+    // C2 r15 (hero-weapons' framing note: 'Grudgebrand's tip is clipped above the canvas'): the raised greatsword reached ~70 px above the top edge at fov 32 / look-y 1.5.
+    // fov 35 + look-y 1.82 brings the tip ~28 px inside (heroes sit ~40 px lower, feet still clear of the cards' plaques) with no pose / weapon change.
+    camera.lookAt(sway * 0.4, 1.82, 0);
+    if (camera.fov !== 35) { camera.fov = 35; camera.updateProjectionMatrix(); }
   };
   place();
   return {

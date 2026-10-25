@@ -23,6 +23,15 @@ toward the camera (open cup, no hoop); a stout thumb leaves the heel low on the 
 hero; the earth web stays only under the feet (floor shows between the metacarpals toward the heel); warm aged-ivory
 albedo with a per-bone tint/value, paler knuckle tops, darker deck + joints. The preview path paints with the same painter.
 
+C2 r15 (board r14: "a fan of long uniform rods splayed ~150 deg; no palm mass, the heroes stand among the fingertips - the
+hands do not CRADLE the heroes"): CRADLE layout. Four broad, rounded metacarpals packed side by side (dark earth seams ~5 cm
+below their tops) form a PALM PLATFORM under the boots, from a bigger carpal heel in front of the hero (a step lower, the
+forearm dropping from it into the heap) back to a ring of knuckles ~0.58 hu round the hero's feet. Each finger rises from
+its knuckle leaning a little out, then the middle + distal phalanges hook IN toward the hero (tips 0.74-0.89 m above the
+feet, ~0.34 m from the hero's axis: knee-to-hip, behind/beside the legs, never across the torso); the thumb leaves the heel
+at the front radial corner, low on the camera side, and turns up + in. Rounded condyle heads ~1.4x the waisted shafts,
+tapering bone to bone (still continuous: base overlaps head, crease ring).
+
 C2 r13 (board r12: "every palm a heap of rounded cobbles; fingers evenly spaced straight posts"): the select camera looks
 across the palm at ~10 deg, so a flat palm can never show its metacarpals. Now five slender CURVED metacarpals (CurveBone,
 43-45 % of the hand length) form a short flat deck under the hero's feet right in front of the knuckles and then curve DOWN
@@ -66,7 +75,7 @@ from lib import sdf
 from lib.sdf import V, norm, Sculpt, Ellipsoid, RoundBox, RoundCone, Chain, Displace, Prim, Union, Diff, Offset, Inter
 
 OUT_GLB = os.path.join(ROOT, "public", "assets", "models", "ui_skeletal_hand.glb")
-OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r14", "tex")
+OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r15", "tex")
 REPORT = os.path.join(HERE, "out", "ui_hand_sculpt_report.json")
 
 TOP = 1.216            # palm top surface under the hero's feet (select3d: PALM_Y / HAND_SCALE - HAND_DROP / HAND_SCALE)
@@ -431,16 +440,21 @@ def carpal(c, half, ang=(0, 0, 0), seed=0, round_=0.30):
 
 
 # ----------------------------------------------------------------------------------------------------------- skeleton
-# C2 r13 layout (hand units; +Z toward the camera). The select camera looks across the palm at only ~10 deg, so a FLAT palm
-# collapses to a ~20 px strip of rounded tops ("cobbles"). Now the hero stands on a short flat DECK formed by the distal
-# metacarpals right in front of the knuckles, and the shafts then curve DOWN toward the camera (~34 deg) into a small carpal
-# block at the heel of the hand: from the camera the five shafts read as a long fan (~75 px) with dark gaps between them.
-YD = TOP - 0.040                 # metacarpal centre height along the deck (shaft top = TOP under the feet)
-SLOPE_A = norm(V(0.0, 0.50, -0.866))   # carpal block / proximal palm: "along" axis, pointing up the slope to the knuckles
-SLOPE_N = norm(V(0.0, 0.866, 0.50))    # its palmar normal (up + toward the camera)
+# C2 r15 layout (board r14: "a fan of long uniform rods splayed ~150 deg converging on a tiny carpal cluster; no palm mass,
+# the heroes stand on the deck among the fingertips - the hands do not CRADLE the heroes"). Hand units, +Z toward the camera.
+#  * PALM PLATFORM: four broad, flattened metacarpals packed side by side (a dark earth web just below their tops) run from
+#    the heel IN FRONT of the hero (carpal block, a step lower) back under the boots to a ring of knuckles AROUND the hero.
+#  * CRADLE: the knuckles stand on an arc ~0.58 hu round the hero's feet (index on the thumb side, middle + ring behind, the
+#    little finger on the far side); each finger rises from its knuckle leaning a little OUT, then the middle and distal
+#    phalanges hook IN toward the hero, so the tips stand at knee-to-hip height around the legs (never across torso/face).
+#  * the thumb leaves the heel at the front radial corner, low on the camera side, and turns up and in.
+YD = TOP - 0.046                 # metacarpal centre height along the deck (shaft top = TOP under the feet)
+SLOPE_A = norm(V(0.0, 0.30, -0.954))   # carpal block "along" axis (wrist -> knuckles): the heel dips toward the camera
+SLOPE_N = norm(V(0.0, 0.954, 0.30))    # its palmar normal (up + toward the camera)
 EX = V(1.0, 0.0, 0.0)
 M_BLOCK = np.stack([EX, SLOPE_N, SLOPE_A], axis=1)    # sdf frame: x lateral, y palmar, z along
-CB = V(-0.010, 0.808, 0.846)     # carpal block centre (heel of the hand)
+CS = 1.18                        # carpal block scale vs r13/r14: a heel that reads as the palm's mass at 1x
+CB = V(-0.010, 1.080, 0.680)     # carpal block centre (heel of the hand: in front of the hero, a step below the deck)
 
 
 def blk(u, v, w):
@@ -449,36 +463,49 @@ def blk(u, v, w):
 
 
 FINGERS = {
-    # C2 r14 pose (board r13: "fingers rise straight up and arc into a near-closed RING behind the hero"): the fingers FAN
-    # out to the sides from the knuckles and then curl FORWARD toward the camera (a cupping hand with the hero between
-    # them, open at the top). Each phalanx direction = (polar deg from vertical, azimuth deg in xz: 0 = +Z toward the
-    # camera, +90 = +X thumb side).
-    #           knuckle (x, z)   base (x, z)      deck dy  scale  P1 / P2 / P3 (polar, azimuth)
-    "index":  ((0.385, -0.150), (0.135, 0.735), 0.014, 0.94, ((42, 115), (26, 55), (74, 8))),
-    "middle": ((0.125, -0.275), (0.050, 0.742), 0.000, 1.00, ((22, 145), (18, 20), (70, 0))),
-    "ring":   ((-0.140, -0.250), (-0.050, 0.736), 0.004, 0.95, ((24, -145), (18, -22), (67, -2))),
-    "pinky":  ((-0.385, -0.115), (-0.148, 0.722), 0.024, 0.80, ((44, -110), (28, -56), (68, -10))),
+    # knuckle on an arc round the hero: phi (deg, 0 = +X thumb side, 90 = straight behind), radius, height offset;
+    # base x on the carpal block; finger scale; per-phalanx LEAN from vertical toward the hero (deg; negative = outward);
+    # azimuth twist of the curl plane (deg)
+    #          phi    r      dy     base x  scale  P1 / P2 / P3 lean   twist
+    "index":  (24.0, 0.58, 0.022, 0.160, 0.95, (-12, 30, 74), 6.0),
+    "middle": (66.0, 0.58, 0.010, 0.052, 1.00, (-10, 28, 72), 0.0),
+    "ring":   (108.0, 0.58, 0.012, -0.062, 0.96, (-10, 28, 70), 0.0),
+    "pinky":  (148.0, 0.56, 0.026, -0.176, 0.84, (-14, 32, 70), -6.0),
 }
-LEN = (0.56, 0.36, 0.27)         # proximal / middle / distal phalanx (joint centre to joint centre), x finger scale
-#        base   shaft  head        C2 r14: continuous taper bone to bone (each base ~ the previous head), mild waist
-R_PH = ((0.090, 0.072, 0.078),   # proximal phalanx (ref: fingers about as thick as the hero's thigh)
-        (0.076, 0.060, 0.064),   # middle phalanx
-        (0.063, 0.048, 0.032))   # distal phalanx (last = tuft radius: a rounded taper, no blunt cap)
+LEN = (0.39, 0.32, 0.25)        # proximal / middle / distal phalanx (joint centre to joint centre), x finger scale
+#        base   shaft  head        C2 r15: rounded condyle heads clearly wider than the waisted shafts, tapering bone to bone
+R_PH = ((0.106, 0.069, 0.099),   # proximal phalanx
+        (0.090, 0.058, 0.080),   # middle phalanx
+        (0.074, 0.045, 0.035))   # distal phalanx (last = tuft radius)
+THUMB = dict(knuckle=V(0.540, YD - 0.020, 0.470), lens=(0.36, 0.27), leans=(14, 58), twist=-10.0)
 
 
-def sph_dir(polar, az):
-    p, a = math.radians(polar), math.radians(az)
-    return V(math.sin(p) * math.sin(a), math.cos(p), math.sin(p) * math.cos(a))
+def knuckle(nm):
+    phi, r, dy = FINGERS[nm][:3]
+    a = math.radians(phi)
+    return V(HERO[0] + r * math.cos(a), YD + dy, HERO[1] - r * math.sin(a))
 
 
-def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.20, 1.12, 1.06), palm=0.84):
-    """Metacarpal along a curved centreline pts[0] (carpal base) -> pts[-1] (knuckle centre): slender waisted shaft, a
-    compact (not swollen) knuckle head with two palmar condyles, and a squarish base pressed onto the distal carpal row."""
+def curl_dirs(J, leans, twist, jit):
+    """phalanx directions + palmar refs in the vertical plane through the knuckle and the hero (twisted by `twist`)."""
+    u = norm(V(HERO[0] - J[0], 0.0, HERO[1] - J[2]))
+    u = rot_about(u, UP, math.radians(twist))
+    D, P = [], []
+    for k, ln in enumerate(leans):
+        p = math.radians(ln + jit[k])
+        D.append(norm(UP * math.cos(p) + u * math.sin(p)))
+        P.append(norm(-UP * math.sin(p) + u * math.cos(p)))    # inside of the curl = the palmar face
+    return D, P
+
+
+def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.22, 1.22, 1.10), palm=0.92):
+    """Metacarpal along a curved centreline pts[0] (carpal base) -> pts[-1] (knuckle centre): broad flattened waisted shaft
+    (C2 r15: packed side by side = the palm platform), a round knuckle head with two palmar condyles, a squarish base."""
     sh = CurveBone(pts, rA, rS, rh * 0.72, pref=(0, 1, 0), lat=lat, palm=palm, fa=0.20, fb=0.22, capA=0.6, capB=0.6)
     J1 = V(pts[-1])
     e0, e1, e2 = bone_frame(sh.tangent(True), (0, 1, 0))
     M = frame_M(e0, e1, e2)
-    hr = (rh * lat[2], rh * 0.92, rh * 0.96)
+    hr = (rh * lat[2], rh * 0.94, rh * 0.98)
     parts = [sh, Ellipsoid(J1, hr, M)]
     for s in (-1, 1):   # palmar condyles under the knuckle head
         parts.append(Ellipsoid(J1 - e0 * (0.32 * rh) + e2 * (s * 0.40 * rh * lat[2]) + e1 * (0.38 * rh),
@@ -499,35 +526,32 @@ def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.20, 1.12, 1.06), palm=0.84):
 def build_sculpt():
     JOINTS.clear(); TIPS.clear(); BIG.clear(); BONES.clear(); KNUCK.clear()
     S = Sculpt(materials=("bone",), default_mat="bone")
-    rng = np.random.default_rng(13)
+    rng = np.random.default_rng(15)
     heads, curves = {}, {}
 
-    # --- metacarpals: five long slender separate shafts fanning from the carpal block to the knuckles
-    for i, (nm, (kxz, bxz, dy, s, _)) in enumerate(FINGERS.items()):
+    # --- metacarpals: the PALM PLATFORM - broad flattened shafts from the heel (front) back under the boots to the knuckles
+    for i, (nm, (phi, rk, dy, xb, s, _, _)) in enumerate(FINGERS.items()):
         sw = s ** 0.5
-        xh, zh = kxz
-        xb, zb = bxz
-        yd = YD + dy
-        keys = []
-        for zz, yy in ((zh, yd), (0.020, yd), (0.235, yd - 0.006), (0.420, yd - 0.062), (0.590, yd - 0.165)):
-            fb = (zb - zz) / (zb - zh)                     # 0 at the base .. 1 at the knuckle
-            g = 1 - (1 - fb) ** 1.8                        # fan out FAST from the tight carpal base: gaps run the full length
-            keys.append(V(xb + (xh - xb) * g, yy, zz))
-        base = blk(xb - CB[0], 0.0, 0.112 + 0.4 * (zb - 0.735))   # on the distal face of the carpal block
-        pts = [base] + keys[::-1]
-        pr, hd = mc_curve("mc_" + nm, pts, 0.056 * sw, 0.040 * sw, 0.080 * sw, seed=10 + i)
+        K = knuckle(nm)
+        base = blk(xb - CB[0], 0.0, 0.112 * CS)        # on the distal face of the carpal block
+        pts = [base]
+        for f, yy in ((0.24, YD - 0.020), (0.52, YD - 0.002), (0.78, YD + 0.45 * dy)):
+            q = base + (K - base) * f
+            pts.append(V(q[0], yy, q[2]))
+        pts.append(K)
+        pr, hd = mc_curve("mc_" + nm, pts, 0.072 * sw, 0.050 * sw, 0.098 * sw, seed=10 + i)
         S.add(pr, k=0.0)
         heads[nm] = hd
         curves[nm] = pr.bone
         JOINTS.append((base, 0.06 * sw))
 
-    # --- recessed dark web between neighbouring shafts (dried tissue + barrow dirt, ~5 cm below the shaft tops): the gaps
-    #     read as dark grooves, never as holes onto the lit floor far below. Painted 'dirt'.
+    # --- packed barrow earth / dried tissue between neighbouring shafts, ~2.5 cm under their tops: one solid palm
+    #     with dark seams (never holes onto the floor). Painted 'dirt'.
     names = list(FINGERS)
     for A_, B_ in zip(names[:-1], names[1:]):
         ca, cb = curves[A_], curves[B_]
         ell = []
-        for t in np.linspace(0.50, 0.90, 7):     # C2 r14: deck only (under the feet); open gaps toward the heel
+        for t in np.linspace(0.10, 0.92, 9):
             pa, pb = ca.frame_at(t)[0], cb.frame_at(t)[0]
             tg = norm(ca._seg_at(t)[1] + cb._seg_at(t)[1])
             lt = norm((pb - pa) - tg * float(np.dot(pb - pa, tg)))
@@ -535,67 +559,59 @@ def build_sculpt():
             if nn[1] < 0:
                 nn = -nn
             hw = 0.5 * float(np.linalg.norm(pb - pa))
-            c = 0.5 * (pa + pb) - nn * (0.058 + 0.02 * sst(0.70, 0.50, t))
-            # thin ellipsoid rims are buried inside the shafts (hw x 1.15): no paper-thin edge for the noise to break into islands
-            # it narrows + thins toward the heel end (t 0.5) so it tucks in between the shafts instead of ending in a cut
-            ell.append(Ellipsoid(c, (hw * (1.15 - 0.25 * sst(0.66, 0.50, t)), 0.036 - 0.012 * sst(0.66, 0.50, t), 0.065),
-                                 frame_M(tg, nn, lt)))
-        # packed barrow earth + grit (C2 r14: lumpier, so it never reads as a smooth flat plate)
-        web = Displace(Union(*ell, k=0.035), 0.0065, 16.0, octaves=3, seed=40 + len(A_))
+            c = 0.5 * (pa + pb) - nn * 0.040      # C2 r15 fast2: ~5 cm under the tops -> each metacarpal reads as its own bone
+            ell.append(Ellipsoid(c, (hw * 1.12, 0.030, 0.075), frame_M(tg, nn, lt)))
+        web = Displace(Union(*ell, k=0.035), 0.0055, 16.0, octaves=3, seed=40 + len(A_))
         S.add(web, k=0.016)                            # filleted into the shafts: no slivers / pockets
         S.paint(Offset(web, 0.004), "dirt", soft=0.01)
 
-    # --- fingers (C2 r14): CONTINUOUS digits - 3 phalanges that taper bone to bone, each base overlapping the previous
-    #     head (tight crease, no gap); the fingers fan out to the sides and curl forward toward the camera
-    for i, (nm, (kxz, bxz, dy, s, dirs)) in enumerate(FINGERS.items()):
+    # --- fingers: CONTINUOUS digits (3 phalanges, each base overlapping the previous head: tight crease, no gap), rising
+    #     from the knuckle ring and hooking IN toward the hero
+    for i, (nm, (phi, rk, dy, xb, s, leans, tw)) in enumerate(FINGERS.items()):
         sw = s ** 0.6
         J = heads[nm].c.copy()
         prev_rB = float(heads[nm].r[0]) * 0.92
         JOINTS.append((J.copy(), 0.075 * sw))
-        jit = rng.uniform(-2.5, 2.5, (3, 2))
-        D = [sph_dir(p_ + jit[k, 0], a_ + jit[k, 1]) for k, (p_, a_) in enumerate(dirs)]
+        D, Pp = curl_dirs(J, leans, tw, rng.uniform(-2.0, 2.0, 3))
         for k in range(3):
             Jn = J + D[k] * (LEN[k] * s)
             rA, rS, rh = (x * sw for x in R_PH[k])
-            # palmar side faces the inside of the curl: toward the next bone's direction (forward / toward the camera)
-            nxt = D[k + 1] if k < 2 else D[k] + V(0, -0.6, 0.4)
-            pref = nxt - D[k] * float(np.dot(nxt, D[k]))
-            if float(np.linalg.norm(pref)) < 0.15:
-                pref = V(0, 0, 1)
             kind = "tip" if k == 2 else "p"
-            pr, hd = phalanx(f"{nm}_{k}", J, Jn, rA, rS, rh, tuple(norm(pref)), prev_rB=prev_rB, kind=kind,
+            pr, hd = phalanx(f"{nm}_{k}", J, Jn, rA, rS, rh, tuple(Pp[k]), prev_rB=prev_rB, kind=kind,
                              seed=30 + i * 5 + k, tip_r=rh if kind == "tip" else None, big=(k == 0))
             S.add(pr, k=J_TIGHT)
             if k < 2:
                 JOINTS.append((Jn.copy(), 0.055 * sw * (1 - 0.15 * k)))
-                KNUCK.append((Jn.copy(), rh, -norm(pref)))
+                KNUCK.append((Jn.copy(), rh, -Pp[k]))
             else:
                 TIPS.append(Jn.copy())
             J, prev_rB = Jn, hd
 
-    # --- thumb (C2 r14: "a clearly opposing thumb on the camera side"): stouter and shorter than the fingers, it leaves the
-    #     trapezium at the FRONT radial corner, runs out sideways low over the floor (well below the fanned index), and its
-    #     two phalanges turn up and in toward the hero - pad facing the fingers, a separate lower digit at the front corner
-    t0 = blk(0.215, 0.006, 0.030)
-    t1, t2, t3 = V(0.530, 0.990, 0.665), V(0.790, 1.180, 0.610), V(0.745, 1.415, 0.455)
-    opp = V(-0.75, 0.10, -0.60)
-    pr, hd = seg_bone("mc_thumb", t0, t1, 0.068, 0.052, 0.080, "mc", pref=tuple(opp), lat=(1.16, 1.10, 1.04),
+    # --- thumb: leaves the trapezium at the FRONT radial corner of the heel, runs out low on the camera side, then its two
+    #     phalanges rise and turn IN toward the hero (lowest digit, pad facing the fingers)
+    t0 = blk(0.215 * CS + 0.02, 0.006, 0.030)
+    t1 = THUMB["knuckle"]
+    D, Pp = curl_dirs(t1, THUMB["leans"], THUMB["twist"], (0.0, 0.0))
+    t2 = t1 + D[0] * THUMB["lens"][0]
+    t3 = t2 + D[1] * THUMB["lens"][1]
+    opp = norm(V(HERO[0], t1[1], HERO[1]) - t1)
+    pr, hd = seg_bone("mc_thumb", t0, t1, 0.078, 0.058, 0.094, "mc", pref=tuple(opp), lat=(1.16, 1.10, 1.04),
                       palm=0.86, bow=0.02, seed=60, big=True)
     S.add(pr, k=0.0)
     BONES.append(("mc_thumb", t0, t1, 0.06))
-    KNUCK.append((t1.copy(), 0.08, -norm(opp)))
+    KNUCK.append((t1.copy(), 0.084, -opp))
     JOINTS.append((t1.copy(), 0.075))
-    pr, rb = phalanx("thumb_0", t1, t2, 0.082, 0.066, 0.068, tuple(opp), prev_rB=float(hd.r[0]) * 0.92, kind="p",
+    pr, rb = phalanx("thumb_0", t1, t2, 0.098, 0.068, 0.088, tuple(Pp[0]), prev_rB=float(hd.r[0]) * 0.92, kind="p",
                      seed=61, big=True)
     S.add(pr, k=J_TIGHT)
     JOINTS.append((t2.copy(), 0.06))
-    KNUCK.append((t2.copy(), 0.068, -norm(opp)))
-    pr, _ = phalanx("thumb_1", t2, t3, 0.068, 0.054, 0.042, tuple(opp), prev_rB=rb, kind="tip", seed=62, tip_r=0.042)
+    KNUCK.append((t2.copy(), 0.076, -Pp[0]))
+    pr, _ = phalanx("thumb_1", t2, t3, 0.080, 0.054, 0.046, tuple(Pp[1]), prev_rB=rb, kind="tip", seed=62, tip_r=0.046)
     S.add(pr, k=J_TIGHT)
     TIPS.append(t3.copy())
 
-    # --- carpals: 8 SMALL interlocking bones in two staggered rows at the heel (block ~0.38 x 0.24, r12 was 0.73 x 0.45),
-    #     tilted with the proximal palm; flat contact planes -> straight crease lines, domed palmar faces
+    # --- carpals: 8 interlocking bones in two staggered rows at the heel (C2 r15: x1.18, the heel of the palm platform),
+    #     tilted with the heel; flat contact planes -> straight crease lines, domed palmar faces
     C = [  # name, (u lateral, v palmar, w along), half extents (lat, palmar, along), euler deg, seed
         ("trapezium",  (0.172, 0.004, 0.040), (0.050, 0.044, 0.050), (0, -26, 8), 1),
         ("trapezoid",  (0.086, 0.010, 0.056), (0.036, 0.042, 0.044), (4, -6, 0), 2),
@@ -606,37 +622,35 @@ def build_sculpt():
         ("triquetrum", (-0.086, 0.002, -0.054), (0.044, 0.040, 0.044), (8, 16, -4), 7),
     ]
     for nm, (u, v, w), hf, ang, sd in C:
-        c = blk(u, v, w)
+        c = blk(u * CS, v * CS, w * CS)
+        hf = tuple(x * CS for x in hf)
         Mc = M_BLOCK @ sdf.rot(*ang)
         rb = RoundBox(c, V(hf), Mc, r=min(hf) * 0.42)
-        dome = Ellipsoid(c, V(hf) * V(1.30, 1.22, 1.30), Mc)
-        S.add(Displace(Inter(rb, dome, k=0.010), 0.0018, 11.0, octaves=2, seed=sd), k=0.0)
-        JOINTS.append((c, 0.04))
+        dome = Ellipsoid(c, V(hf) * V(1.42, 1.34, 1.42), Mc)     # C2 r15: boxier, less pebble-like
+        S.add(Displace(Inter(rb, dome, k=0.010), 0.0013, 11.0, octaves=2, seed=sd), k=0.0)
+        JOINTS.append((c, 0.04 * CS))
         BONES.append((nm, c, c + 1e-4, max(hf)))
-    # hidden core under the carpal seams (fills the enclosed air pockets where three blocks meet; the seams stay creases)
-    S.add(RoundBox(blk(0.025, -0.004, 0.015), (0.165, 0.022, 0.095), M_BLOCK, r=0.015), k=0.0)
-    # pisiform: the small pea bone sitting ON the triquetrum (palmar side)
-    S.add(Displace(Ellipsoid(blk(-0.096, 0.050, -0.050), (0.030, 0.024, 0.032), M_BLOCK), 0.0015, 12.0, seed=8), k=0.006)
-    # proximal-row envelope: the forearm bones' articular ends are cupped around it with a joint gap
-    wrist_env = RoundBox(blk(0.0, -0.004, -0.060), (0.175, 0.052, 0.058), M_BLOCK, r=0.035)
+    S.add(RoundBox(blk(0.025 * CS, -0.004 * CS, 0.015 * CS), (0.165 * CS, 0.022 * CS, 0.095 * CS), M_BLOCK, r=0.015),
+          k=0.0)
+    S.add(Displace(Ellipsoid(blk(-0.096 * CS, 0.050 * CS, -0.050 * CS), (0.030 * CS, 0.024 * CS, 0.032 * CS), M_BLOCK),
+                   0.0015, 12.0, seed=8), k=0.006)
+    wrist_env = RoundBox(blk(0.0, -0.004 * CS, -0.060 * CS), (0.175 * CS, 0.052 * CS, 0.058 * CS), M_BLOCK, r=0.035)
 
-    # --- forearm: radius (thumb side, broad distal end + styloid) and ulna (little-finger side, round head) CLOSE together,
-    #     dropping almost straight down from the heel of the hand into the barrow heap (no splay)
-    ra0, ra1 = blk(0.072, -0.010, -0.128), V(0.050, 0.020, 1.230)
-    ul0, ul1 = blk(-0.088, -0.006, -0.124), V(-0.110, 0.020, 1.205)
-    pr = Union(Bone(ra0, ra1, 0.074, 0.050, 0.056, pref=(0, 0.25, 1), lat=(1.42, 1.14, 1.08), palm=0.90, bow=-0.008,
+    # --- forearm: radius + ulna close together, dropping steeply from the heel (in front of / below the palm) into the heap
+    ra0, ra1 = blk(0.072 * CS, -0.010, -0.128 * CS), V(0.050, 0.020, 1.230)
+    ul0, ul1 = blk(-0.088 * CS, -0.006, -0.124 * CS), V(-0.110, 0.020, 1.205)
+    pr = Union(Bone(ra0, ra1, 0.080, 0.054, 0.058, pref=(0, 0.25, 1), lat=(1.42, 1.14, 1.08), palm=0.90, bow=-0.008,
                     fa=0.22, fb=0.25, capA=0.5, capB=0.8),
-               RoundCone(ra0 + V(0.075, 0.000, 0.0), ra0 + V(0.098, -0.050, 0.010), 0.026, 0.014), k=0.010)  # radial styloid
+               RoundCone(ra0 + V(0.082, 0.000, 0.0), ra0 + V(0.106, -0.050, 0.010), 0.028, 0.015), k=0.010)  # radial styloid
     BIG.append(("radius", pr.prims[0]))
     S.add(Diff(Displace(pr, 0.003, 7.0, octaves=3, seed=70), Offset(wrist_env, G_JOINT), k=0.003), k=0.0)
-    pr = Union(Bone(ul0, ul1, 0.054, 0.042, 0.052, pref=(0, 0.25, 1), lat=(1.08, 1.04, 1.06), palm=0.94, bow=0.008,
+    pr = Union(Bone(ul0, ul1, 0.058, 0.045, 0.054, pref=(0, 0.25, 1), lat=(1.08, 1.04, 1.06), palm=0.94, bow=0.008,
                     fa=0.20, fb=0.30, capA=0.8, capB=0.8),
-               RoundCone(ul0 + V(-0.046, -0.004, 0.0), ul0 + V(-0.054, -0.040, 0.008), 0.020, 0.012), k=0.012)  # ulnar styloid
+               RoundCone(ul0 + V(-0.050, -0.004, 0.0), ul0 + V(-0.058, -0.040, 0.008), 0.021, 0.012), k=0.012)  # ulnar styloid
     BIG.append(("ulna", pr.prims[0]))
     S.add(Diff(Displace(pr, 0.003, 7.0, octaves=3, seed=73), Offset(wrist_env, G_JOINT), k=0.003), k=0.0)
-    # cartilage / ligament cores across the wrist gap (as at the finger joints): a shadowed groove, one connected mesh
-    for u_ in (0.060, -0.075):
-        S.add(RoundCone(blk(u_, -0.012, -0.090), blk(u_, -0.016, -0.150), 0.026, 0.028), k=0.0)
+    for u_ in (0.060 * CS, -0.075 * CS):
+        S.add(RoundCone(blk(u_, -0.012, -0.090 * CS), blk(u_, -0.016, -0.150 * CS), 0.028, 0.030), k=0.0)
     JOINTS.append((ra0, 0.09)); JOINTS.append((ul0, 0.07))
     BONES.append(("radius", ra0, ra1, 0.06)); BONES.append(("ulna", ul0, ul1, 0.05))
 
@@ -865,7 +879,7 @@ def p_handbone(c, pal):
         kn = np.maximum(kn, (1 - SH.smooth01(dk, 0.55, 1.0)) * SH.smooth01(N @ V(kd), 0.0, 0.6))
     rgb = SH.mix(rgb, hi * 1.06, np.clip(0.55 * kn, 0, 0.55))
     deck = SH.smooth01(Y, TOP - 0.16, TOP - 0.04) * (1 - SH.smooth01(Z, 0.30, 0.42)) * SH.smooth01(Z, -0.42, -0.30)
-    rgb = rgb * (1 - 0.22 * deck * (1 - kn))[:, None]
+    rgb = rgb * (1 - 0.10 * deck * (1 - kn))[:, None]    # C2 r15: lighter (the deck IS the palm platform now)
     # hairline crack network in patches (dark lines), fine pits
     cr = np.exp(-(c.noise(17.0, 2, 205) / 0.045) ** 2) * SH.smooth01(c.noise(2.5, 2, 206), 0.0, 0.35)
     rgb = SH.mix(rgb, grime * 0.7, np.clip(cr * 0.85, 0, 0.85))

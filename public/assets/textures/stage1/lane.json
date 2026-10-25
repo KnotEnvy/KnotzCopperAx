@@ -1,0 +1,27 @@
+{
+  "revision": "C2-r16-authored-wheel-route",
+  "size": [
+    4096,
+    1024
+  ],
+  "origin": [
+    -20.0,
+    -16.0
+  ],
+  "span": [
+    96.0,
+    24.0
+  ],
+  "texelsPerMetre": 42.666666666666664,
+  "maps": {
+    "albedo": "sRGB pigment with cavity AO",
+    "relief": "world normal X, world normal Z, wet trough, ash"
+  },
+  "heightRangeMetres": [
+    -0.11164399981498718,
+    0.09097153693437576
+  ],
+  "rutDepthMetres": 0.073,
+  "rutGaugeMetres": 2.36,
+  "footprintPixels": 11567
+}

@@ -179,8 +179,30 @@ export class UI {
     }
   }
 
+  /** C2 r15 (board r14 'the 2P flag / READY plaque run on the wall clock'): put the FINITE CSS animations / transitions an element just started (class
+   *  toggle) on the UI clock. They are paused at 0 and stepped by render(frameDt) like the veil / toasts, so a frame-stepped capture (manual clock) shows
+   *  them exactly as many ms in as it advanced - no wall wait - and live play is unchanged (frameDt is real time there). Call right after the toggle. */
+  clockAnims(el) {
+    if (!el || !el.getAnimations) return;
+    void el.offsetWidth;                                  // flush style so the transition / animation objects exist
+    for (const a of el.getAnimations()) {
+      let end = 0;
+      try { const t = a.effect.getComputedTiming(); if (t.iterations === Infinity) continue; end = t.endTime; } catch { continue; }
+      if (!(end > 0) || a.playState === 'finished') continue;
+      a.pause(); a.currentTime = 0;
+      (this._anims || (this._anims = new Map())).set(a, end);
+    }
+  }
+
   render(alpha, frameDt) {
     this.hud.render(frameDt);
+    if (this._anims && this._anims.size) {
+      for (const [a, end] of this._anims) {
+        if (a.playState === 'idle') { this._anims.delete(a); continue; }       // cancelled (class toggled off / element removed)
+        const t = (Number(a.currentTime) || 0) + frameDt * 1000;
+        if (t >= end) { try { a.finish(); } catch { a.cancel(); } this._anims.delete(a); } else a.currentTime = t;
+      }
+    }
     if (this._toasts && this._toasts.length) this._toasts = this._toasts.filter((t) => { t.left -= frameDt; if (t.left > 0) return true; t.el.remove(); return false; });
     for (const [id, s] of this.screens) { if (s.update) { try { s.update(frameDt); } catch (e) { reportError(`ui:${id}.update`, e); } } }
     if (this._card) {

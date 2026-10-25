@@ -54,6 +54,26 @@ const TONGUES = WH_R12 ? [
   [0.20, -0.06, 0.36, 0.22 * HS, 0.58 * HS, 0.44, 0.73, 1, -0.30, false, 0.35, BODY],  // front lick
   [0.06, 0.0, 0.50, 0.17 * HS * 1.08, 0.50 * HS * 1.08, 0.37, 0.19, 1, 0.0, true, HAND_R13 ? 1.9 : 2.3, CORE],       // hot inner core (additive)
 ];
+// C2 r15 (board r14, all three seats: "the hand flame is a fan of straight tapered spikes with hard alpha edges and blocky
+// pixels at 2x; the brighter braziers dominate"): every 'flame' atlas frame is already a CLUSTER of three sharp tongues, so
+// the four fanned quads above stacked ~12 spikes. Now the hand burns as soft MASSES: the atlas' fireBurst flipbook (a full
+// rounded flame body with its own licking crown) scrubbed back and forth through its four living frames (0–3, never the
+// burn-out) by setting each item's age every tick — two silhouetted emerald lobes + one additive hot core, erosion 0
+// (no eaten edge), detached licks are tiny dying fireBursts instead of spikes, and a soft DARK halo sits just behind
+// the claw (lit-alpha pool, black albedo, depth-tested so only the hall behind the hand darkens) for local contrast
+// against the braziers. Same pool / draws / light slot → 0 new programs. `&witchhand=r14` = the r14 spike fan.
+const HAND_R14 = typeof location !== 'undefined' && /[?&]witchhand=r14/.test(location.search);
+const SOFT = !HAND_R14 && !HAND_R13 && !WH_R12;
+const BURST_LIFE = 10;   // scrubbed items: frame = age / life * 7 → age = frame * life / 7 (never reaches the fade at t 0.65)
+// the fireBurst body is mostly yellow (not the flame clip's red): the r14 CORE tint [1.5,3.2,1.9] turned it YELLOW → low red,
+// high green (yellow 1,.7,.2 → .3,1.7,.28 green; the near-white root stays mint-white through the shader's hot mix)
+const CORE_SOFT = [0.3, 2.4, 1.4];
+// [dx along facing, dy, dz toward camera, w, h, scrub period s, phase, mirror, lean, additive, core, tint]
+const LOBES = [
+  [0.05, 0.0, 0.40, 0.56, 0.94, 0.70, 0.0, 1, -0.06, false, 0.22, BODY],    // body mass (taller than the cell: the crown licks stretch up)
+  [-0.10, 0.06, 0.44, 0.40, 0.72, 0.57, 0.41, -1, 0.30, false, 0.2, BODY],  // back lobe (leans off the fist)
+  [0.05, -0.03, 0.50, 0.28, 0.44, 0.47, 0.19, 1, 0.0, true, 1.5, CORE_SOFT], // hot inner core (additive)
+];
 const GREEN = [0.14, 1.85, 0.7];   // r12 additive tint (the authored red tongue edges stayed orange-red at r 0.3)
 function dropTongues(b) {
   if (b._whLight) { b._whLight.t = b._whLight.life; b._whLight.light.intensity = 0; b._whLight = null; }
@@ -61,6 +81,30 @@ function dropTongues(b) {
   const pool = b.game.vfx && b.game.vfx.fire;
   if (pool) for (const o of L) { const i = pool.items.indexOf(o); if (i >= 0) pool.items.splice(i, 1); }
   b._whT = null;
+}
+function softLobes(b, pool, p, vx, vy, t, f, k) {
+  if (b._whT && b._whT.some((o) => pool.items.indexOf(o) < 0)) b._whT = null;   // pool cleared (stage change / reset)
+  if (!b._whT) {
+    b._whT = [];
+    for (const T of LOBES) {
+      const o = pool.emit({ clip: 'fireBurst', life: BURST_LIFE, phase: 0, erosion: 0, size: [T[3], T[4]], additive: T[9], core: T[10], mirror: T[7], pos: [p.x, p.y, p.z], radiance: T[9] ? 0 : 0.6 });
+      if (!o) break;
+      o.tint = [...T[11]];
+      b._whT.push(o);
+    }
+  }
+  const lean = Math.max(-0.5, Math.min(0.5, -vx * 0.12));
+  for (let i = 0; i < b._whT.length; i++) {
+    const o = b._whT[i], T = LOBES[i];
+    // scrub the living frames 0..3 back and forth (two incommensurate sines → no visible loop)
+    const w = (t / 60) * Math.PI * 2 / T[5] + T[6] * Math.PI * 2;
+    const fr = Math.max(0.02, Math.min(3.1, 1.55 + 1.05 * Math.sin(w) + 0.45 * Math.sin(t * 0.093 + i * 2.3)));
+    o.age = fr * BURST_LIFE / 7;
+    const fl = 0.92 + 0.08 * Math.sin(t * (0.29 + i * 0.07) + i * 2.1);
+    o.size[0] = T[3] * k; o.size[1] = T[4] * k * fl * (1 + Math.max(0, -vy) * 0.08);
+    o.pos[0] = p.x + f * T[0]; o.pos[1] = p.y + T[1] + o.size[1] * 0.24; o.pos[2] = p.z + T[2];   // fireBurst's bed sits ~0.24 h below the cell centre → on the claw
+    o.rot = (T[8] * -f) + lean; o.vel[0] = o.vel[1] = o.vel[2] = 0;
+  }
 }
 function witchHand(b, force = false) {
   const g = b.game, v = g.vfx;
@@ -79,7 +123,8 @@ function witchHand(b, force = false) {
   const pool = v.fire;
   if (pool) {
     if (b._whT && b._whT.some((o) => pool.items.indexOf(o) < 0)) b._whT = null;   // pool cleared (stage change / reset)
-    if (!b._whT) {
+    if (SOFT) softLobes(b, pool, p, vx, vy, t, f, k);
+    else if (!b._whT) {
       b._whT = [];
       for (const T of TONGUES) {
         const o = pool.emit({ clip: 'flame', loop: true, life: T[5], phase: T[6], size: [T[3], T[4]], additive: T[9], core: T[10], mirror: T[7], pos: [p.x, p.y, p.z], radiance: T[9] ? 0 : 0.6 });
@@ -89,7 +134,7 @@ function witchHand(b, force = false) {
       }
     }
     const lean = Math.max(-0.5, Math.min(0.5, -vx * 0.12));   // the tongues trail his motion
-    for (let i = 0; i < b._whT.length; i++) {
+    if (!SOFT) for (let i = 0; i < b._whT.length; i++) {
       const o = b._whT[i], T = TONGUES[i];
       const fl = 0.9 + 0.1 * Math.sin(t * (0.31 + i * 0.07) + i * 2.1);
       o.size[0] = T[3] * k; o.size[1] = T[4] * k * fl * (1 + Math.max(0, -vy) * 0.08);
@@ -109,7 +154,14 @@ function witchHand(b, force = false) {
       b._whLight = L;
     }
     // detached licks: a small flame breaks off the crown and rises / fades
-    if (pool && t % 9 === 0) {
+    if (SOFT) {
+      if (pool && t % 11 === 0) {   // a small dying fireBurst rises off the crown (its own burn-out frames)
+        const o = pool.emit({ clip: 'fireBurst', life: 0.42, phase: 0.3, erosion: 0, size: [0.2, 0.26], core: 0.25, radiance: 0.5, mirror: t % 22 ? 1 : -1, pos: [p.x + f * (0.02 + Math.random() * 0.1), p.y + 0.5 + Math.random() * 0.1, p.z + cz * 0.44], vel: [-vx * 0.15 + (Math.random() - 0.5) * 0.25, 1.2, 0], grow: -0.35 });
+        if (o) o.tint = [...BODY];
+      }
+      // dark halo just BEHIND the claw: depth-tested, so the gauntlet in front stays lit and only the hall behind darkens
+      if (v.alpha && t % 3 === 0) v.alpha.emit({ pos: [fx0, p.y + 0.3, p.z - cz * 0.14], life: 0.2, size: [1.15 * k, 1.2 * k], color: [[0, 0.01, 0, 0.3], [0, 0.01, 0, 0]], shape: 'soft', fadeIn: 0.04 });
+    } else if (pool && t % 9 === 0) {
       const o = pool.emit({ clip: 'flame', life: 0.34, size: [0.13, 0.3], additive: false, core: 0.4, radiance: 0.5, mirror: t % 18 ? 1 : -1, pos: [p.x + f * (0.04 + Math.random() * 0.1), p.y + 0.62 + Math.random() * 0.12, p.z + cz * 0.42], vel: [-vx * 0.15 + (Math.random() - 0.5) * 0.3, 1.5, 0], growY: -0.4 });
       if (o) o.tint = [...BODY];
     }

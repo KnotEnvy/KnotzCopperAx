@@ -5,6 +5,7 @@
 // Walk: a measured march, halberd carried upright at the side, free arm swinging. Character 'boss_captain'
 // (types/boss_captain.js); everything else falls through to the generic humanoid set exactly as before.
 import { dir, W, torso, feet, gait, swingArm } from './_kit.js';
+import { twoBeat, IDLE_R14 } from './_bossIdle.js';   // C2 r15: two-beat idle (&bossidle=r14 = old)
 
 const ST = feet([0.3, 0, -0.08, 0, 6], [-0.28, 0, 0.12, 0, 32]);
 const SHIELD_OFF = typeof location !== 'undefined' && /[?&]captainshield=0/.test(location.search);
@@ -63,7 +64,7 @@ export default {
   clips: {
     idle: {
       frames: 150, loop: true, plant: 1, breathe: 1, tags: ['idle'], grip: SHIELD_OFF ? undefined : 0,
-      keys: [k(0), k(75, { pose: T(-1.2), hips: [0, -0.15, 0], wpn: HAL(0, -0.01), handL: SHIELD_OFF ? [0.48, 0.13, 0.12] : SH(0, -0.012) }), k(150)],
+      keys: !IDLE_R14 ? twoBeat(150, k, { sway: 0.042, rise: 0.016, pitch: 4.5, roll: 3, yaw: 5, head: 14, lift: 0.028, handSwing: 0.028 }) : [k(0), k(75, { pose: T(-1.2), hips: [0, -0.15, 0], wpn: HAL(0, -0.01), handL: SHIELD_OFF ? [0.48, 0.13, 0.12] : SH(0, -0.012) }), k(150)],
     },
     run: { duration: 0.62, loop: true, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
     shield_plant: { frames: 76, loop: false, grip: 0, keys: SHIELD_OFF ? [k(0), k(76)] : shieldPlant, events: [{ n: 0.16, name: 'footstep', foot: 'L' }, { n: 0.5, name: 'footstep', foot: 'R' }] },

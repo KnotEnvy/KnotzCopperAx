@@ -4,6 +4,7 @@
 // dangling forward, knuckles low. Walk: a lumbering side-to-side roll, the maul dragging behind. Character 'boss_brute'
 // (types/boss_brute.js); every other clip still falls through to the generic set (grab, pound, toss...).
 import { dir, W, torso, feet, gait, swingArm } from './_kit.js';
+import { twoBeat, IDLE_R14 } from './_bossIdle.js';   // C2 r15: two-beat idle (&bossidle=r14 = old)
 
 const ST = feet([0.15, 0, -0.16, 0, 20], [-0.16, 0, 0.18, 0, 30]);
 const T = (p = 0) => torso({ pelvis: -6, yaw: 8, pitch: -40 + p, look: 1, hp: 4, pelvisPitch: -8 });
@@ -35,7 +36,7 @@ export default {
   clips: {
     idle: {
       frames: 140, loop: true, plant: 1, breathe: 1, tags: ['idle'],
-      keys: [k(0), k(70, { pose: T(4), hips: [-0.09, -0.135, 0], wpn: DRAG(0.02, 3), handL: [0.32, -0.8, -0.41] }), k(140)],
+      keys: !IDLE_R14 ? twoBeat(140, k, { sway: 0.06, rock: 0.02, rise: 0.026, pitch: 9, roll: 4.5, yaw: 6, head: 12, lift: 0.045, handSwing: 0.07, wpnSwing: 0.03 }) : [k(0), k(70, { pose: T(4), hips: [-0.09, -0.135, 0], wpn: DRAG(0.02, 3), handL: [0.32, -0.8, -0.41] }), k(140)],
     },
     run: { duration: 0.78, loop: true, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
     walk: { duration: 1.0, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },

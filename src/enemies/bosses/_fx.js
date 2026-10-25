@@ -66,6 +66,20 @@ const SPARK_FLAMES = [
   [0.27, 0.66, 0.43, 0.57, false, 0.35, [0.04, 1.25, 0.32]],  // second tongue, out of phase
   [0.26, 0.62, 0.37, 0.29, true, 2.4, [1.5, 3.2, 1.9]],       // hot inner core (additive; gives the flame a body — 0.18×0.5 read as strands)
 ];
+// C2 r15 (board r14: "the green floor spark could not be identified in any seat's samples"; hand: "straight tapered spikes"):
+// the crawling witchfire is a SOFT mass now — the atlas' fireBurst body scrubbed through its living frames 0–3 (same trick as
+// Morvane's hand, _morvane.js softLobes) — with a mint-white hot core lying on the floor, a brighter floor hot-spot and a
+// short emerald GLOW TRAIL (floor planes every 2 ticks, 0.9 s) so the crawl reads as a streak at the game camera, while
+// staying small (body 0.5 × 0.62 m). `&witchspark=r14` = the r14 tongues.
+const SPARK_R14 = typeof location !== 'undefined' && /[?&]witchspark=r14/.test(location.search);
+const SPARK_SOFT = !SPARK_R14 && !SPARK_R13;
+const SPARK_LIFE = 10;
+// [w, h, scrub period s, phase, additive, core, tint, mirror]
+const SPARK_LOBES = [
+  [0.50, 0.62, 0.55, 0.0, false, 0.25, [0.04, 1.25, 0.32], 1],   // emerald body (silhouetted)
+  [0.34, 0.46, 0.44, 0.53, false, 0.2, [0.04, 1.25, 0.32], -1],  // second lobe, out of phase
+  [0.30, 0.36, 0.38, 0.27, true, 2.4, [0.3, 2.4, 1.4], 1],       // hot core (additive; mint, not the yellow the r14 tint gave fireBurst)
+];
 /** Plant a spark that crawls along the ground after `target`. Jumping over it (hero y > 0.35) dodges it. */
 export function spark(fx, boss, target, o = {}) {
   const f = boss.facing;
@@ -112,7 +126,8 @@ function stepSpark(fx, s) {
     const pool = v.fire;
     if (pool) {
       if (s.flames && s.flames.some((o) => pool.items.indexOf(o) < 0)) s.flames = null;   // pool cleared (stage change)
-      if (!s.flames) {
+      if (SPARK_SOFT) softSpark(fx, s, pool, fl);
+      else if (!s.flames) {
         s.flames = [];
         for (const T of SPARK_FLAMES) {
           const o = pool.emit({ clip: 'flame', loop: true, life: T[2], phase: (s.seed + T[3]) % 1, size: [T[0], T[1]], additive: T[4], core: T[5], mirror: T[3] > 0.5 ? -1 : 1, pos: [s.x, 0, s.z], radiance: T[4] ? 0 : 0.9 });
@@ -121,6 +136,7 @@ function stepSpark(fx, s) {
         }
       }
       const cz = game.camera ? Math.sign(game.camera.position.z - s.z) || 1 : 1;
+      if (!SPARK_SOFT) {
       const lean = Math.max(-0.45, Math.min(0.45, -Math.cos(s.dir) * Math.min(1, s.age / 20) * 0.4));   // tongues trail the crawl
       const grow = Math.min(1, s.age / 10);
       for (let i = 0; i < s.flames.length; i++) {
@@ -129,6 +145,12 @@ function stepSpark(fx, s) {
         o.pos[0] = s.x - Math.cos(s.dir) * 0.04 * i; o.pos[1] = 0.04 + o.size[1] * 0.4; o.pos[2] = s.z + cz * (0.36 + 0.03 * i);   // the pool soft-fades against the depth behind (0.2 m): off the floor toward the lens like the hand's
         o.rot = lean; o.vel[0] = o.vel[1] = o.vel[2] = 0;
       }
+      }
+    }
+    if (SPARK_SOFT) {
+      // floor hot-spot (always on) + emerald glow trail (every 2 ticks, fades over 0.9 s behind the crawl)
+      v.shape.emit({ shape: 'glow', mode: 'plane', pos: [s.x, 0.03, s.z], size: [0.72 * fl, 0.72 * fl], life: 0.05, color: [WITCH.core, WITCH.hot], intensity: 1.9, alpha: [1, 1] });
+      if (s.age % 2 === 0) v.shape.emit({ shape: 'glow', mode: 'plane', pos: [s.x - Math.cos(s.dir) * 0.15, 0.022, s.z - Math.sin(s.dir) * 0.15], size: [0.42, 0.42], life: 0.75, color: [WITCH.hot, WITCH.tail], intensity: 1.5, alpha: [0.9, 0] });
     }
     if (fx.sparks[0] === s && v.lights && v.lights.length > 2) {   // one light for the lead spark
       const L = v.lights[1];
@@ -136,9 +158,10 @@ function stepSpark(fx, s) {
       L.light.distance = 2.4; L.base = 3.6 * fl + (Math.random() - 0.5) * 0.5; L.t = 0; L.life = 0.12; L.hold = 0.1; L.light.intensity = L.base;
       s.light = L;
     }
-    v.shape.emit({ shape: 'orb', pos: [s.x, 0.16, s.z + 0.3], size: [0.5 * fl, 0.38 * fl], life: 0.07, color: [WITCH.hot, WITCH.mid], intensity: 3.8, alpha: [1, 1] });
+    // r15: no orb in the soft mode — half sunk in the floor, the floor depth clipped it into a hard-edged white block
+    if (!SPARK_SOFT) v.shape.emit({ shape: 'orb', pos: [s.x, 0.16, s.z + 0.3], size: [0.5 * fl, 0.38 * fl], life: 0.07, color: [WITCH.hot, WITCH.mid], intensity: 3.8, alpha: [1, 1] });
     if (s.age % 3 === 0) v.add.emit({ pos: [s.x, 0.2, s.z], vel: [(Math.random() - 0.5) * 1.6 - Math.cos(s.dir) * 0.8, 1.2 + Math.random() * 1.6, (Math.random() - 0.5) * 1.2], life: 0.45, size: [0.05, 0.01], color: [WITCH.hot, WITCH.tail], intensity: 4, shape: 'spark', stretch: 0.02, gravity: -1.2, drag: 1.5 });
-    if (s.age % 4 === 0) v.shape.emit({ shape: 'glow', mode: 'plane', pos: [s.x, 0.025, s.z], size: [0.8, 0.8], life: 0.7, color: [WITCH.mid, WITCH.tail], intensity: 1.8 });
+    if (!SPARK_SOFT && s.age % 4 === 0) v.shape.emit({ shape: 'glow', mode: 'plane', pos: [s.x, 0.025, s.z], size: [0.8, 0.8], life: 0.7, color: [WITCH.mid, WITCH.tail], intensity: 1.8 });   // r15: replaced by the trail
   } else if (v) {
     const fl = 0.8 + 0.3 * Math.sin(s.age * 0.9 + s.seed);
     v.shape.emit({ shape: 'orb', pos: [s.x, 0.22, s.z], size: [0.55 * fl, 0.55 * fl], life: 0.07, color: [WITCH.core, WITCH.hot], intensity: 7, alpha: [1, 1] });
@@ -155,6 +178,30 @@ function stepSpark(fx, s) {
     }
   }
   return true;
+}
+
+function softSpark(fx, s, pool, fl) {
+  const game = fx.game;
+  if (!s.flames) {
+    s.flames = [];
+    for (const T of SPARK_LOBES) {
+      const o = pool.emit({ clip: 'fireBurst', life: SPARK_LIFE, phase: 0, erosion: 0, size: [T[0], T[1]], additive: T[4], core: T[5], mirror: T[7], pos: [s.x, 0, s.z], radiance: T[4] ? 0 : 0.9 });
+      if (!o) break;
+      o.tint = [...T[6]]; s.flames.push(o);
+    }
+  }
+  const cz = game.camera ? Math.sign(game.camera.position.z - s.z) || 1 : 1;
+  const lean = Math.max(-0.4, Math.min(0.4, -Math.cos(s.dir) * Math.min(1, s.age / 20) * 0.35));   // the mass trails the crawl
+  const grow = Math.min(1, s.age / 10);
+  for (let i = 0; i < s.flames.length; i++) {
+    const o = s.flames[i], T = SPARK_LOBES[i];
+    const w = (s.age / 60) * Math.PI * 2 / T[2] + (T[3] + s.seed) * Math.PI * 2;
+    o.age = Math.max(0.02, Math.min(3.1, 1.55 + 1.05 * Math.sin(w) + 0.45 * Math.sin(s.age * 0.11 + i * 2.3))) * SPARK_LIFE / 7;
+    o.size[0] = T[0] * grow * fl; o.size[1] = T[1] * grow * fl;
+    // bed ~0.24 h below the quad centre → on the floor; 0.36 m toward the lens (the pool soft-fades against the floor depth)
+    o.pos[0] = s.x - Math.cos(s.dir) * 0.05 * i; o.pos[1] = 0.02 + o.size[1] * 0.26; o.pos[2] = s.z + cz * (0.36 + 0.03 * i);
+    o.rot = lean; o.vel[0] = o.vel[1] = o.vel[2] = 0;
+  }
 }
 
 function dropSparkFlames(fx, s) {

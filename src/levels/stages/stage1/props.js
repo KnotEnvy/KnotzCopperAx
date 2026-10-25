@@ -115,7 +115,20 @@ export function buildWoodProps(ctx, mats, fx, rocks = [], huts = []) {
   const barrel = (x, z, tipped) => {
     const pts = [], rr = [];
     for (let i = 0; i <= 6; i++) { const t = i / 6; pts.push(V3(0, t * 0.9, 0)); rr.push(0.3 + Math.sin(t * Math.PI) * 0.06); }
-    const parts = [tube(pts, rr, { sides: 12, rng, mask: (t) => [0.08 + t * 0.35, 0, 0, 1] })];
+    // Separate 3cm staves expose a broken rim and a dark hollow interior.
+    // Each curved board joins the existing merged wood draw (no new material).
+    const parts = [];
+    for (let stave=0;stave<12;stave++) {
+      const top = stave%5===0 ? .61+rng.next()*.12 : .85+rng.next()*.06;
+      const profile=[];
+      for(let j=0;j<=5;j++) {const y=top*j/5;profile.push(new THREE.Vector2(.30+Math.sin(y/.9*Math.PI)*.06,y));}
+      for(let j=5;j>=0;j--) {const y=top*j/5;profile.push(new THREE.Vector2(.27+Math.sin(y/.9*Math.PI)*.06,y));}
+      profile.push(profile[0].clone());
+      const board=new THREE.LatheGeometry(profile,2,stave*Math.PI/6+.013,Math.PI/6-.028);
+      const p=board.getAttribute('position'), mask=new Float32Array(p.count*4);
+      for(let i=0;i<p.count;i++) mask.set([.08+stave*.025+p.getY(i)*.15,0,0,1],i*4);
+      board.setAttribute('kmask',new THREE.BufferAttribute(mask,4));parts.push(board);
+    }
     // iron hoops (charred-black bands)
     for (const hy of [0.12, 0.78]) { const hp = [], hr = []; for (let i = 0; i <= 14; i++) { const a = (i / 14) * Math.PI * 2; const R = 0.31 + Math.sin((hy / 0.9) * Math.PI) * 0.06; hp.push(V3(Math.cos(a) * R, hy, Math.sin(a) * R)); hr.push(0.018); } parts.push(tube(hp, hr, { sides: 4, cap: false, mask: () => [0.9, 0, 0, 1] })); }
     const g = merge(parts);
@@ -127,7 +140,13 @@ export function buildWoodProps(ctx, mats, fx, rocks = [], huts = []) {
     // plank crate: slatted sides + corner battens
     const parts = [];
     for (let i = 0; i < 4; i++) { const s = panel(0.78, 0.16, 0.05, { mask: () => [0.12 + i * 0.05, 0, 0, 1] }); s.translate(0, 0.1 + i * 0.18, 0.37); for (let k = 0; k < 4; k++) { const c = s.clone(); c.rotateY((k * Math.PI) / 2); parts.push(c); } s.dispose(); }
-    const lid = panel(0.8, 0.05, 0.8, { mask: () => [0.3, 0, 0, 1] }); lid.translate(0, 0.72, 0); parts.push(lid);
+    for(let j=0;j<3;j++) {
+      const lid=panel(j===1?.60:.8,.065,.235,{mask:()=>[.22+j*.08,0,0,1]});
+      lid.rotateZ(j===1?.08:-.015);lid.translate(j===1?-.08:0,.73+j*.006,(j-1)*.263);parts.push(lid);
+    }
+    // Split front brace, with the missing end resting against the foot.
+    const brace=panel(.11,.67,.07,{mask:()=>[.24,0,0,1]});
+    brace.rotateZ(-.62);brace.translate(-.10,.35,.414);parts.push(brace);
     for (const [cx, cz] of [[-0.38, -0.38], [0.38, -0.38], [-0.38, 0.38], [0.38, 0.38]]) { const b = panel(0.07, 0.74, 0.07, { mask: () => [0.25, 0, 0, 1] }); b.translate(cx, 0.37, cz); parts.push(b); }
     const g = merge(parts); g.rotateY(rng.next()); g.translate(x, terrainH(x, z), z); wood.push(g);
   }

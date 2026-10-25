@@ -178,10 +178,10 @@ export function attachToSocket(rigInfo, socketName, weapon) {
 const HERO_WEAPON = /^weapon_(grudgebrand|dawn|dusk|copperax)$/;
 const EDGE_DARK = 0.85;
 const METAL_TINT = {                       // [strength, shadow floor, highlight desaturation, contrast]
-  weapon_copperax: [0.85, 0.22, 0.6, 0.7],
+  weapon_copperax: [1.0, 0.22, 0.12, 0.7],
   weapon_grudgebrand: [0.85, 0.3, 0.5, 0.45],
   weapon_dawn: [0.85, 0.24, 0.55, 0.6],
-  weapon_dusk: [0.85, 0.22, 0.8, 0.6],      // C2 r7: neutral violet-steel bake held consistently in the stage and select lighting
+  weapon_dusk: [1.0, 0.30, 0.12, 0.35],      // r8: violet-steel chroma survives both scene keys without white/select or blue/play wash
 };
 const METAL_ENV = { weapon_copperax: 0.4, weapon_grudgebrand: 0.6, weapon_dawn: 0.45, weapon_dusk: 0.45 };
 function markEdgeDark(weapon) {
@@ -203,13 +203,19 @@ function markEdgeDark(weapon) {
         if (m.userData.kcaEdgeDarkU) m.userData.kcaEdgeDarkU.value = EDGE_DARK;   // look already patched (re-attach)
       }
       if (metalTint) {
-        // C2 r7: weapon-only finite soft-box reflection, same program as other actors.
+        // C2 r8: weapon-only finite key reflection, same program as other actors.
         const glint = [/[?&]wglint=0(&|$)/.test(q) ? 0 : 1,
           hero === 'weapon_grudgebrand' ? 1.265 : hero === 'weapon_copperax' ? 0.819 : 0.936,
           hero === 'weapon_copperax' ? 0.38 : 0.20, hero === 'weapon_copperax' ? 1 : 0];
-        // Release probe: raise the steel response slightly while retaining its dark fuller.
+        // Neutral steel multiplier preserves the baked shadow-side gradient.
         // The map still supplies the face-to-bevel gradient; assignment is idempotent on reattach.
-        if (hero === 'weapon_grudgebrand') m.color.setScalar(1.35);
+        if (hero === 'weapon_grudgebrand') m.color.setScalar(1.0);
+        if (hero === 'weapon_copperax') m.color.setScalar(0.70);
+        // Across-reflection scale, sabre curvature, highlight chroma retention, select centre offset.
+        const shape = hero === 'weapon_copperax' ? [0.25, 0, 0.72, 0]
+          : hero === 'weapon_grudgebrand' ? [0.095, 0, 0.12, 0] : [0.066, 0.165, hero === 'weapon_dusk' ? 0.32 : 0.28, 0];
+        m.userData.kcaWeaponShape = shape;
+        if (m.userData.kcaWeaponShapeU) m.userData.kcaWeaponShapeU.value.fromArray(shape);
         m.userData.kcaWeaponGlint = glint;
         if (m.userData.kcaWeaponGlintU) m.userData.kcaWeaponGlintU.value.fromArray(glint);
         m.userData.kcaMetalTint = tint;

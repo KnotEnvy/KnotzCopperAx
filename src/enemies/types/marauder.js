@@ -10,6 +10,8 @@ export default {
   height: 1.75,       // C2 r7: = the untiered/straw GLB (manifest scale 0.94 on the 1.86 m body); tiers override
   hurtHeight: 1.77,   // C2 r7: gameplay hurtbox unchanged (= the old 0.95 x 1.86) for every rank; the per-tier `height`
                //   below is visual only (anchors / bars / FX follow the rank's size)
+  cheatYaw: 0.45,     // C2 r10 art (forwarded by Enemy.js since r15): visual turn toward the lens (Actor default 0.32 rad =
+               //   near-profile faces at the game camera); visual only, facing / hitboxes unchanged
   hp: 34,
   speed: 2.5,
   radius: 0.37,

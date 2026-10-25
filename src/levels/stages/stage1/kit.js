@@ -73,11 +73,11 @@ export async function loadStage1Kit(game) {
           s1Crack = mix(s1Crack,.115,smoothstep(.8,3.0,fwidth(vMapUv.x)*960.0));
           float s1Flicker = .84 + .12*sin(s1Time*5.7 + vMapUv.x*19.0) + .04*sin(s1Time*13.0);
           totalEmissiveRadiance += mix(vec3(.06,.004,.001),vec3(1.9,.34,.012),s1Crack) * s1Hot * s1Flicker;
-          totalEmissiveRadiance += vec3(.32,.16,.032) * vS1Warm * (.22 + diffuseColor.rgb*4.0);`
+          totalEmissiveRadiance += vec3(.32,.16,.032) * vS1Warm * (.025 + diffuseColor.rgb*3.0);`
           : `#include <emissivemap_fragment>
           totalEmissiveRadiance += vec3(2.4,.48,.025) * vS1Ember * (.88+.12*sin(s1Time*6.1)) + vec3(.32,.16,.034) * vS1Warm * clamp(sampledDiffuseColor.rgb*18.0,vec3(.12),vec3(1.5));`);
       };
-      mat.customProgramCacheKey = () => (isStraw ? 's1AlphaStraw-C2-r15' : 's1BakedVillage-C2-r15') + mat.type;
+      mat.customProgramCacheKey = () => (isStraw ? 's1AlphaStraw-C2-r16' : 's1BakedVillage-C2-r16') + mat.type;
       if (isStraw) strawMaterial = mat; else material = mat;
     }
     const g = o.geometry.clone().applyMatrix4(o.matrixWorld);

@@ -145,6 +145,8 @@ const FRAG = /* glsl */`{
     float kmal = max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-3);
     float kmr = pow(max(kml / kmal, 1e-4), 1.0 + kMetalTint.w);
     float kmlock = max(kmr * kmal, kmal * kMetalTint.y);
+    // Broad copper flats retain a red body grade; only the finite reflection gets a bright peak.
+    if (kWeaponShape.x > 0.0) kmlock = min(kmlock, kmal * mix(2.2, 0.75, kWeaponGlint.w));
     vec3 kmt = diffuseColor.rgb * (kmlock / kmal);
     kmt = mix(kmt, vec3(kmlock), kMetalTint.z * smoothstep(0.35, 1.1, kmlock));
     outgoingLight = mix(kmc, kmt, kMet * kMetalTint.x) + kme;
@@ -160,22 +162,32 @@ const FRAG = /* glsl */`{
     float kt = km <= kk ? km : kk + kw * (1.0 - exp(-(km - kk) / kw));
     outgoingLight = kc * (kt / max(km, 1e-5)) + kem;
   }
-  // C2 r7 weapons: finite reflected strip light. The old angular key lobe misses most
-  // bevel normals and the common actor shoulder flattens its rare peaks. Local position
-  // bounds a small soft-box image; its centre follows the weapon's view-space axis,
-  // never a clock, so it travels with the swing and stops during hitstop. Uniform opt-in.
-  // A separate bounded shoulder lets a polished hotspot exceed the matte body's cap.
+  // C2 r8: a finite anisotropic key reflection, elongated ALONG the cutting edge.
+  // Project the real key/view half vector into the weapon frame (vertex stage). Its
+  // along component moves the reflection; across component selects the lit bevel.
+  // A Gaussian footprint, roughness and N.L/N.V gates remove the transverse bar and
+  // fade the hotspot away when the blade turns out of the light. No clock or pose edits.
   if (kWeaponGlint.x > 0.0 && kMet > 0.0) {
-    float kwAcross = mix(vKWeaponPos.x, vKWeaponPos.z, kWeaponGlint.w);
-    float kwCentre = kWeaponGlint.y * (0.60 + 0.28 * vKWeaponPos.w);
-    float kwWidth = kWeaponGlint.y * 0.038;
-    float kwBand = 1.0 - smoothstep(0.0, kwWidth,
-      abs(vKWeaponPos.y + kwAcross * 0.45 - kwCentre));
+    float kwAxe = kWeaponGlint.w;
+    float kwT = clamp((vKWeaponPos.y - kWeaponGlint.z) / (kWeaponGlint.y - kWeaponGlint.z), 0.0, 1.0);
+    float kwAcross = mix(vKWeaponPos.x, vKWeaponPos.z, kwAxe);
+    float kwH = mix(vKWeaponHalf.x, vKWeaponHalf.z, kwAxe);
+    float kwCurve = -kWeaponShape.y * pow(clamp((vKWeaponPos.y - 0.036) / 0.9, 0.0, 1.0), 2.0);
+    float kwTaper = 1.0 - smoothstep(0.72, 1.0, kwT);
+    float kwEdge = kwCurve + kWeaponShape.x * kwTaper * (kwH / sqrt(kwH * kwH + 0.012));
+    float kwCentre = mix(kWeaponGlint.z, kWeaponGlint.y, 0.53 + 0.40 * vKWeaponHalf.y + kWeaponShape.w);
+    float kwFacing = smoothstep(0.16, 0.55, kndv) * mix(1.0, smoothstep(0.82, 0.96, vKWeaponHalf.w), kwAxe) * smoothstep(0.12, 0.68, dot(normal, kKeyDir));
+    float kwAlign = smoothstep(0.58, 0.95, dot(normal, kH));
+    float kwLength = mix(0.075, 0.17, kwAlign) * (kWeaponGlint.y - kWeaponGlint.z);
+    float kwWidth = mix(0.014, 0.032, kRgh) * mix(1.0, 1.8, kwAxe);
+    vec2 kwD = vec2((vKWeaponPos.y - kwCentre) / kwLength, (kwAcross - kwEdge) / kwWidth);
+    float kwSpot = exp(-dot(kwD, kwD) * 1.4);
     float kwBlade = smoothstep(kWeaponGlint.z, kWeaponGlint.z + 0.035, vKWeaponPos.y);
-    float kwPolish = 1.0 - smoothstep(0.24, 0.58, kRgh);
-    float kwHot = kwBand * kwBlade * kwPolish * kwPolish * kwPolish * kMet * kWeaponGlint.x;
-    vec3 kwWhite = mix(vec3(1.0), normalize(diffuseColor.rgb + vec3(0.001)), 0.08);
-    outgoingLight += kwWhite * (1.35 * (1.0 - exp(-kwHot * 2.0)));
+    float kwPolish = 1.0 - smoothstep(0.22, 0.62, kRgh);
+    float kwHot = kwSpot * kwBlade * kwPolish * kwFacing * kwAlign * kMet * kWeaponGlint.x;
+    vec3 kwChroma = diffuseColor.rgb / max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 0.001));
+    vec3 kwTint = mix(vec3(1.0), kwChroma, kWeaponShape.z);
+    outgoingLight += kwTint * (1.5 * (1.0 - exp(-kwHot * 3.0)));
   }
   // C2 r7 contact fill: body-local warm lift plus a two-frame heavy rim, after the
   // actor shoulder. Per-material uniforms keep the existing program and texture detail.
@@ -231,13 +243,23 @@ export function applyCharacterLook(root, { strength = 1 } = {}) {
         shader.uniforms.kMetalTint = mt;
         shader.uniforms.kMetalEnv = menv;
         shader.uniforms.kWeaponGlint = wg;
+        shader.uniforms.kWeaponShape = m.userData.kcaWeaponShapeU || (m.userData.kcaWeaponShapeU = {
+          value: new THREE.Vector4().fromArray(m.userData.kcaWeaponShape || [0, 0, 0, 0]),
+        });
         shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec4 vKWeaponPos;\nuniform vec4 kWeaponGlint;')
+          .replace('#include <common>', '#include <common>\nvarying vec3 vKWeaponPos;\nvarying vec4 vKWeaponHalf;\nuniform vec4 kWeaponShape;\nuniform vec4 kWeaponGlint;\nuniform vec3 kKeyDir;')
           .replace('#include <begin_vertex>', `#include <begin_vertex>
-            vKWeaponPos = vec4(0.0);
-            if (kWeaponGlint.x > 0.0) vKWeaponPos = vec4(position, dot(normalize(modelViewMatrix[1].xyz), normalize(vec3(0.8, 0.5, 0.35))));`);
+            vKWeaponPos = vec3(0.0); vKWeaponHalf = vec4(0.0);
+            if (kWeaponGlint.x > 0.0) {
+              vKWeaponPos = position;
+              vec3 kh = normalize(kKeyDir + normalize(-modelViewMatrix[3].xyz));
+              vec3 kv = normalize(-modelViewMatrix[3].xyz);
+              vec3 kflat = normalize(mix(modelViewMatrix[2].xyz, modelViewMatrix[0].xyz, kWeaponGlint.w));
+              vKWeaponHalf = vec4(dot(normalize(modelViewMatrix[0].xyz), kh),
+                dot(normalize(modelViewMatrix[1].xyz), kh), dot(normalize(modelViewMatrix[2].xyz), kh), abs(dot(kflat, kv)));
+            }`);
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying vec4 vKWeaponPos;\nuniform vec4 kWeaponGlint;\nuniform vec4 kContactPoint;\nuniform vec4 kContactFill;\nuniform float kContactWhite;\nuniform vec3 kRimColor;\nuniform vec4 kRimParams;\nuniform vec4 kRimEdge;\nuniform vec2 kRimNear;\nuniform vec3 kRimDir;\nuniform float kRimK;\nuniform float kEdgeDark;\nuniform vec4 kMetalTint;\nuniform float kMetalEnv;\nuniform vec3 kKeyColor;\nuniform vec3 kKeyDir;\nuniform vec3 kKeyAmb;\nuniform float kKeyWrap;\nuniform vec4 kKeyTone;\nuniform vec2 kClamp;\nuniform vec4 kSceneGrade;')
+          .replace('#include <common>', '#include <common>\nvarying vec3 vKWeaponPos;\nvarying vec4 vKWeaponHalf;\nuniform vec4 kWeaponShape;\nuniform vec4 kWeaponGlint;\nuniform vec4 kContactPoint;\nuniform vec4 kContactFill;\nuniform float kContactWhite;\nuniform vec3 kRimColor;\nuniform vec4 kRimParams;\nuniform vec4 kRimEdge;\nuniform vec2 kRimNear;\nuniform vec3 kRimDir;\nuniform float kRimK;\nuniform float kEdgeDark;\nuniform vec4 kMetalTint;\nuniform float kMetalEnv;\nuniform vec3 kKeyColor;\nuniform vec3 kKeyDir;\nuniform vec3 kKeyAmb;\nuniform float kKeyWrap;\nuniform vec4 kKeyTone;\nuniform vec2 kClamp;\nuniform vec4 kSceneGrade;')
           .replace('#include <opaque_fragment>', FRAG + '#include <opaque_fragment>');
       };
       m.customProgramCacheKey = () => orderFreeKey(m, prevKey, prev, '|kcaChar8');

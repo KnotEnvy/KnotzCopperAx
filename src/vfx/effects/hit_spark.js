@@ -33,8 +33,29 @@ function metalChips(vfx, q, sw, heavy, gy) {
     const speed=r.range(heavy ? 5 : 4,heavy ? 11 : 8);
     vfx.debris.emit({kind:'metal',pos:[q.x,q.y,q.z],
       vel:[sw.x*speed+r.range(-1,1),sw.y*speed+r.range(.6,2),sw.z*speed+r.range(-.7,.7)],
-      size:r.range(.035,.062),color:i%2 ? '#ff9b28' : '#ffdf92',life:r.range(.12,.24),spin:r.range(-18,18),groundY:gy,bounce:.1});
+      size:r.range(.065,.095),color:i%2 ? '#ff9b28' : '#ffdf92',life:r.range(.12,.24),spin:r.range(-18,18),groundY:gy,bounce:.1});
   }
+}
+
+// Fit the WHOLE rotated paint quad inside the struck hurt projection. No nearby actor
+// can be covered by an oversized heavy fan, including at a different camera depth.
+function contactSize(vfx,target,q,angle,heavy) {
+  const camera=vfx.game.camera, boxes=target?.hurtboxes?.() || [];
+  const cb=vfx.camBasis();
+  const depth=camera ? new THREE.Vector3(q.x,q.y,q.z).sub(camera.position).dot(cb.fwd) : 18;
+  const pixel=camera ? 2*Math.max(1,depth)*Math.tan(camera.fov*Math.PI/360)/900 : .012;
+  let w=pixel*(heavy ? 215 : 180),h=pixel*(heavy ? 110 : 85);
+  if(camera && boxes.length) {
+    const project=(x,y,z)=>new THREE.Vector3(x,y,z).project(camera);
+    const centre=project(q.x,q.y,q.z);
+    const points=boxes.flatMap(b=>[b.minX,b.maxX].flatMap(x=>[b.minY,b.maxY].flatMap(y=>[b.minZ,b.maxZ].map(z=>project(x,y,z)))));
+    const halfX=Math.max(1,Math.min(centre.x-Math.min(...points.map(p=>p.x)),Math.max(...points.map(p=>p.x))-centre.x)*800);
+    const halfY=Math.max(1,Math.min(centre.y-Math.min(...points.map(p=>p.y)),Math.max(...points.map(p=>p.y))-centre.y)*450);
+    const ca=Math.abs(Math.cos(angle)),sa=Math.abs(Math.sin(angle));
+    const fit=Math.min(1,halfX*2*pixel/(ca*w+sa*h),halfY*2*pixel/(sa*w+ca*h));
+    w*=fit*.98;h*=fit*.98;
+  }
+  return [w,h];
 }
 
 const _dir = new THREE.Vector3(), _sw = new THREE.Vector3(), _v = new THREE.Vector3();
@@ -71,8 +92,7 @@ const ELEMENT_FX = {
   fire(vfx, q, pal, { gy, hs, dir, target, s = 1 }) {
     const scale = 0.65 + s * 0.35;
     vfx.fire.emitCombustion({pos:[q.x,q.y,q.z],target,scale,dir});
-    vfx.fire.emit({ clip: 'embers', pos: [q.x, q.y + .3, q.z + .03], size: [1.6 * scale, 1.8 * scale],
-      life: 0.5, core: 0.2, alpha: .65, grow: 0.3 });
+    // Attached cooling residue is emitted by emitCombustion; no world-fixed ember copy.
     vfx.light(q, { color: pal.mid, intensity: 1.5, distance: 1.6, life: 0.1 });
   },
   storm(vfx, q, pal, { gy, gx, gz, hs, s = 1 }) {
@@ -211,13 +231,13 @@ export default {
 
     if (kind === 'light') {
       // Four authored directional wedge poses with open streaks and travelling metal.
-      const width = extent * r.range(.96,1.02);
-      vfx.fire.emit({ clip: 'slash', pos: [q.x, q.y, q.z], size: [width, width * r.range(.58,.64)],
-        skew: r.range(-.30,.30), rot: swA, life: .12, core: 6, radiance: 1.15, erosion: .04, grow: -.08, growY: -.15,
-        vel: [sw.x*.20, sw.y*.20, sw.z*.20] });
+      const angle=swA+Math.PI*.5;
+      const size=contactSize(vfx,t,q,angle,false);
+      vfx.fire.emit({ clip: 'slash', pos: [q.x, q.y, q.z], size,
+        skew: 0, rot: angle, life: .132, core: 6, radiance: 1.15, erosion: .04, grow: 0, growY: 0 });
       sparkSpray(vfx, q, sw, { n: 9, speed: [6, 13], cone: .55, life: [.09, .18], size: [.025, .006],
         color: ['#ffd976', pal.tail], intensity: 1.1, gravity: 8, floor: gy + .02, stretch: .020 });
-      contactFill(t?.modelRoot, {x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.22},{strength:small ? .26 : .65,radius:small ? .38 : .80,life:.070});
+      contactFill(t?.modelRoot, {x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.22},{strength:small ? .42 : 1.65,radius:small ? .42 : .88,life:.095});
       const arm=o.attacker?.model?.sockets?.R;
       if(arm) contactFill(o.attacker.modelRoot,arm.getWorldPosition(new THREE.Vector3()),{radius:.60,strength:.50,life:.065});
       // A surface-level light reaches the torso and weapon arm; one existing pool slot is reused.
@@ -250,8 +270,8 @@ export default {
     // Real heavy moves carry knockdown; retain their weight-specific contact at +0.
     if (kind === 'heavy' || kind === 'knockdown') {
       // Authored blunt burst and broken painted shock rim, with ground dust.
-      vfx.fire.emit({ clip: 'blunt', pos: [q.x, q.y, q.z], size: [extent*r.range(1.45,1.55), extent*r.range(1.25,1.35)], life: .15,
-        skew: r.range(-.24,.24), core: 7, radiance: 1.15, erosion: .06, grow: .08, growY: -.18, vel: [sw.x*.45,sw.y*.45,sw.z*.45], rot: swA });
+      vfx.fire.emit({ clip: 'blunt', pos: [q.x, q.y, q.z], size: contactSize(vfx,t,q,swA+Math.PI*.5,true), life: .165,
+        skew: 0, core: 7, radiance: 1.15, erosion: .025, grow: 0, growY: 0, rot: swA+Math.PI*.5 });
       sparkSpray(vfx, q, sw, { n: 14, speed: [8, 15], cone: 0.7, life: [0.12, 0.3], color: [pal.hot, pal.tail], intensity: 2.088, gravity: 11, floor: gy + 0.02 });
       contactFill(t?.modelRoot,{x:p.x,y:(t?.pos.y || gy)+(t?.height || 1.8)*.60,z:p.z+.2},{strength:small ? .30 : .85,radius:small ? .40 : .9,life:.080,heavy:!small});
       const arm=o.attacker?.model?.sockets?.R;

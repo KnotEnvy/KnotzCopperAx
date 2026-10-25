@@ -18,6 +18,7 @@ import { viewRange } from './_kit.js';
 const EDGE_BAND = 0.25; // fraction of the frame width: the bot's own centre stays this far from an edge while it fights (> the director's PIN_SIDE 0.2, so foes never detour round a bot)
 const MATE_GAP = 1.9;   // m: x gap a bot keeps from its partner while their silhouettes overlap (|dz| < MATE_DZ): a body + the partner's strike spot
 const MATE_DZ = 2.4;
+const MATE_FAR = 4.5; // C2 r15: m — co-op bots drift apart to this x gap when neither is in a fight up close (own fronts)
 const PIN_BAND = 0.25; // C2 r3: the bot steps back inward inside this band (r12: same, hysteresis to 0.29) …
 const HARD_PIN = 0.18; // …but between HARD_PIN (= the director's PIN_SIDE) and PIN_BAND a foe already UPON it on its outer side (< 1.8 m) is fought,
                        // not walked away from (r12 traces: an attacker walking in on the outer side chased a stepping-in bot for 2–9 s). A/B: a
@@ -44,6 +45,7 @@ export class HeroBot {
     hero.aiBot = true;
     const qp = (k) => { const P = game.params; return P && P.raw && P.raw.get ? P.raw.get(k) : P && P.get ? P.get(k) : null; };
     this.edgeOn = qp('botedge') !== '0';
+    this.spreadOn = qp('botspread') !== '0'; // C2 r15: co-op bots work their own front (&botspread=0: off)
     this.thiefOn = qp('botthief') !== '0';
     const gp = Number(qp('botgap')); this.mateGap = gp > 0 ? gp : MATE_GAP; // A/B knob &botgap=
     const pb = Number(qp('botpin')); this.pinBand = pb > 0 ? pb : PIN_BAND; // C2 r3 A/B: &botpin=<band>
@@ -105,6 +107,16 @@ export class HeroBot {
         // a foe the partner stands next to (screen x, overlapping depth) → this bot would stand on the partner fighting it
         if (mate && Math.abs(e.pos.x - mate.pos.x) < 2.2 && Math.abs(e.pos.z - mate.pos.z) < MATE_DZ && enemies.length > 1) d += 3;
       }
+      // C2 r15 OWN FRONT (co-op): a bot prefers the foes the crowd director put on it and stays out of its partner's fight, so the
+      // two heroes work separate fronts (as two players do) instead of fighting shoulder to shoulder — that left the foes no gap
+      // between them to flank from. A foe at the frame edge / a last foe are unaffected (stuck / single-foe rules above).
+      if (this.spreadOn && mate && enemies.length > 1 && !stuck) {
+        if (e.aiTarget === h) d -= 1.5; else if (e.aiTarget === mate) d += 1.5;
+        const mx = Math.abs(e.pos.x - mate.pos.x);
+        if (mx < 4.5 && Math.abs(e.pos.z - mate.pos.z) < MATE_DZ + 1) d += mx < 2.5 ? 6 : 3; // in (or next to) the partner's fight
+        if (Math.sign(e.pos.x - mate.pos.x) === Math.sign(h.pos.x - mate.pos.x)) d -= 1; // on my side of the partner
+        if (e.aiCrossing && Math.abs(e.pos.z - h.pos.z) > 0.8) d += 3; // circling round me on a depth lane: let it come
+      }
       if (d < best) { best = d; target = e; }
     }
     if (!target) target = enemies[0];
@@ -113,7 +125,7 @@ export class HeroBot {
     const dirX = dx > 0 ? 'right' : 'left';
     const busy = h.fsm.tagged('busy') || h.fsm.is('attack');
     const dirs = [];
-    if (Math.abs(dz) > 0.2) dirs.push(dz < 0 ? 'up' : 'down');
+    if (Math.abs(dz) > 0.2 && !(this.spreadOn && mate && target.aiCrossing && Math.abs(dz) > 0.8)) dirs.push(dz < 0 ? 'up' : 'down'); // C2 r15: never chase a foe going round me in depth (co-op)
     const reach = this.closeUntil > g.tick ? 0.7 : 1.35; // close pick: get chest-to-chest so the string branches close
     // C2 r2 EDGE BAND: where would the bot stand to hit this foe? Not further out than EDGE_BAND of the frame: it holds at
     // the band and lets the foe come in (the crowd director brings attackers to the hero, the frame floor keeps them in).
@@ -149,6 +161,12 @@ export class HeroBot {
         dirs.push(h.pos.z >= mate.pos.z ? 'down' : 'up');
       }
       if (edge) this.mateStep = g.tick;
+    }
+    // C2 r15 OWN FRONT: no foe within reach and the partner within MATE_FAR (screen x, overlapping depth) → the higher-id bot drifts away
+    // from him (never into its edge band), so the pair keeps a gap the crowd can flank from (&botspread=0: off)
+    if (this.spreadOn && edge && mate && mate.alive && mate.grounded && h.id > mate.id && !inward && !mateClose && Math.abs(mate.pos.x - h.pos.x) < MATE_FAR && Math.abs(mate.pos.z - h.pos.z) < MATE_DZ && !enemies.some((e) => Math.abs(e.pos.x - h.pos.x) < 2.2 && Math.abs(e.pos.z - h.pos.z) < 1.2)) {
+      const sx = Math.sign(h.pos.x - mate.pos.x) || (hf < 0.5 ? -1 : 1);
+      if (!outward(sx) && !(sx > 0 ? hf > 1 - band - 0.05 : hf < band + 0.05)) { for (let i = dirs.length - 1; i >= 0; i--) if (horizD(dirs[i])) dirs.splice(i, 1); dirs.push(sx > 0 ? 'right' : 'left'); this.spreadT = g.tick; }
     }
     const aimKeep = this.aimUntil > g.tick ? [this.aimDir] : []; // throw aim stays held until the Light is read
     const horiz = horizD;

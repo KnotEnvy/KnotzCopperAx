@@ -49,9 +49,13 @@ export default async (api) => {
   ok('duplicate-pick toast clears by itself', await until(() => E(() => !document.querySelector('.kca-toast')), 4000, 100));
   await press(2, 'right'); await press(2, 'light', 300); // P2 readies Seraphine
   ok('both READY', await until(() => E(() => document.querySelectorAll('.kca-stamp.on').length === 2), 2000, 50));
-  // the 2P flag / READY plaque land with CSS animations on the browser's WALL clock (the manual game clock does not drive them): without a real wait the
-  // frame caught them still at opacity 0 / scale 2.2 (the r13 board saw only "1P READY"). Wait 1 s of wall time (sim is paused between advance() calls).
-  await api.advance(350); await api.page.evaluate(() => new Promise((r) => setTimeout(r, 1000))); await shotOv('04_select_ready');
+  // C2 r15 (board r14: "move the 2P flag / READY plaque CSS animations to the UI clock"): they used to run on the browser's WALL clock, so a frame-stepped
+  // capture needed a real 1 s wait (r14) or caught them at opacity 0 / scale 2.2 (r13). ui.clockAnims() now steps them with the UI frame dt: 350 ms of
+  // advance() lands both plaques + both flags with NO wall wait - and the check below FAILS if any of them is still mid-animation / on the wall clock.
+  await api.advance(350);
+  const landed = await E(() => [...document.querySelectorAll('.kca-stamp.on, .kca-flag.on')].map((n) => { const cs = getComputedStyle(n); return { c: n.className, op: Number(cs.opacity), tf: cs.transform, anims: n.getAnimations().filter((a) => a.playState === 'running').length }; }));
+  ok('READY plaques + 1P/2P flags are landed on the UI clock (no wall wait: opacity 1, no running CSS animation)', landed.length >= 4 && landed.every((l) => l.op > 0.99 && l.anims === 0), landed);
+  await shotOv('04_select_ready');
   ok('ready frame is clean (both READY, no toast)', await E(() => document.querySelectorAll('.kca-stamp.on').length === 2 && !document.querySelector('.kca-toast')));
   ok('select → map interlude', await until(async () => (await flow()) === 'map', 8000), await flow());
   await walk(3200); await shotOv('05_map');

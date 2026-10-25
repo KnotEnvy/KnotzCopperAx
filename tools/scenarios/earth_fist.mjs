@@ -22,9 +22,15 @@ export default async api => {
     await api.frames(1,33,'fist');
     const row=await api.evalGame(() => {
       const g=window.__KCA.game,c=g.magic.cutIn,a=c.active,impact=window.__fistImpact;
-      const m=g.vfx.group.children.find(m=>m.name==='magic_fist');let score=0;
-      if(m?.visible)for(let j=0;j<m.count;j++){const x=m.instanceMatrix.array[j*16+13];score+=1/(1+Math.abs(x));}
-      return {tick:g.tick,impact,score,inset:!!a&&c.mesh.visible,fullyOpen:c.material.uniforms.uA.value>=.99,
+      const m=g.vfx.group.children.find(m=>m.name==='magic_fist');let score=0,topY=null;
+      if(m?.visible)for(let j=0;j<m.count;j++){
+        const x=m.instanceMatrix.array[j*16+13];score+=1/(1+Math.abs(x));
+        if(!m.geometry.boundingBox)m.geometry.computeBoundingBox();
+        const matrix=m.matrixWorld.clone().fromArray(m.instanceMatrix.array,j*16).premultiply(m.matrixWorld);
+        const top=m.geometry.boundingBox.clone().applyMatrix4(matrix).max.y;
+        topY=topY===null?top:Math.max(topY,top);
+      }
+      return {tick:g.tick,impact,score,topY,inset:!!a&&c.mesh.visible,fullyOpen:c.material.uniforms.uA.value>=.99,
         snapshot:!!a?.snapshot,removed:!!a?.target?.removed,trauma:g.cameraRig.trauma,exposure:g.renderer.exposureMul};
     });
     frames.push(row);
@@ -47,7 +53,9 @@ export default async api => {
   const totals={};for(const h of result.hits)totals[h.target]=(totals[h.target]||0)+h.damage;
   const first=frames.find(f=>f.impact&&f.inset);
   result.frames=frames;result.readback=readback;result.totals=totals;
-  result.pass=!!first?.fullyOpen&&!!first?.snapshot&&!!readback?.pass&&Object.keys(totals).length>0&&Object.values(totals).every(v=>v===24)&&!result.errors.length;
+  const last=frames.filter(f=>f.score>0).at(-1);
+  result.sink={lastTick:last?.tick,lastTopY:last?.topY,pass:Number.isFinite(last?.topY)&&last.topY<=.05};
+  result.pass=!!first?.fullyOpen&&!!first?.snapshot&&!!readback?.pass&&result.sink.pass&&Object.keys(totals).length>0&&Object.values(totals).every(v=>v===24)&&!result.errors.length;
   fs.writeFileSync(path.join(api.outDir,'fist.json'),JSON.stringify(result,null,2));
   if(!result.pass)throw new Error('T4 reaction/24 damage check failed '+JSON.stringify({...result,frames:undefined}));
 };

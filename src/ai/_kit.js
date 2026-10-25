@@ -68,6 +68,13 @@ function crossZ(game, tz, pref, off = 2.1) {
   return Math.abs(b - tz) > Math.abs(a - tz) ? b : a;
 }
 
+/** C2 r15: which depth side a detour round hero t takes (+1 behind / -1 in front of his row): its own side, unless the director
+ *  (co-op flank plan) picks the clearer lane. */
+function xPref(game, e, t) {
+  const own = e.pos.z >= t.pos.z ? 1 : -1, d = game.ai && game.ai.director;
+  return d && d.crossPref ? d.crossPref(e, t, own) : own;
+}
+
 export function meleeBrain(e, game, params = {}, hooks = {}) {
   const P = { ...defaults, ...params };
   const rng = game.rng;
@@ -222,7 +229,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
         // C2 r3 LEAD (probe preWhy: ~60 % of the time before a first swing was a token holder walking after a hero who kept moving):
         // aim where the hero will be in ~0.3 s while closing in on his own side (director.noLead: off)
         const lead = d && !d.noLead && !crossing && !queued && adx < 4.5 && t.vel ? 0.3 : 0;
-        let ax = t.pos.x + (lead ? t.vel.x * lead : 0) + side * (queued ? Math.min(4.2, lane.queue) : reach * 0.85), az = crossing ? crossZ(game, t.pos.z, e.pos.z >= t.pos.z ? 1 : -1, d && !d.v9Cross ? 2.5 : 2.1) : clampZ(game, t.pos.z + lane.dz + (lead && t.vel.z ? t.vel.z * lead : 0));
+        let ax = t.pos.x + (lead ? t.vel.x * lead : 0) + side * (queued ? Math.min(4.2, lane.queue) : reach * 0.85), az = crossing ? crossZ(game, t.pos.z, xPref(game, e, t), d && !d.v9Cross ? 2.5 : 2.1) : clampZ(game, t.pos.z + lane.dz + (lead && t.vel.z ? t.vel.z * lead : 0));
         if (crossing && d && !d.v9Cross && Math.abs(az - e.pos.z) > 0.6 && Math.abs(e.pos.z - t.pos.z) < 2.0) ax = e.pos.x; // c1r10: round the hero depth first
         const sg = d && d.steer && (crossing || queued || !laneOk || adx > reach + 0.6) ? d.steer(e, ax, az) : { x: ax, z: az };
         // r5: passing through another body's column → run so the overlap is a flicker; a body still reeling in the lane
@@ -268,18 +275,18 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
       // ~700 crossings per 40 s co-op run, half the fused contact frames). Only when that side has no room in the frame
       // does it still go round.
       const sideNow = Math.sign(e.pos.x - t.pos.x);
-      if (d && !d.v9Cross && !slot.cross && sideNow && sideNow !== slot.side && adx > 0.35) {
+      if (d && !d.v9Cross && !slot.cross && !slot.co && sideNow && sideNow !== slot.side && adx > 0.35) { // C2 r15: never for a co-op flank-plan waiter (it goes round)
         const kx = inX(t.pos.x + sideNow * ring);
         if (Math.abs(kx - t.pos.x) >= 1.6) { slot.side = sideNow; slot.src = 'keep'; gx = kx; d.stats.xKeep = (d.stats.xKeep || 0) + 1; }
       }
       // Going round to the far side: detour in depth instead of walking through the hero.
-      const crossing = Math.sign(e.pos.x - t.pos.x) !== slot.side && (adx < ring || !!slot.flank || !!(slot.cross && d && d.coBal && d._nh > 1)); // C2 r3: a flanker (director.flankPass / coBal) goes round from any distance
+      const crossing = Math.sign(e.pos.x - t.pos.x) !== slot.side && (adx < ring || !!slot.flank || !!(slot.cross && d && d.coBal && d._nh > 1) || !!slot.co); // C2 r15: a co-op flank-plan waiter returning to its side // C2 r3: a flanker (director.flankPass / coBal) goes round from any distance
       if (crossing && !e.aiCrossing && d && d.stats) { const k = 'xStart_' + (slot.src || '?'); d.stats[k] = (d.stats[k] || 0) + 1; }
       e.aiCrossing = crossing;
       // Waiting foes keep prowling: a slow depth drift so the ring breathes instead of parking.
       // r8: the breathing stays small (±0.5 m) so a waiting foe keeps to its depth row (rows are ~2.3 m apart).
       const drift = (d && d.zDrift != null ? d.zDrift : 0.3) * Math.sin((tick + e.id * 53) / 85);
-      let gz = clampZ(game, crossing ? crossZ(game, t.pos.z, e.pos.z >= t.pos.z ? 1 : -1, d && !d.v9Cross ? 2.5 : 2.1) : (slot.z ?? t.pos.z + slot.dz) + orbit * (d && d.zDrift != null ? d.zDrift * 0.6 : 0.2) + drift);
+      let gz = clampZ(game, crossing ? crossZ(game, t.pos.z, xPref(game, e, t), d && !d.v9Cross ? 2.5 : 2.1) : (slot.z ?? t.pos.z + slot.dz) + orbit * (d && d.zDrift != null ? d.zDrift * 0.6 : 0.2) + drift);
       // c1r10: going round = depth first (out of the hero's contact box, behind / in front of his fight), then across
       let depthFirst = false;
       if (crossing && d && !d.v9Cross && Math.abs(gz - e.pos.z) > 0.6 && Math.abs(e.pos.z - t.pos.z) < 2.0) { gx = e.pos.x; depthFirst = true; }
@@ -319,7 +326,7 @@ export function meleeBrain(e, game, params = {}, hooks = {}) {
       // C2 r1: slid aside by the body-space floor a moment ago → don't walk straight back into that neighbour
       if (e.aiPush && tick - e.aiPush.t < 4 && Math.sign(gx - e.pos.x) === -e.aiPush.dir && Math.abs(gx - e.pos.x) < 1.6) gx = e.pos.x;
       const tail = G && !crossing && d.columnAhead && d.columnAhead(e, gx); // r5b: in step behind an ally → drop back
-      if (Math.hypot(gx - e.pos.x, gz - e.pos.z) > (esc ? 0.04 : 0.25)) e.moveTo(gx, gz, crossing && slot.flank ? 1.5 : outF ? (d && d.outSpeed) || 1.35 : esc ? 1.3 : tail && !free ? 0.45 : adx > P.spacing * 2.6 ? 1.35 : inLane ? 1.3 : !(d && (d.v8Kit || d.v8Walk || d.noRowRush)) && Math.abs(gz - e.pos.z) > 0.6 ? 1.0 : 0.72); // c1r9: off its row → a brisker walk back onto it
+      if (Math.hypot(gx - e.pos.x, gz - e.pos.z) > (esc ? 0.04 : 0.25)) e.moveTo(gx, gz, crossing && (slot.flank || slot.co) ? 1.5 : outF ? (d && d.outSpeed) || 1.35 : esc ? 1.3 : tail && !free ? 0.45 : adx > P.spacing * 2.6 ? 1.35 : inLane ? 1.3 : !(d && (d.v8Kit || d.v8Walk || d.noRowRush)) && Math.abs(gz - e.pos.z) > 0.6 ? 1.0 : 0.72); // c1r9: off its row → a brisker walk back onto it
       else {
         e.stopMoving();
         if (tauntCool <= 0 && e.moves && rng.chance(P.taunt)) { tauntCool = rng.int(240, 480); e.pause(40, { anim: 'taunt' }); game.bus.emit('ai:taunt', { actor: e }); return; }

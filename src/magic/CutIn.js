@@ -65,7 +65,7 @@ export class CutIn {
           float gv = lum(tap(uv - vec2(0.0, t.y))) - lum(tap(uv + vec2(0.0, t.y)));
           float edge = smoothstep(0.05, 0.16, length(vec2(gl, gv)) * gain / (0.4 + lum(img)));
           // subject: tone curve + 3-band cel posterise (keeps planes of the face crisp), warm element key
-          vec3 s = 1.0 - exp(-img * 1.6);
+          vec3 s = 1.0 - exp(-img * (uMode > 1.5 ? 1.05 : 1.6));
           float l = lum(s);
           float band = l < 0.22 ? 0.16 : l < 0.5 ? 0.42 : l < 0.78 ? 0.7 : 0.9;
           s = mix(s, s * (band / max(l, 0.001)), uMode > 1.5 ? 0.0 : .55);
@@ -95,7 +95,12 @@ export class CutIn {
             bg = mix(vec3(.035, .028, .025), uEdge * .25, n * smoothstep(.1, 1.0, uv.y));
             float fault = abs(uv.x - .25 - .11 * sin(uv.y * 12.0) - .04 * sin(uv.y * 29.0));
             bg += uTint * exp(-fault * 160.0) * (.8 - uv.y * .6);
-            bg += uTint * step(0.985, h(floor(uv * vec2(90.0, 30.0) + floor(uT * 10.0)))) * 0.6;
+            // Small tapered stone flecks, never axis-aligned white square confetti.
+            vec2 cell = uv * vec2(72.0, 23.0) + vec2(uT * 1.4, -uT * .7);
+            vec2 shard = fract(cell) - .5;
+            float fleck = (1.0-smoothstep(.12,.26,abs(shard.x+shard.y*.7)+abs(shard.y)*1.8))
+              * step(.96,h(floor(cell)));
+            bg += mix(vec3(.08,.045,.025),uEdge*.20,h(floor(cell)+7.0)) * fleck;
           }
           vec3 col = mix(bg, s, fg);
           col = mix(col, vec3(0.01, 0.006, 0.004), sil);                 // thick silhouette ink

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
-const out = process.argv[2] || 'progress/shots/magic-vfx/c2r13/assets.json';
+const out = process.argv[2] || 'progress/shots/magic-vfx/c2r14/assets.json';
 const names = ['magic_basalt0','magic_basalt1','magic_basalt2','magic_earth_chip','magic_earth_boulder','magic_earth_fist'];
 const rows = names.map(name => {
   const b=fs.readFileSync(`public/assets/models/${name}.glb`);
@@ -30,7 +30,7 @@ const rows = names.map(name => {
     finite:Object.values(at).every(v=>v.flat().every(Number.isFinite)),
     heatMin:Math.min(...heats),heatMax:Math.max(...heats),baseHeat:maxHeat(minY,minY+(maxY-minY)*.2),crownHeat:maxHeat(maxY-(maxY-minY)*.2,maxY)};
   row.pass=row.finite&&row.nonmanifoldEdges===0&&row.triangles<16000;
-  if(name.startsWith('magic_basalt')) row.pass&&=row.heatMin<-.8&&row.baseHeat>row.crownHeat&&row.chunks===28;
+  if(name.startsWith('magic_basalt')) row.pass&&=row.heatMin<-.8&&row.baseHeat>row.crownHeat&&row.chunks>=12&&row.chunks<=24&&row.triangles<=2400;
   return row;
 });
 const textures=[];

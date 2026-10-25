@@ -55,7 +55,7 @@ SERA = dict(
     upperarm=0.292, forearm=0.255, hand=0.182,
     arm_down=40.0, arm_fwd=6.0, elbow_bend=10.0,
 )
-STYLE = dict(muscle=0.78, defin=0.5, fat=0.0, chest=0.85, lats=0.74, traps=0.58, waist=0.8, delts=0.86, arm=0.72,
+STYLE = dict(muscle=0.78, defin=0.5, fat=0.0, chest=0.85, lats=0.74, traps=0.58, waist=0.8, delts=0.80, arm=0.67,
              forearm=0.76, neck=0.6,
              brow=0.95, jaw=0.94, scowl=0.9, cheek=1.12, chin=1.0, nose_bump=0.4, squint=1.15, nose_len=0.84,
              nose_w=0.92, lip=1.12, mouth_w=1.02, eye=1.06, skull_w=0.97, skull_h=1.0, ear=0.92, fem=1.0)
@@ -336,11 +336,17 @@ def face_paint(S, L, H, hi):
     ec = eyes[0]
     s = H.s
     mw = min(float(lm.get("mouth_half_w", 0.026)), 0.0265)
-    S.paint(Union(Ellipsoid(lip + V(0, 0.002, 0.0036), V(mw, 0.010, 0.0046)),
-                  Ellipsoid(lip + V(0, 0.002, -0.0052), V(mw * 0.92, 0.010, 0.0058)), k=0.003), "lips", soft=0.0024)
+    def vermilion(X,Y,Z):
+        u = np.clip(np.abs(X) / mw, 0, 1)
+        corner = np.sqrt(np.clip(1-u*u,0,1))
+        top = (.0028 + .0028*np.exp(-((np.abs(X)-.006)/.005)**2)) * corner
+        bottom = -.0080 * corner
+        z = Z - lip[2]
+        return np.maximum.reduce(np.broadcast_arrays(z-top, bottom-z, np.abs(X)-mw, Y-(lip[1]+.013)))
+    S.paint(Func(vermilion, lip-.06,lip+.06), "lips",soft=.0011)
     S.paint(Union(Sphere(V(0.046, ec[1] - 0.004, ec[2] - 0.030), 0.019), Sphere(V(-0.046, ec[1] - 0.004, ec[2] - 0.030), 0.019),
                   Sphere(lm["nose_tip"] + V(0, 0.004, 0), 0.009), Sphere(lm["ear_R"], 0.03), Sphere(lm["ear_L"], 0.03)),
-            "blush", soft=0.02, value=0.6)
+            "blush", soft=0.025, value=0.18)
     ey = float(ec[1])
     zc = float(ec[2]) - 0.026           # stripe centre: just under the lower lids, over the cheekbones
 
@@ -349,11 +355,11 @@ def face_paint(S, L, H, hi):
         w = (Z - zc) / s
         n = sdf.fbm(X * 1.0, Y * 1.0, Z * 1.0, 2, 260.0, seed=9)
         n2 = sdf.fbm(X, Y, Z, 2, 90.0, seed=23)
-        half_h = 0.0048 + 0.0018 * n + 0.0010 * n2
+        half_h = 0.0053 + 0.00045 * n + 0.00025 * n2
         d = np.maximum(np.abs(w) - half_h, np.abs(u) - (0.058 + 0.003 * n2))
         return np.maximum(d * s, Y - (ey + 0.040 * s))          # front of the face only (wraps onto the cheeks)
     c0 = V(0, ey, zc)
-    S.paint(Func(stripe, c0 - 0.15, c0 + 0.15), "tattoo", soft=0.0032, value=0.78)
+    S.paint(Func(stripe, c0 - 0.15, c0 + 0.15), "tattoo", soft=0.00075, value=0.88)
 
 
 def leggings(S, snap, L):
@@ -546,7 +552,7 @@ def hand_sculpt(L, side):
     sc = L["P"]["hand"] / 0.2
     W = L["wrist_" + side]
     h, n = L["hand_h_" + side], L["hand_n_" + side]
-    S.paint(Sphere(W + h * 0.1 * sc - n * 0.012, 0.035), "blush", soft=0.02, value=0.6)
+    S.paint(Sphere(W + h * 0.1 * sc - n * 0.012, 0.035), "blush", soft=0.025, value=0.18)
     el, wr, b, Lf = forearm_frame(L, side)
     S.inter(HalfSpace(el + b * Lf * HAND_CUT_T, -b))
     return S, ai
@@ -625,15 +631,13 @@ UP_LIFT = 0.004
 # C2 r3: the solid locks are the under-mass beneath alpha hair cards (seraphine_hair_cards.py)
 UNDER = dict(thick=0.80, bulge=0.60, k_mass=0.0060)
 CARD_CUTOFF = 0.4
-CARD_SPECULAR = 0.12      # KHR_materials_specular on the card material (grazing Fresnel cap; fast build #2 = mirror flakes)
-CARD_RIM_SCALE = 0.08     # r4: smooth scalp normals + restrained rim avoid pale isolated triangles at the temples
+CARD_SPECULAR = 0.06      # KHR_materials_specular on the card material (grazing Fresnel cap; fast build #2 = mirror flakes)
+CARD_RIM_SCALE = 0.025     # r4: smooth scalp normals + restrained rim avoid pale isolated triangles at the temples
 #                           grazing-angle cards pale tan at every silhouette; probe progress/tmp/c2r3/matvar3/panel_e.png)
 # temple tendrils (head-frame points, right side; mirrored): width, thick
 # v3: 25 mm further back (fast build #1: they hung across the eye in profile) -- beside the cheekbone / in front of the ear
-TENDRILS = [([(0.066, -0.030, 0.022), (0.076, -0.038, 0.002), (0.082, -0.036, -0.022), (0.083, -0.044, -0.046),
-              (0.079, -0.052, -0.068), (0.073, -0.047, -0.088)], 0.0090, 0.0062),
-            ([(0.078, -0.012, 0.016), (0.086, -0.018, -0.006), (0.088, -0.024, -0.028), (0.085, -0.028, -0.048)],
-             0.0064, 0.0048)]
+TENDRILS = [([(0.066, -0.030, 0.022), (0.076, -0.038, 0.002), (0.082, -0.036, -0.022),
+              (0.081, -0.038, -0.045)], 0.010, 0.0062)]
 
 
 def ear_clear(H):
@@ -700,7 +704,7 @@ def hair_design(S_body, L, H, seed=17):
     rng = np.random.RandomState(seed)
     locks = []
     card_locks, card_tendrils = [], []
-    for layer, lift in ((LOCKS, 0.0), (LOCKS_UP, UP_LIFT)):
+    for layer, lift in ((LOCKS, 0.0),):
         for li, (az, el, elt, w, th, bulge, bow, pk) in enumerate(layer):
             sides = (1, -1) if az > 0 else (1,)
             for sx in sides:
@@ -708,7 +712,7 @@ def hair_design(S_body, L, H, seed=17):
                 elr = math.radians(el + rng.uniform(-1.5, 1.5))
                 # C2 r3: the solid locks are only the UNDER-MASS beneath the alpha hair cards -> thinner, lower
                 wj, tj = w * rng.uniform(0.94, 1.06) * s, th * UNDER["thick"] * rng.uniform(0.94, 1.06) * s
-                stag = 0.0015 * (li % 2)             # every other lock rides 1.5 mm higher = shingle steps
+                stag = 0.0004 * (li % 2)             # every other lock rides 1.5 mm higher = shingle steps
                 g_dir_l = _dir(math.pi, math.radians(elt))
                 P, nrm = _lock_path(S_body, hc, _dir(azr, elr), g_dir_l, tj, bulge * UNDER["bulge"] * s,
                                     sx * bow * s, lift=(lift + stag) * s, peak=pk)
@@ -861,29 +865,15 @@ def hair_sculpts(S_body, L, H, seed=17):
         # C2 r3: the lock masses are a SOFT under-mass (k_mass 4 mm, no strand grooves) under the alpha hair cards;
         # gaps between cards read as its shadow, never as a seam
         Ss, meta_s = lock_sculpt(soft, detail=detail, seed=seed, k_mass=UNDER["k_mass"], grooves=False)
-        Sb, meta_b = hair.clump_sculpt(braid, mat="mane", materials=HAIR_MATS, detail=detail, grooves=3, seed=seed,
-                                       split_tips=False, k_clump=0.002, k_mass=0.0022, tip_frac=0.10, root_frac=0.04,
-                                       root_thick=0.90)
-        for m in meta_b:
-            m["id"] += len(meta_s)
-        Ss.extend(Sb)
-        # gathered mass at the nape: lock ends + braid root fuse into one knot under the leather wrap
-        Ss.add(Sphere(gather_c, GATHER["r"] * H.s), 0.006, mat="mane")
-        for key, (c, t, r) in ties.items():
-            M = _torus_frame(t)
-            if key == "top":
-                Ss.add(Capsule(c - t * 0.012, c + t * 0.016, r * 0.92), 0.003, mat="leather_dark")
-                Ss.add(Torus(c - t * 0.008, r * 0.94, 0.0042, M), 0.0015, mat="bronze")
-            elif key == "top2":
-                Ss.add(Torus(c + t * 0.004, r * 0.96, 0.0036, M), 0.0015, mat="bronze")
-            else:
-                Ss.add(Capsule(c - t * 0.01, c + t * 0.012, r * 0.72), 0.002, mat="bronze")
-                Ss.add(Torus(c - t * 0.01, r * 0.78, 0.003, M), 0.001, mat="bronze")
-                Ss.add(Torus(c + t * 0.012, r * 0.76, 0.003, M), 0.001, mat="bronze")
+        # r5: braid and wraps are explicit strand-UV geometry in the hair material.
+        # Baking a decimated body-material plait caused pale seams and coarse lobes.
+        meta_b = []
         circlet(Ss, S_body, H, ring_cache)
         out[detail] = (Ss, meta_s + meta_b)
     S_lo = out["lo"][0]
     cards_src["medallion"] = ring_cache.get("medallion")
+    cards_src["braid"] = braid
+    cards_src["ties"] = ties
     cards = design_hair_cards(S_body, S_lo, cards_src, seed)
     return out["hi"][0], S_lo, out["hi"][1], C, len(soft), cards
 
@@ -905,8 +895,11 @@ def design_hair_cards(S_body, S_under, src, seed=17):
             o[a] = 0.0015
             g[:, a] = (dist(P + o) - dist(P - o)) / 0.003
         return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-9)
-    return HCARDS.design_cards(dist, grad, S_body.dist, S_body.grad, src["hc"], src["locks"], src["tendrils"],
+    cards = HCARDS.design_cards(dist, grad, S_body.dist, S_body.grad, src["hc"], src["locks"], src["tendrils"],
                                src["g_dir"], s=src["s"], seed=seed + 5, medallion=src.get("medallion"))
+    cards.extend(HCARDS.braid_geometry(src["braid"], src["ties"]))
+    cards.append(HCARDS.band_geom(dist, src["medallion"], s=src["s"], groom=[c for c in cards if c.get("kind") != "medallion"]))
+    return cards
 
 
 def circlet(S, S_body, H, ring_cache):
@@ -1074,6 +1067,9 @@ def p_hair(c, pal):
 
 def p_skin(c, pal):
     """lib p_skin + a dark lash line (clear eyes at gameplay distance) and a dry-brushed war-paint stripe."""
+    # Local face palette: broad cheek/jaw curvature must not paint a bruised patch.
+    face = shaders.smooth01(c.P[:,2], 1.50, 1.56) * (1-shaders.smooth01(c.P[:,1], .005, .045))
+    c = shaders.Ctx(c.P,c.N,c.cf*(1-.60*face),c.cb*(1-.75*face),c.paints,c.attrs,c.L,c.x)
     rgb, rough, metal, emit = shaders.p_skin(c, pal)
     tat = c.paint("tattoo")
     if tat.any():    # C2: the stripe is dry-brushed -- horizontal streaks of thinner paint, worn at the edges
@@ -1639,18 +1635,15 @@ def build(args):
     face_normal_relief(maps["normal"], body_lo, info["head"]["lm"])
     tex = composite_maps(maps, res)
     report["textures"] = {k: [res, res] for k in tex}
-    # Cards follow the sculpt, but decimation bridges its small valleys. Recess only
-    # the hidden lock support after baking so that bridged low-poly facets cannot
-    # poke through as pale patches. Braid, cuffs and their weights stay untouched.
+    # The strand-material foundation now supplies scalp coverage. Drop the hidden
+    # solid support component after baking; keep the free braid's tapered tail.
     if not args.no_cards:
-        P = meshutil.get_verts(hair_lo)
-        A = hair.path_attrs(P, hair_meta)
-        mask = A["lock_id"] < n_lock - 0.5
-        rays = P - H(0, 0.012, 0.0)
-        rays /= np.maximum(np.linalg.norm(rays, axis=1, keepdims=True), 1e-9)
-        P[mask] -= rays[mask] * 0.0030
-        hair_lo.data.vertices.foreach_set("co", P.astype(np.float32).ravel())
-        hair_lo.data.update()
+        import bmesh
+        bm = bmesh.new(); bm.from_mesh(hair_lo.data)
+        remove = [v for v in bm.verts if v.co.z > 1.45]
+        bmesh.ops.delete(bm, geom=remove, context="VERTS")
+        bm.to_mesh(hair_lo.data);bm.free();hair_lo.data.update()
+        report["parts"]["hair_lo"] = meshutil.tri_count(hair_lo)
     # C2 r3: the hair cards are created AFTER the bake (fast build #1: the card mesh was visible to the bake rays and
     # the under-mass baked the cards' default material = a bald pink dome)
     cards_ob = None
@@ -1689,13 +1682,27 @@ def build(args):
         cards_ob.data.materials.append(cmat)
         report["tris_total"] += meshutil.tri_count(cards_ob)
         objs.append(cards_ob)
+    if report["tris_total"] > 30000:
+        raise RuntimeError(f"Seraphine exceeds 30000 triangle budget: {report['tris_total']}")
+    if cards_ob is not None:
+        report["hair_stretch_qa"] = skin.stretch_report(cards_ob, arm)
     pipeline.export_glb(out, objs, scene_name=ASSET)
     if cards_ob is not None:
         info_m = HCARDS.patch_glb(out, "M_" + ASSET + "_hair", cutoff=CARD_CUTOFF, double_sided=True, specular=CARD_SPECULAR,
                                   extras={"kcaRimScale": CARD_RIM_SCALE,
-                                          "kcaMetalTint": [0.7, 0.25, 0.35, 0.3], "kcaMetalEnv": 0.5})
+                                          "kcaMetalTint": [0.8, 0.12, 0.12, 0.15], "kcaMetalEnv": 0.85})
         report["hair_card_material"] = info_m
         pipeline.log(f"hair card material: {info_m}")
+    # The sculpt's open lip crease needs a dark oral backstop. Keep it in the
+    # existing body primitive and bind it rigidly to head; no extra draw or map.
+    import subprocess
+    mouth_out = out + ".mouth.glb"
+    mouth = json.loads(subprocess.check_output(
+        [VENV_PY, os.path.join(HERE, "seraphine_mouth_finish.py"), out, mouth_out, OUT_TEX], text=True))
+    os.replace(mouth_out, out)
+    report["mouth_finish"] = mouth
+    report["parts"]["mouth_backstop"] = mouth["newCavityTriangles"]
+    report["tris_total"] = mouth["totalTriangles"]
     report["glb"] = out
     report["glb_mb"] = os.path.getsize(out) / 1e6
     report["seconds"] = time.time() - T0
@@ -1721,7 +1728,12 @@ def face_normal_relief(normal_map, body_lo, lm):
     def mask(c, r):
         d = np.linalg.norm((P - c) / np.array(r), axis=1)
         return 1 - shaders.smooth01(d, .65, 1.0)
-    strength = np.maximum(.65 * mask(nose, (.026, .025, .019)), .40 * mask(lip, (.034, .020, .018)))
+    strength = np.maximum(.82 * mask(nose, (.027, .025, .021)), .48 * mask(lip, (.034, .020, .018)))
+    chin = np.asarray(lm["chin"])
+    strength = np.maximum(strength, .90 * mask(chin + V(0,.005,.005), (.075,.085,.030)))
+    for key,sx in (("eye_R",1),("eye_L",-1)):
+        cheek = np.asarray(lm[key]) + V(sx*.017,.010,-.037)
+        strength = np.maximum(strength, .90 * mask(cheek, (.035,.048,.041)))
     uv = np.empty((len(me.loops), 2), np.float32)
     me.uv_layers.active.data.foreach_get("uv", uv.ravel())
     lv = np.empty(len(me.loops), np.int32)
@@ -1794,11 +1806,11 @@ def parse():
     ap.add_argument("--stage", default="all")
     ap.add_argument("--device", default="AUTO")
     ap.add_argument("--skin", default="sdf")
-    ap.add_argument("--body-tris", type=int, default=17400)     # r4: preserve face density; pay for fitted cards
+    ap.add_argument("--body-tris", type=int, default=14900)     # r5: preserve face density; pay for the explicit groom/braid
     ap.add_argument("--head-tris", type=int, default=9900)
     ap.add_argument("--hand-tris", type=int, default=1150)
     ap.add_argument("--kilt-tris", type=int, default=3000)
-    ap.add_argument("--hair-tris", type=int, default=2500)      # support + braid; cards are budgeted separately
+    ap.add_argument("--hair-tris", type=int, default=700)      # bake support + tail; head support is dropped after baking
     ap.add_argument("--save-blend", action="store_true")
     ap.add_argument("--no-cards", action="store_true")     # C2 r3: skip the alpha hair cards (A/B)
     return ap.parse_args(argv)

@@ -70,7 +70,7 @@ export function groundFirelight(material, huts, rocks = []) {
         vec3 bounce = vec3(0.48, 0.205, 0.075) * baked.r * baked.r * scuff * s1GroundGain.x * beltBalance;
         vec3 ash = vec3(0.045, 0.043, 0.056) * (0.3 + baked.g * 1.7) * s1GroundGain.y;
         float scar = (1.0 - baked.b * 0.20) * (1.0 - kgBurn * .25);
-        totalEmissiveRadiance += vec3(.015, .016, .023) * s1Ash * nearGround * groundBake.a;
+        totalEmissiveRadiance += vec3(.020, .019, .014) * s1Ash * nearGround * groundBake.a;
         totalEmissiveRadiance += (bounce + ash) * scar * nearGround * (s1Reflectance + s1Shoulder*.15) * groundBake.a;
         // Sparse ember fissures in scorched near-verge soil, derivative filtered.
         float line = abs(grain.r - 0.51);
@@ -87,7 +87,7 @@ export function groundFirelight(material, huts, rocks = []) {
         diffuseColor.rgb *= groundBake.a;
       }`);
   };
-  material.customProgramCacheKey = () => key.call(material) + '|s1GroundFirelight-r15';
+  material.customProgramCacheKey = () => key.call(material) + '|s1GroundFirelight-r16';
   material.addEventListener('dispose', () => tex.dispose());
   return material;
 }

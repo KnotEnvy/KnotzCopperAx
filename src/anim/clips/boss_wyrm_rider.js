@@ -4,6 +4,7 @@
 // the boss rider instance only (bosses/_stance.js useClipSet → character 'boss_wyrm_rider'); every other clip falls
 // through to the generic set as before.
 import { dir, W, torso, pose, leg } from './_kit.js';
+import { twoBeat, IDLE_R14 } from './_bossIdle.js';   // C2 r15: two-beat idle (&bossidle=r14 = old)
 
 const LEGS = (d = 0) => pose(
   leg('L', { thigh: [0.65, -0.45 - d * 0.01, -0.6], shin: [0.1 + d * 0.01, -1, -0.25], toe: [0.9, -0.3, -0.1] }),
@@ -15,8 +16,8 @@ export default {
   rig: 'humanoid', character: ['boss_wyrm_rider'], priority: 6,
   clips: {
     ride_idle: {
-      frames: 90, loop: true, grip: 0,
-      keys: [
+      frames: IDLE_R14 ? 90 : 180, loop: true, grip: 0,
+      keys: !IDLE_R14 ? twoBeat(180, () => ({ pose: SEAT(), hips: [0, -0.9, 0], wpn: LANCE(), handL: [0.6, -0.38, -0.1] }), { sway: 0.012, rock: 0.01, rise: 0.008, pitch: 4, roll: 3, yaw: 5, head: 12, lift: 0.03, wpnSwing: 0.03 }) : [
         { f: 0, pose: SEAT(), hips: [0, -0.9, 0], wpn: LANCE(), handL: [0.6, -0.38, -0.1] },
         { f: 45, pose: SEAT(-1.5, 2), hips: [0, -0.905, 0], wpn: LANCE(-3), handL: [0.6, -0.4, -0.1] },
         { f: 90, pose: SEAT(), hips: [0, -0.9, 0], wpn: LANCE(), handL: [0.6, -0.38, -0.1] },

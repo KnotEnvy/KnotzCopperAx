@@ -262,8 +262,19 @@ def scale_shader(nt):
     nt.links.new(uv.outputs['UV'], voff.inputs[0])
     wz2 = N(nt, 'ShaderNodeTexNoise'); wz2.inputs['Scale'].default_value = 0.8; wz2.inputs['Detail'].default_value = 2.0
     nt.links.new(voff.outputs[0], wz2.inputs['Vector'])
+    # C2 r15 (board r14 "hood rows = stamped shingle rows"): a third, mid-frequency noise makes the rows wavy, and the 'Col' alpha channel (hood-edge
+    # factor e, 0 on the body and the hood centre -> 1 at the hood's side edge) compresses the row lattice toward the edge about the hood's own origin
+    # (yh0 = the hood's first row), so the scales shrink and the rows curve like real hood scales fall off toward the rim.
+    wz3 = N(nt, 'ShaderNodeTexNoise'); wz3.inputs['Scale'].default_value = 2.4; wz3.inputs['Detail'].default_value = 2.0
+    voff3 = N(nt, 'ShaderNodeVectorMath', operation='ADD'); voff3.inputs[1].default_value = (3.7, 11.9, 0.0)
+    nt.links.new(uv.outputs['UV'], voff3.inputs[0])
+    nt.links.new(voff3.outputs[0], wz3.inputs['Vector'])
+    edgef = col_attr.outputs['Alpha']
+    yh0 = N(nt, 'ShaderNodeValue'); yh0.outputs[0].default_value = 0.0
+    SD['yh0'] = yh0
     X = m('ADD', X0, m('MULTIPLY', m('SUBTRACT', wz1.outputs['Fac'], 0.5), 1.1))
-    Y = m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 0.95))
+    Yw = m('ADD', m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 1.25)), m('MULTIPLY', m('SUBTRACT', wz3.outputs['Fac'], 0.5), 0.55))
+    Y = m('ADD', Yw, m('MULTIPLY', m('MULTIPLY', edgef, 0.70), m('SUBTRACT', Yw, yh0.outputs[0])))
     row = m('FLOOR', Y)
     par = m('MODULO', row, 2.0)
     xs = m('ADD', X, m('MULTIPLY', par, 0.5))
@@ -296,18 +307,18 @@ def scale_shader(nt):
     big.inputs['Detail'].default_value = 3.0
     nt.links.new(uv.outputs['UV'], big.inputs['Vector'])
     tonef = m('ADD', m('MULTIPLY', h1, 0.80), m('MULTIPLY', big.outputs['Fac'], 0.9))
-    sk = ramp(nt, [(0.0, (0.002, 0.003, 0.003, 1)), (0.55, (0.010, 0.015, 0.010, 1)), (1.0, (0.034, 0.040, 0.018, 1))])      # r12: lifted + warmer (olive-brown), was near-black green
+    sk = ramp(nt, [(0.0, (0.006, 0.009, 0.007, 1)), (0.50, (0.030, 0.044, 0.026, 1)), (1.0, (0.095, 0.110, 0.050, 1))])      # r15: value lift ~x2.8 (board r14: near-black green mass at 1x); r12 olive-brown
     nt.links.new(tonef, sk.inputs['Fac'])
     warmf = m('MINIMUM', m('MAXIMUM', m('MULTIPLY', m('SUBTRACT', h2, 0.40), 1.3), 0.0), 0.75)     # r14: ~half the scales drift toward warm umber, the rest stay olive
-    body = mix(nt, warmf, sk.outputs[0], (0.060, 0.036, 0.014, 1))
-    shade = mix(nt, hr, (0.0015, 0.004, 0.003, 1), body)                          # grooves dark, scale body = tone
+    body = mix(nt, warmf, sk.outputs[0], (0.150, 0.088, 0.034, 1))
+    shade = mix(nt, hr, (0.0030, 0.007, 0.005, 1), body)                          # grooves dark, scale body = tone
     pale = mix(nt, hr, (0.006, 0.007, 0.004, 1), mix(nt, wn.outputs['Value'], (0.085, 0.085, 0.040, 1), (0.16, 0.15, 0.075, 1)))
     sp = N(nt, 'ShaderNodeSeparateColor')
     nt.links.new(col_attr.outputs['Color'], sp.inputs['Color'])
     fin = mix(nt, 0.0, shade, pale)
     nt.links.new(sp.outputs['Red'], fin.inputs[0])
     # r12 bronze (hood rim, skull scutes): scale bodies go warm bronze-brown, tips catch a copper edge; spectacle: pale parchment scales with dark groove lines
-    bron_body = mix(nt, wn.outputs['Value'], (0.24, 0.12, 0.035, 1), (0.46, 0.25, 0.08, 1))
+    bron_body = mix(nt, wn.outputs['Value'], (0.17, 0.115, 0.032, 1), (0.34, 0.24, 0.075, 1))      # r15: olive bronze (the orange read against the orange sky)
     bron = mix(nt, hr, (0.012, 0.007, 0.003, 1), bron_body)
     fin2 = mix(nt, 0.0, fin, bron)
     nt.links.new(sp.outputs['Green'], fin2.inputs[0])
@@ -330,7 +341,16 @@ def scale_shader(nt):
     stv.inputs[1].default_value = (46.0, 150.0, 1.0)
     stn = N(nt, 'ShaderNodeTexNoise'); stn.inputs['Scale'].default_value = 1.0; stn.inputs['Detail'].default_value = 3.0; stn.inputs['Roughness'].default_value = 0.6
     nt.links.new(stv.outputs[0], stn.inputs['Vector'])
-    hbump = m('ADD', hrg.outputs[0], m('MULTIPLY', m('SUBTRACT', stn.outputs['Fac'], 0.5), 0.34))
+    hbump = m('ADD', m('MULTIPLY', hrg.outputs[0], 0.55), m('MULTIPLY', m('SUBTRACT', stn.outputs['Fac'], 0.5), 0.34))
+    # C2 r15 (board r14 "stamped scale rows, smooth lofted tubes"): the imbricate height field (rising to the free tip, dropping to the groove) is now REAL
+    # displacement (per-scale gain, a per-scale lift so neighbours sit at different depths) on a pre-subdivided hood; the bump keeps the micro-grain only.
+    dsp = N(nt, 'ShaderNodeDisplacement')
+    dsp.inputs['Midlevel'].default_value = 0.0
+    dsp.inputs['Scale'].default_value = 0.075
+    # (damped where the bronze head scutes are - 'Col' green - so the sculpted skull is not buried under scale noise; finer there)
+    nt.links.new(m('MULTIPLY', m('ADD', hrg.outputs[0], m('MULTIPLY', m('SUBTRACT', h1, 0.5), 0.22)), m('SUBTRACT', 1.0, m('MULTIPLY', sp.outputs['Green'], 0.80))), dsp.inputs['Height'])
+    outn_ = [n_ for n_ in nt.nodes if n_.type == 'OUTPUT_MATERIAL'][0]
+    nt.links.new(dsp.outputs['Displacement'], outn_.inputs['Displacement'])
     bump = N(nt, 'ShaderNodeBump')
     bump.inputs['Strength'].default_value = 1.0
     bump.inputs['Distance'].default_value = 0.05
@@ -429,6 +449,23 @@ def eye_shader(nt):
     return e
 
 
+def lens_shader(nt):
+    """C2 r15 (board r14 'dot eyes'): a wet cornea over the glowing iris - mostly clear, a sharp glossy reflection at the grazing edge and from the key lamp,
+    so each eye carries a lit lens / catch-light instead of a flat green dot."""
+    t = N(nt, 'ShaderNodeBsdfTransparent')
+    g = N(nt, 'ShaderNodeBsdfGlossy')
+    g.inputs['Roughness'].default_value = 0.035
+    g.inputs['Color'].default_value = (1.0, 0.97, 0.88, 1)
+    fr = N(nt, 'ShaderNodeLayerWeight')
+    fr.inputs['Blend'].default_value = 0.30
+    f = mathn(nt, 'ADD', 0.26, mathn(nt, 'MULTIPLY', fr.outputs['Fresnel'], 0.75), clamp=True)
+    m = N(nt, 'ShaderNodeMixShader')
+    nt.links.new(f.outputs[0], m.inputs[0])
+    nt.links.new(t.outputs[0], m.inputs[1])
+    nt.links.new(g.outputs[0], m.inputs[2])
+    return m
+
+
 def mouth_shader(nt):
     """Mouth lining: wet crimson-pink flesh with transverse palate ridges and fine veins, going black toward the throat."""
     tc = N(nt, 'ShaderNodeTexCoord')
@@ -507,6 +544,13 @@ def tongue_shader(nt):
     return b
 
 
+def ramp_f(nt, fac_out, stops):
+    """scalar piecewise ramp (value 0..1) of a float output."""
+    r = ramp(nt, [(p_, (v_, v_, v_, 1)) for p_, v_ in stops])
+    nt.links.new(fac_out, r.inputs['Fac'])
+    return r
+
+
 def flame_sheet_shader(nt, hot=0.0):
     """Witchfire tongue sheet (UV x across, y up): streaky turbulent alpha, soft side + tip falloff, hot pale-green base -> saturated green -> dark tip."""
     uv = N(nt, 'ShaderNodeUVMap', uv_map='UV')
@@ -525,7 +569,7 @@ def flame_sheet_shader(nt, hot=0.0):
     edge = mathn(nt, 'SUBTRACT', 1.0, mathn(nt, 'MULTIPLY', mathn(nt, 'ABSOLUTE', mathn(nt, 'SUBTRACT', mathn(nt, 'MULTIPLY', X, 2.0), 1.0)), 1.0))
     ed = ramp(nt, [(0.0, (0, 0, 0, 1)), (0.92, (1, 1, 1, 1))])                 # r12: soft side falloff (no hard blade edge)
     nt.links.new(edge.outputs[0], ed.inputs['Fac'])
-    tip = ramp(nt, [(0.0, (1, 1, 1, 1)), (0.40, (0.85, 0.85, 0.85, 1)), (0.80, (0.25, 0.25, 0.25, 1)), (1.0, (0, 0, 0, 1))])
+    tip = ramp(nt, [(0.0, (1, 1, 1, 1)), (0.35, (0.78, 0.78, 0.78, 1)), (0.68, (0.26, 0.26, 0.26, 1)), (0.90, (0.05, 0.05, 0.05, 1)), (1.0, (0, 0, 0, 1))])      # r15: soft transparent tip
     nt.links.new(Yv, tip.inputs['Fac'])
     base_ = mathn(nt, 'MULTIPLY', ed, tip)
     # C2 r14 (board r13 "witchfire = solid neon-green gradient blobs, hard white core, no tongues, no translucency"): the turbulence now carves
@@ -543,17 +587,42 @@ def flame_sheet_shader(nt, hot=0.0):
     tur = mathn(nt, 'ADD', mathn(nt, 'MULTIPLY', nz, 0.50), mathn(nt, 'MULTIPLY', nz2, 0.62))
     a0 = mathn(nt, 'SUBTRACT', base_, tur)
     a1 = mathn(nt, 'MULTIPLY', mathn(nt, 'ADD', a0, 0.40), 2.1, clamp=True)
-    a2 = mathn(nt, 'MULTIPLY', a1, 0.92)
-    col = ramp(nt, [(0.0, (0.42, 1.0, 0.30, 1) if hot else (0.34, 1.0, 0.22, 1)), (0.22, (0.20, 0.95, 0.12, 1)), (0.60, (0.05, 0.70, 0.07, 1)), (1.0, (0.008, 0.22, 0.04, 1))])
+    a2 = mathn(nt, 'MULTIPLY', mathn(nt, 'MULTIPLY', a1, 0.92), ramp_f(nt, Yv, [(0.0, 0.0), (0.035, 0.55), (0.11, 1.0), (1.0, 1.0)]))      # r15: soft base
+    # C2 r15 (board r14 'uniform green gel, hard-clipped base, highest saturation in the corner'): a HOT pale core at the base (low saturation, near cream-lime)
+    # cooling to green and fading to a soft transparent tip; the base itself eases in (no flat cut line on the bowl) and sits on an ember pool (flamepool).
+    col = ramp(nt, [(0.0, (0.86, 1.0, 0.62, 1) if hot else (0.74, 1.0, 0.52, 1)), (0.14, (0.50, 0.96, 0.30, 1)), (0.42, (0.15, 0.66, 0.13, 1)), (1.0, (0.025, 0.26, 0.06, 1))])
     # inner streaks: brighter / dimmer filaments rising along the tongue, so it reads as layered fire, not a flat green card
     nt.links.new(Yv, col.inputs['Fac'])
     e = N(nt, 'ShaderNodeEmission')
     stk = mathn(nt, 'ADD', 0.35, mathn(nt, 'MULTIPLY', nz2, 1.5))
-    nt.links.new(mathn(nt, 'MULTIPLY', stk, 2.0 if not hot else 2.0).outputs[0], e.inputs['Strength'])
+    hotk = mathn(nt, 'ADD', 0.42, mathn(nt, 'MULTIPLY', mathn(nt, 'POWER', mathn(nt, 'SUBTRACT', 1.0, Yv), 3.2), 2.3))        # r15: brightest at the base
+    nt.links.new(mathn(nt, 'MULTIPLY', mathn(nt, 'MULTIPLY', stk, 1.75), hotk).outputs[0], e.inputs['Strength'])
     nt.links.new(col.outputs[0], e.inputs['Color'])
     t = N(nt, 'ShaderNodeBsdfTransparent')
     m = N(nt, 'ShaderNodeMixShader')
     nt.links.new(a2.outputs[0], m.inputs[0])
+    nt.links.new(t.outputs[0], m.inputs[1])
+    nt.links.new(e.outputs[0], m.inputs[2])
+    return m
+
+
+def flame_pool_shader(nt):
+    """Flat radial ember pool under the witchfire: hot pale-lime centre, soft transparent rim."""
+    tc = N(nt, 'ShaderNodeTexCoord')
+    sep = N(nt, 'ShaderNodeSeparateXYZ')
+    nt.links.new(tc.outputs['Generated'], sep.inputs['Vector'])
+    dx = mathn(nt, 'SUBTRACT', sep.outputs['X'], 0.5)
+    dy = mathn(nt, 'SUBTRACT', sep.outputs['Y'], 0.5)
+    r = mathn(nt, 'SQRT', mathn(nt, 'ADD', mathn(nt, 'MULTIPLY', dx, dx), mathn(nt, 'MULTIPLY', dy, dy)))
+    al = ramp_f(nt, mathn(nt, 'MULTIPLY', r, 2.0).outputs[0], [(0.0, 1.0), (0.45, 0.62), (0.80, 0.12), (1.0, 0.0)])
+    col = ramp(nt, [(0.0, (0.80, 1.0, 0.55, 1)), (0.5, (0.35, 0.95, 0.22, 1)), (1.0, (0.08, 0.45, 0.10, 1))])
+    nt.links.new(mathn(nt, 'MULTIPLY', r, 2.0).outputs[0], col.inputs['Fac'])
+    e = N(nt, 'ShaderNodeEmission')
+    e.inputs['Strength'].default_value = 2.6
+    nt.links.new(col.outputs[0], e.inputs['Color'])
+    t = N(nt, 'ShaderNodeBsdfTransparent')
+    m = N(nt, 'ShaderNodeMixShader')
+    nt.links.new(al.outputs[0], m.inputs[0])
     nt.links.new(t.outputs[0], m.inputs[1])
     nt.links.new(e.outputs[0], m.inputs[2])
     return m
@@ -589,7 +658,7 @@ def flame_vol_mat():
     pv = N(nt, 'ShaderNodeVolumePrincipled')
     nt.links.new(mathn(nt, 'MULTIPLY', dens, 0.8).outputs[0], pv.inputs['Density'])
     pv.inputs['Color'].default_value = (0.1, 0.5, 0.08, 1)
-    pv.inputs['Emission Color'].default_value = (0.20, 1.0, 0.12, 1)
+    pv.inputs['Emission Color'].default_value = (0.38, 1.0, 0.24, 1)
     nt.links.new(mathn(nt, 'MULTIPLY', dens, 0.9).outputs[0], pv.inputs['Emission Strength'])
     nt.links.new(pv.outputs['Volume'], out.inputs['Volume'])
     return m
@@ -607,6 +676,7 @@ M = {
     'cloth': mk_mat('cloth', cloth_shader),
     'wood': mk_mat('wood', lambda nt: principled(nt, (0.06, 0.035, 0.02, 1), 0.7, 0.0, 0.3)),
     'eye': mk_mat('eye', eye_shader),
+    'lens': mk_mat('lens', lens_shader),
     'mouth': mk_mat('mouth', mouth_shader),
     'tongue': mk_mat('tongue', tongue_shader),
     'fang': mk_mat('fang', fang_shader),
@@ -614,9 +684,12 @@ M = {
     'flame_vol': flame_vol_mat(),
     'flame_sheet': mk_mat('flame_sheet', lambda nt: flame_sheet_shader(nt)),
     'flame_hot': mk_mat('flame_hot', lambda nt: flame_sheet_shader(nt, hot=1.0)),
+    'flame_pool': mk_mat('flame_pool', flame_pool_shader),
     'rune': mk_mat('rune', lambda nt: emit_shader(nt, (0.2, 1.0, 0.15, 1), 0.32)),
-    'ember': mk_mat('ember', lambda nt: emit_shader(nt, (1.0, 0.36, 0.08, 1), 2.4)),
+    'ember': mk_mat('ember', lambda nt: emit_shader(nt, (1.0, 0.36, 0.08, 1), 1.5)),
 }
+
+M['scales'].displacement_method = 'DISPLACEMENT'       # C2 r15: real (non-adaptive) displacement of the cobra scale height field
 
 
 # ------------------------------------------------------------------------------------------------ geometry helpers
@@ -844,12 +917,14 @@ def sweep(name, P, A, B, mat, seg=28, wref=None, wref_from=1e9, cap_start=True, 
     uvl.data.foreach_set('uv', uvs[loop_v].ravel())
     ca = me.color_attributes.new('Col', 'FLOAT_COLOR', 'POINT')
     col = np.zeros((n, seg + 1, 4), np.float32)
-    col[..., 3] = 1
+    col[..., 3] = 0                                              # C2 r15: alpha = hood-edge factor (scale_shader compresses rows by it); 0 everywhere but the cobra hood
     NEXTRA = len(extra_v)
     if paint is not None:
         # paint(ctx) -> (R, G, B) arrays (n, seg+1): R pale belly / hood front, G bronze (hood rim + head scutes), B spectacle marking
         ch = paint({'A': A, 'B': B, 'th': th, 's': s, 'nrm': nrm_t, 'V': V})
-        col[..., 0], col[..., 1], col[..., 2] = ch
+        col[..., 0], col[..., 1], col[..., 2] = ch[:3]
+        if len(ch) > 3:
+            col[..., 3] = ch[3]
     elif pale is not None:
         # pale(f, nx, ny, nz) -> 0..1 ; normal approx from ring geometry
         col[..., 0] = pale(s / s[-1], nrm_t)
@@ -1041,11 +1116,12 @@ def axe():
     Lm = Matrix((lh, le, lt)).transposed()                         # columns = local basis
     Wm = Matrix((d, e, t)).transposed()
     R = Matrix.Rotation(math.radians(12.0), 3, d) @ Wm @ Lm.inverted()          # cheek turned ~12 deg about the haft toward the green brazier so the metal catches its light
-    SC = 4.6
+    SC = 5.0
     pommel_l = Vector(ctr)
     pommel_l[ax_h] = lo[ax_h] if sg_h > 0 else hi[ax_h]
     a_pt = Vector((-0.55, CY + 0.15, DAIS_TOP + 2.34))              # pommel stands on the cushion top (DAIS_TOP + 2.2)
-    global AXE_D, AXE_P
+    global AXE_D, AXE_P, AXE_OBJ
+    AXE_OBJ = root
     AXE_D, AXE_P = d.copy(), a_pt.copy()
     root.rotation_mode = 'XYZ'                                       # the glTF importer leaves quaternion mode
     root.rotation_euler = R.to_euler()
@@ -1199,6 +1275,12 @@ for k, (bx, by) in enumerate(BR):
     for t, yaw in enumerate([-30, 8, 40]):
         flame_sheet(f'flamehot{k}_{t}', (bx + fr_.uniform(-.2, .2), by + fr_.uniform(-.2, .2), zf - 0.05), fr_.uniform(1.0, 1.7), fr_.uniform(0.38, 0.55),
                     math.radians(yaw), fr_.uniform(-0.2, 0.2), 90 + 10 * k + t, M['flame_hot'])
+    pb_ = bmesh.new()                                   # r15: ember pool - the flames stand IN a hot bed instead of on a cut line
+    bmesh.ops.create_grid(pb_, x_segments=2, y_segments=2, size=1.0)
+    po_ = obj_from_bm(f'flamepool{k}', pb_, M['flame_pool'])
+    po_.location = (bx, by, zf - 0.02)
+    po_.scale = (1.15, 1.15, 1.0)
+    po_.visible_shadow = False
     vb = bmesh.new()
     bmesh.ops.create_uvsphere(vb, u_segments=24, v_segments=14, radius=1.0)
     vo = obj_from_bm(f'firevol{k}', vb, M['flame_vol'])
@@ -1206,7 +1288,7 @@ for k, (bx, by) in enumerate(BR):
     vo.scale = (1.15, 1.15, 1.9)
     vo.visible_shadow = False
     ln_ = bpy.data.lights.new(f'green{k}', 'POINT')
-    ln_.color = (0.20, 1.0, 0.12)
+    ln_.color = (0.42, 1.0, 0.28)
     ln_.energy = 1000.0
     ln_.shadow_soft_size = 0.8
     lo = link(bpy.data.objects.new(f'green{k}', ln_))
@@ -1248,7 +1330,7 @@ def cobra(sg, seed, name):
     """One colossal cobra, mirrored by sg (+1 right / -1 left): tail climbs the stairs, coils twice round the dais corner, trunk rises
     along the back's flank, a broad RIBBED HOOD flares behind the head (C2 r11), and a sculpted skull - brow ridges, deep eye sockets with a
     glowing iris, nostril pits, temple glands, a lined mouth with palate ridges, teeth, curved fangs on gum boots, a thick forked tongue."""
-    HS = 1.05                                  # head scale (r12: smaller beside a much broader hood so the flare reads)
+    HS = 1.20                                  # head scale (r12: smaller beside a much broader hood so the flare reads)
     r_ = np.random.RandomState(seed)
     cx, cy = 5.1, CY - 0.3
     pts = []
@@ -1353,7 +1435,8 @@ def cobra(sg, seed, name):
         Vh = c['V'][hm_].reshape(-1, 3)
         LOG('hoodbox', name, Vh.min(0).round(2), Vh.max(0).round(2), 'P at hood0/mid/1', P[int(np.argmin(np.abs(s - s_hood0)))].round(2), P[int(np.argmin(np.abs(s - 0.5 * (s_hood0 + s_hood1))))].round(2), P[int(np.argmin(np.abs(s - s_hood1)))].round(2))
         LOG('paint', name, 'spect max', float(spect.max()), 'bronze max', float(bronze.max()), 'hood s', round(float(s_hood0), 2), round(float(s_hood1), 2), 's_top', round(float(s_top), 2), 'A max', round(float(c['A'].max()), 2))
-        return R, bronze, spect
+        edge_e = smooth01((np.abs(across) - 0.30) / 0.62) * smooth01((s_top + 0.05 - sc_) / 1.1) * smooth01((sc_ - s_hood0) / 0.5)
+        return R, bronze, spect, np.broadcast_to(edge_e, R.shape)
 
     # head frame (known from the path before the tube is built)
     i0 = int(np.searchsorted(s, s_top + 0.15))
@@ -1398,8 +1481,8 @@ def cobra(sg, seed, name):
         for sx in (-1, 1):
             a, na = anchor(s_h0 + 0.80 * HS, sx, 0.8, 0.65)
             ANCH[sx] = (a.copy(), na.copy())
-            disp += blob(a, 0.33, 0.25, -0.29)                                         # eye socket
-            disp += blob(a + (up * 0.27 + head_dir * 0.10) * HS, 0.60, 0.16, 0.36)           # brow ridge, slanting forward
+            disp += blob(a, 0.33, 0.25, -0.36)                                         # eye socket (r15: deeper)
+            disp += blob(a + (up * 0.27 + head_dir * 0.10) * HS, 0.66, 0.17, 0.52)           # brow ridge, slanting forward (r15: heavier)
             disp += blob(a + (up * 0.12 + head_dir * 0.55) * HS, 0.30, 0.10, 0.07)           # lower canthal ridge in front of the eye
             disp += blob(a - (head_dir * 0.70 + up * 0.05) * HS, 0.44, 0.34, 0.12)           # temple (venom gland) bulge
             an, nn = anchor(S_total - 0.42 * HS, sx, 0.9, 0.6)
@@ -1407,20 +1490,33 @@ def cobra(sg, seed, name):
             disp += blob(an, 0.07, 0.065, -0.07)                                        # nostril pit
             disp += blob(an + up * 0.1 * HS, 0.20, 0.15, 0.05)                              # raised nasal ridge around it
         ac, nc = anchor(s_h0 + 1.0 * HS, 1, 0.0, 1.0)
-        disp += blob(ac, 0.75, 0.15, 0.07)                                             # midline crest
+        disp += blob(ac, 0.75, 0.15, 0.13)                                             # midline crest
+        disp += blob(ac + head_dir * 0.25 * HS, 0.95, 0.60, 0.17)                      # r15: skull cap (a domed crown between the brows)
+        disp += blob(ac + head_dir * 1.35 * HS - up * 0.05, 0.55, 0.30, 0.09)          # r15: snout bridge
         disp += blob(ac - head_dir * 0.45 * HS, 0.30, 0.45, 0.06)                           # occipital plate
         wu = smooth01(((V - head_p0) @ head_dir + 0.25) / 0.6)
         V += Nrm * (disp * wu)[..., None]
         return V
 
-    ob, fr = sweep(name, P, A, Bd, M['scales'], seg=56, scale_fn=lambda s_: 1.25 + 0.30 * smooth01((s_ - (s_hood0 - 0.8)) / 1.2) - 0.80 * smooth01((s_ - (s_top - 0.1)) / 0.9), wref=(math.cos(PSI), sg * math.sin(PSI), 0), wref_from=(s_top - 5.5) / S_total, pale=pale,
+    ob, fr = sweep(name, P, A, Bd, M['scales'], seg=96, scale_fn=lambda s_: 1.25 + 0.30 * smooth01((s_ - (s_hood0 - 0.8)) / 1.2) - 0.80 * smooth01((s_ - (s_top - 0.1)) / 0.9), wref=(math.cos(PSI), sg * math.sin(PSI), 0), wref_from=(s_top - 5.5) / S_total, pale=pale,
                    offset_fn=head_offsets, paint=paint)
     T, Bw, Bdv, s_, Vf, Nf = fr
+    # C2 r15: pre-subdivide (SIMPLE: only density, no smoothing) so the material's scale displacement has vertices to move; and tell the shader where the
+    # hood's first scale row lies (rows compress toward the hood edge about it).
+    smd = ob.modifiers.new('dens', 'SUBSURF')
+    smd.subdivision_type = 'SIMPLE'
+    smd.levels = 0
+    smd.render_levels = 2 if not FAST else 1
+    _mult = 1.25 + 0.30 * smooth01((s_ - (s_hood0 - 0.8)) / 1.2) - 0.80 * smooth01((s_ - (s_top - 0.1)) / 0.9)
+    _vv = np.cumsum(np.concatenate([[0.0], np.diff(s_)]) / (0.15 * _mult))
+    SD['yh0'].outputs[0].default_value = float(_vv[int(np.argmin(np.abs(s_ - s_hood0)))])
     # ---- eyes: a glowing iris nested in each socket + a faint green point light so the socket walls and brow glow with falloff
     for sx in (-1, 1):
         a, na = ANCH[sx]
         ctr = a - na * 0.20 * HS                     # r13: seated deep - the brow and lids overhang it and the socket walls take the glow
         ellipsoid(name + f'_eye{sx}', ctr, head_dir, na, (0.21 * HS, 0.17 * HS, 0.12 * HS), M['eye'], u=24, v=14)
+        lns = ellipsoid(name + f'_lens{sx}', ctr + na * 0.02 * HS, head_dir, na, (0.225 * HS, 0.185 * HS, 0.150 * HS), M['lens'], u=28, v=18)
+        lns.visible_shadow = False
         ln_e = bpy.data.lights.new(name + f'_eyelight{sx}', 'POINT')
         ln_e.color = (0.45, 1.0, 0.15)
         ln_e.energy = 34.0
@@ -1435,6 +1531,10 @@ def cobra(sg, seed, name):
     ja = np.linspace(0.90 * HS, 0.28 * HS, len(JP))
     jb = np.linspace(0.36 * HS, 0.13 * HS, len(JP))
     jaw, _ = sweep(name + '_jaw', JP, ja, jb, M['scales'], seg=24, wref=tuple(side), wref_from=0.0)
+    jmd = jaw.modifiers.new('dens', 'SUBSURF')
+    jmd.subdivision_type = 'SIMPLE'
+    jmd.levels = 0
+    jmd.render_levels = 2
     # mouth lining: the cavity between the jaws (dark wet crimson with palate ridges, black throat) + an upper palate dome under the skull
     mid = head_p0 + head_dir * 1.05 * HS - up * 0.34 * HS
     ellipsoid(name + '_mouth', mid, side, head_dir, (0.62 * HS, 0.45 * HS, 1.25 * HS), M['mouth'], u=24, v=16)
@@ -1605,11 +1705,68 @@ wo = link(bpy.data.objects.new('warm', warm))
 wo.rotation_euler = (-Vector((-0.78, -0.42, 0.40)).normalized()).to_track_quat('-Z', 'Y').to_euler()
 
 axl = bpy.data.lights.new('axeglow', 'POINT')
-axl.energy = 560.0
+axl.energy = 800.0
 axl.color = (1.0, 0.45, 0.14)
 axl.shadow_soft_size = 0.4
 ao_ = link(bpy.data.objects.new('axeglow', axl))
 ao_.location = (AXE_HEAD.x, AXE_HEAD.y - 0.9, AXE_HEAD.z + 0.5)
+
+# C2 r15 (board r14 "near-black green mass at 1x, cobras do not separate from the dark set"): a dedicated warm KEY spot per cobra, from the camera side above,
+# confined to the hood + head by a narrow cone, so each hood face and skull has a lit top and a shadow side instead of one dark lump.
+COB = bpy.data.collections.new('cobras')                  # light linking: the cobra keys light the cobras only (the panel / relic keep their own contrast)
+sc.collection.children.link(COB)
+for _o in list(bpy.data.objects):
+    if _o.type == 'MESH' and _o.name.startswith(('cobraR', 'cobraL')):
+        COB.objects.link(_o)
+REL = bpy.data.collections.new('relic')
+sc.collection.children.link(REL)
+REL.objects.link(AXE_OBJ)
+for _sg in (-1, 1):
+    _hp = Vector(tuple(float(x) for x in HEADS[_sg]))
+    _tgt = Vector((_sg * 4.3, 2.4, 9.6))
+    _k = bpy.data.lights.new(f'cobrakey{_sg}', 'SPOT')
+    _k.energy = float(arg('--ckey', 52000.0, float))
+    _k.color = (1.0, 0.74, 0.46)
+    _k.spot_size = 0.40
+    _k.spot_blend = 0.65
+    _k.shadow_soft_size = 2.2
+    _ko = link(bpy.data.objects.new(f'cobrakey{_sg}', _k))
+    _ko.location = (_sg * 5.5 - _sg * 3.0, -20.0, 16.0)
+    _ko.rotation_euler = (_tgt - _ko.location).to_track_quat('-Z', 'Y').to_euler()
+    _ko.light_linking.receiver_collection = COB
+    _h = bpy.data.lights.new(f'headkey{_sg}', 'SPOT')            # a tighter lamp on the skull: lights the brow, lens and snout
+    _h.energy = float(arg('--hkey', 9000.0, float))
+    _h.color = (1.0, 0.86, 0.66)
+    _h.spot_size = 0.16
+    _h.spot_blend = 0.6
+    _h.shadow_soft_size = 0.8
+    _ho = link(bpy.data.objects.new(f'headkey{_sg}', _h))
+    _ho.location = _hp + Vector((-_sg * 3.0, -13.0, 5.5))
+    _ho.rotation_euler = (_hp - _ho.location).to_track_quat('-Z', 'Y').to_euler()
+    _ho.light_linking.receiver_collection = COB
+
+# C2 r15 (board r14 'the copper relic is carved but small and dim - make it the throne's brightest focal point'): its own warm key + a cool-white rim, linked
+# to the relic only, so it outshines the witchfire and the stone around it.
+_rk = bpy.data.lights.new('relickey', 'SPOT')
+_rk.energy = float(arg('--rkey', 17000.0, float))
+_rk.color = (1.0, 0.80, 0.58)
+_rk.spot_size = 0.20
+_rk.spot_blend = 0.5
+_rk.shadow_soft_size = 1.6
+_rko = link(bpy.data.objects.new('relickey', _rk))
+_rko.location = (AXE_HEAD.x - 3.5, -19.0, AXE_HEAD.z + 6.5)
+_rko.rotation_euler = (AXE_HEAD - _rko.location).to_track_quat('-Z', 'Y').to_euler()
+_rko.light_linking.receiver_collection = REL
+_rr = bpy.data.lights.new('relicrim', 'SPOT')
+_rr.energy = float(arg('--rrim', 4500.0, float))
+_rr.color = (1.0, 0.92, 0.80)
+_rr.spot_size = 0.24
+_rr.spot_blend = 0.5
+_rr.shadow_soft_size = 1.0
+_rro = link(bpy.data.objects.new('relicrim', _rr))
+_rro.location = (AXE_HEAD.x + 5.5, -6.0, AXE_HEAD.z + 6.5)
+_rro.rotation_euler = (AXE_HEAD - _rro.location).to_track_quat('-Z', 'Y').to_euler()
+_rro.light_linking.receiver_collection = REL
 
 # off-camera emissive reflector cards (invisible to the camera): give the copper cheeks and wet scales warm / green gradients to reflect
 def reflector(name, loc, size, col, strength, aim):

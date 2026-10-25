@@ -268,8 +268,8 @@ for (tx, th_, ln, dp, kd, sd) in [(60, 300, .12, .12, 'dead', 1), (330, 190, -.1
 import json
 TF = (1110.0, 395.0, 750.0)            # frame top-left x, y and width (authoring px); the frame is 1.10 : 1
 TH = TF[2] / 1.10
-FR_NPY = os.path.join(ROOT, 'progress', 'tmp', 'throne_rgba.npy')
-FR_KEY = os.path.join(ROOT, 'progress', 'tmp', 'throne_keys.json')
+FR_NPY = os.environ.get('KCA_THRONE_NPY') or os.path.join(ROOT, 'progress', 'tmp', 'throne_rgba.npy')
+FR_KEY = os.environ.get('KCA_THRONE_KEY') or os.path.join(ROOT, 'progress', 'tmp', 'throne_keys.json')
 
 
 def resample(a, w, h):
@@ -327,14 +327,14 @@ def witch_glow(img, cx, cy, unit, seed):
     gy0, gy1, gx0, gx1 = int(max(0, cy - hgt * 2.4)), int(min(H, cy + hgt * .6)), int(max(0, cx - hgt * 1.8)), int(min(W, cx + hgt * 1.8))
     Yg, Xg = np.mgrid[gy0:gy1, gx0:gx1].astype(np.float32)
     gl = np.exp(-(np.hypot((Xg - cx) * 1.1, (Yg - (cy - hgt * .5)) * .8) / (hgt * .70)) ** 1.3)
-    img[gy0:gy1, gx0:gx1] += np.array([.08, .52, .06], np.float32) * (gl * .36)[..., None] + np.array([.2, .9, .18], np.float32) * (np.exp(-(np.hypot(Xg - cx, Yg - (cy - hgt * .35)) / (hgt * .24)) ** 1.6) * .22)[..., None]
+    img[gy0:gy1, gx0:gx1] += np.array([.16, .48, .12], np.float32) * (gl * .30)[..., None] + np.array([.40, .85, .30], np.float32) * (np.exp(-(np.hypot(Xg - cx, Yg - (cy - hgt * .35)) / (hgt * .24)) ** 1.6) * .16)[..., None]      # r15: lower saturation
     for _ in range(14):                                                      # motes
         mx = cx + r_.normal(0, .5) * unit * 1.2; my = cy - r_.uniform(.9, 3.6) * unit * 1.35
         rad = r_.uniform(.9, 2.2) * max(S, .6); a_ = r_.uniform(.35, .95)
         x0, x1, y0, y1 = int(max(0, mx - 8)), int(min(W, mx + 8)), int(max(0, my - 8)), int(min(H, my + 8))
         if x1 > x0 and y1 > y0:
             yy2, xx2 = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-            img[y0:y1, x0:x1] += np.array([.45, 1.0, .25], np.float32) * (a_ * np.exp(-(np.hypot(xx2 - mx, yy2 - my) / rad) ** 2))[..., None]
+            img[y0:y1, x0:x1] += np.array([.55, 1.0, .40], np.float32) * (a_ * np.exp(-(np.hypot(xx2 - mx, yy2 - my) / rad) ** 2))[..., None]
     return img
 
 
@@ -361,9 +361,10 @@ if os.path.exists(FR_NPY):
     FL_NPY = FR_NPY.replace('.npy', '_flames.npy')
     if os.path.exists(FL_NPY):
         fl = np.clip(resample(np.load(FL_NPY).astype(np.float32), fw, fh), 0, None)[..., :3]
-        soft = fl * .60
-        for sg_, wt_ in ((2.0, .30), (6.5, .26), (16.0, .14)):
+        soft = fl * .52
+        for sg_, wt_ in ((2.0, .26), (6.5, .20), (16.0, .10)):      # r15: flame layer ~20% lower in luma so the copper relic is the brightest read
             soft = soft + np.stack([blur(fl[..., c_], max(1, int(round(sg_ * S)))) for c_ in range(3)], -1) * wt_
+        soft = soft * float(os.environ.get('KCA_FLAME_GAIN', '0.50'))      # r15: the flames sit below the relic in luma (board r14 'witchfire pulls focus from the relic')
         img[ty0 + cy0:ty0 + cy1, tx0 + cx0:tx0 + cx1] += soft[cy0:cy1, cx0:cx1]
     if kj:
         for k_, br in enumerate(kj['braziers']):
@@ -373,7 +374,7 @@ if os.path.exists(FR_NPY):
         axx, axy = (TF[0] + ax_['x'] * TF[2]) * S, (TF[1] + ax_['y'] * TH) * S
         x0_, x1_, y0_, y1_ = int(max(0, axx - 90 * S)), int(min(W, axx + 90 * S)), int(max(0, axy - 70 * S)), int(min(H, axy + 70 * S))
         Yg, Xg = np.mgrid[y0_:y1_, x0_:x1_].astype(np.float32)
-        img[y0_:y1_, x0_:x1_] += np.array([1.0, .45, .14], np.float32) * (np.exp(-(np.hypot(Xg - axx, Yg - axy) / (34 * S)) ** 1.4) * (.03 if kj.get('flames') == 'rendered' else .32))[..., None]
+        img[y0_:y1_, x0_:x1_] += np.array([1.0, .45, .14], np.float32) * (np.exp(-(np.hypot(Xg - axx, Yg - axy) / (34 * S)) ** 1.4) * (.07 if kj.get('flames') == 'rendered' else .32))[..., None]
     # low violet-ember mist at the dais foot, over the asset's base, drifting in two layers
     fy0 = int((TF[1] + TH * .62) * S)
     mist_y = (Y1 - (TF[1] + TH * .83)) / 60.0

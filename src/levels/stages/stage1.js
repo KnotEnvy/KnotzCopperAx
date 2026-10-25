@@ -167,7 +167,7 @@ export default {
           {sy:.35+rng.next()*.8,sx:.6+rng.next()*1.15,buried:.18+rng.next()*.27});
       }
     }
-    buildTerrain(ctx, HUTS, rocks);
+    await buildTerrain(ctx, HUTS, rocks);
     scatterRocks(ctx, mats.rock, rocks, villageKit);
     buildWoodProps(ctx, mats, fx, rocks, HUTS);
     buildForeground(ctx);

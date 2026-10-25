@@ -167,11 +167,18 @@ def p_iron(c, pal):
 
 
 def p_steel(c, pal):
+    # C2 r10 (board r9: the iron rank's spiked head blew out to near-white chrome, brighter than its armour): the
+    # edge colour / roughness / metalness are palette keys (defaults = the old bright steel for club / mace / flanged);
+    # 'spiked' = worn gunmetal -- mid-steel edges, rough hammered surface, dark oxide in the pits
     n1 = c.noise(40.0, 2, 93)
-    rgb = np.tile(pal["steel"], (c.n, 1)) * (1.0 + 0.06 * n1)[:, None]
-    rgb = shaders.mix(rgb, shaders.srgb(225, 228, 234), 0.7 * shaders.smooth01(c.ridge, 0.05, 0.4))
+    n2 = c.noise(9.0, 2, 97)
+    rgb = np.tile(pal["steel"], (c.n, 1)) * (1.0 + 0.06 * n1 + pal.get("steel_mott", 0.0) * n2)[:, None]
+    rgb = shaders.mix(rgb, pal.get("steel_edge", shaders.srgb(225, 228, 234)),
+                      pal.get("steel_edge_amt", 0.7) * shaders.smooth01(c.ridge, 0.05, 0.4))
     rgb = shaders.mix(rgb, rgb * 0.4, 0.6 * c.cav)
-    return shaders.out(c.n, rgb, np.clip(0.26 + 0.08 * n1, 0.1, 0.6), 0.85)
+    r0 = pal.get("steel_rough", 0.26)
+    rough = r0 + 0.08 * n1 + pal.get("steel_rough_var", 0.0) * shaders.smooth01(n2, -0.3, 0.5) + 0.2 * c.cav * (r0 > 0.3)
+    return shaders.out(c.n, rgb, np.clip(rough, 0.1, 0.85), pal.get("steel_metal", 0.85))
 
 
 def p_cloth(c, pal):
@@ -191,6 +198,9 @@ PALS = {
                     rust=shaders.srgb(70, 44, 60), rust_amt=0.35, cloth=shaders.srgb(96, 36, 142),
                     steel=shaders.srgb(180, 182, 188)),
     "spiked": dict(wood=shaders.srgb(60, 42, 32), steel=shaders.srgb(66, 69, 78), iron=shaders.srgb(70, 72, 78),  # C2 r7 gunmetal
+                   # C2 r10: worn gunmetal head (no chrome): mid-steel edges, roughness 0.5-0.7, a little less metal
+                   steel_edge=shaders.srgb(132, 136, 146), steel_edge_amt=0.45, steel_rough=0.5, steel_rough_var=0.18,
+                   steel_metal=0.75, steel_mott=0.08,
                    iron_hi=shaders.srgb(200, 200, 206), rust=shaders.srgb(90, 60, 42), rust_amt=0.2,
                    leather_dark=shaders.srgb(36, 26, 20)),
 }
@@ -256,9 +266,16 @@ def build_one(key, args):
 
 
 def build(args):
+    global OUT_MODELS, OUT_TEX
+    rep_dir = os.path.join(HERE, "out")
+    if getattr(args, "outdir", None):     # C2 r10: staging build (models/ textures/ report in <outdir>; promote by hand)
+        od = os.path.abspath(args.outdir)
+        OUT_MODELS, OUT_TEX, rep_dir = os.path.join(od, "models"), os.path.join(od, "textures"), od
+        os.makedirs(OUT_MODELS, exist_ok=True)
+        os.makedirs(OUT_TEX, exist_ok=True)
     which = (getattr(args, "which", None) or "club,mace,flanged,spiked").split(",")
     reps = {k: build_one(k, args) for k in which}
-    pipeline.write_json(os.path.join(HERE, "out", "marauder_weapons_report.json"), reps)
+    pipeline.write_json(os.path.join(rep_dir, "marauder_weapons_report.json"), reps)
 
 
 if __name__ == "__main__":
@@ -267,4 +284,5 @@ if __name__ == "__main__":
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--device", default="AUTO")
     ap.add_argument("--which", default=None)
+    ap.add_argument("--outdir", default=None)
     build(ap.parse_args(argv))

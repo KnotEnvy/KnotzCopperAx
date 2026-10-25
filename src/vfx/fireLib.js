@@ -142,8 +142,8 @@ export class FirePool {
       size:[width*1.7,height*.34],phase:phase+.31,core:.08,alpha:alpha*.85});
     return {bed,tongue};
   }
-  /** Coherent impact combustion. Flame centres follow the posed chest through knockback;
-   * unequal frame offsets, dimensions and lifetimes avoid repeated floating stamps. */
+  /** One connected mantle, cooling residue and advected soot share the posed chest
+   * displacement through knockback. Tips evolve inside the eight-frame mantle. */
   emitCombustion({pos=[0,1,0],target=null,scale=1,dir=1}={}) {
     const node=target?.modelRoot?.getObjectByName('chest') || target?.modelRoot;
     let follow=null;
@@ -154,29 +154,30 @@ export class FirePool {
       const initial=target.pos.clone(),current=new THREE.Vector3();
       follow=()=>current.copy(target.pos).sub(initial);
     }
-    const handles=[];
-    for(const [x,y,w,h,phase,life,mirror,skew] of [
-      [0,0,1.20,1.40,0,.355,dir,-.17],
-      [-.24,-.15,.72,.86,.23,.280,-dir,.26],
-      [.24,.09,.58,1.02,.44,.310,dir,.12]]) {
-      handles.push(this.emit({clip:'fireBurst',pos:[pos[0]+x*dir*scale,pos[1]+y*scale,pos[2]+.025],
-        size:[w*scale,h*scale],phase,life,mirror,skew,follow,core:1.8,radiance:1.8,
-        erosion:0,rot:dir*(phase-.15)*.34,grow:-.12,growY:.08}));
-    }
-    this.emit({clip:'smoke',pos:[pos[0],pos[1]+.12,pos[2]-.08],size:[1.45*scale,1.8*scale],
-      life:.54,delay:.075,fadeIn:.06,core:0,alpha:.85,vel:[dir*.18,.55,0],grow:.45});
-    return handles;
+    // One fused mantle replaces the three offset white-root stamps. The second
+    // transient is a small attached ember residue, never another floating tongue.
+    const mantle=this.emit({clip:'fireBurst',pos:[pos[0],pos[1]+.30*scale,pos[2]+.025],
+      size:[1.75*scale,2.0*scale],life:.495,follow,core:1.35,radiance:1.65,
+      erosion:0,mirror:dir,grow:-.08,growY:-.04});
+    const residue=this.emit({clip:'embers',pos:[pos[0],pos[1]-.20*scale,pos[2]+.04],
+      size:[.80*scale,.85*scale],life:.40,delay:.22,fadeIn:.04,follow,core:.8,alpha:.85,grow:-.30});
+    this.emit({clip:'smoke',pos:[pos[0],pos[1]+.24,pos[2]-.08],size:[1.30*scale,1.7*scale],
+      life:.54,delay:.11,fadeIn:.10,follow,core:0,alpha:.58,vel:[dir*.10,.42,0],grow:.32});
+    return [mantle,residue];
   }
+
   emit({ clip = 'flame', pos = [0,0,0], size = [1,1], life = .4, loop = false, phase = 0,
     rot = 0, tint = '#ffffff', alpha = 1, core = .65, erosion = .15, vel = [0,0,0], grow = 0, soft = 0, floor = 0, delay = 0, spin = 0, growY = grow,
     additive = false, rooted = false, spread = true, emberBed = false, fadeIn = 0, radiance = 0, mirror = 1, skew = 0, follow = null } = {}) {
     if (!(clip in FIRE_CLIPS)) throw new Error(`Unknown fire clip: ${clip}`);
     if (this.items.length >= this.capacity) return null;
+    const fuelSize=size;
     // Existing roof anchors keep their floor/contact. Fill the burning edge with
     // a wider three-lobe cluster; no interpolation/geometry across the aperture.
     if (rooted && clip==='flame' && !emberBed) {
-      size=[size[0]*1.95,size[1]*1.38];
-      pos=[pos[0],pos[1]+size[1]*.025,pos[2]];
+      const oldHeight=size[1];
+      size=[size[0]*1.60,oldHeight*3.30];
+      pos=[pos[0],pos[1]+(size[1]-oldHeight)*.40,pos[2]];
     }
     if (loop && clip==='smoke') {
       // The tall roof plume must crest the roofline; its lower companion stays in the hole.
@@ -184,7 +185,7 @@ export class FirePool {
       size=[size[0]*1.38,size[1]]; alpha=Math.min(1,alpha*1.45);
     }
     const c = new THREE.Color(tint);
-    if(loop && clip==='smoke') c.lerp(new THREE.Color('#ffffff'),.65);
+    if(loop && clip==='smoke') c.lerp(new THREE.Color('#ffffff'),.82);
     const o={ row: FIRE_CLIPS[clip], pos:[...pos], size:[...size], life:Math.max(.001,life), loop, phase:((phase%1)+1)%1, rot,
       tint:[c.r,c.g,c.b], alpha, core, erosion, vel:[...vel], grow, growY, spin, soft, floor, additive, rooted, emberBed, fadeIn, radiance, mirror, follow, origin:follow ? [...pos] : null, skew:Math.max(-.4,Math.min(.4,skew)), age:-delay };
     this.items.push(o);
@@ -193,7 +194,7 @@ export class FirePool {
     // Reserve the climbing tongue first; a full pool drops only the secondary bed.
     if(rooted && spread && clip==='flame' && loop && this.items.length<this.capacity) {
       this.emit({clip:'flame',rooted:true,spread:false,emberBed:true,loop:true,
-        pos:[pos[0],floor+size[1]*.14,pos[2]+.015],size:[size[0]*1.6,size[1]*.30],
+        pos:[pos[0],floor+fuelSize[1]*.06,pos[2]+.015],size:[fuelSize[0]*2.5,fuelSize[1]*.34],
         life,phase:phase+.31,tint,alpha:alpha*.82,core:.08,soft:soft*.5,floor,radiance});
     }
     this.update(0); return o;
@@ -217,7 +218,7 @@ export class FirePool {
       const onset=o.fadeIn>0 ? Math.min(1,o.age/o.fadeIn) : 1;
       A.iTint.setXYZW(n,o.tint[0],o.tint[1],o.tint[2],o.alpha*onset*(o.loop ? 1 : 1-Math.max(0,(t-.65)/.35)));
       A.iExtra.setXYZW(n,o.additive ? 1 : 0,o.emberBed ? 2 : o.rooted ? 1 : 0,o.radiance,(o.mirror<0 ? -1 : 1)*(1+o.skew));
-      const cool=Math.max(0,Math.min(1,(o.age-.030)/.035));
+      const cool=Math.max(0,Math.min(1,(o.age-(o.row===FIRE_CLIPS.blunt ? .066 : .045))/.040));
       const heat=impact ? 1-cool*cool*(3-2*cool) : 1;
       A.iLife.setXYZW(n,o.loop ? 0 : o.erosion*t,o.core*heat,o.soft,o.floor); n++;
     }

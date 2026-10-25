@@ -45,18 +45,25 @@ export function stoneSurface() {
 export function stoneMaterial(color, glow, veins, protect, basalt = false) {
   const tex = stoneSurface();
   const mat = new THREE.MeshStandardMaterial({ color, map: tex.map, bumpMap: basalt ? null : tex.bump, bumpScale: .055,
-    normalMap: basalt ? tex.normal : null, normalScale: new THREE.Vector2(.85,.85),
+    normalMap: basalt ? tex.normal : null, normalScale: new THREE.Vector2(.75,.75),
     aoMap: basalt ? tex.ao : null, aoMapIntensity: .85,
     roughness: basalt ? 1 : .91, metalness: 0, flatShading: true, vertexColors: basalt,
     emissive: new THREE.Color(glow), emissiveMap: basalt ? null : veins, emissiveIntensity: 0,
     transparent: false, depthWrite: true });
   const heatGain = mat.userData.stoneHeatGain = { value: 1 };
+  const stoneFill = mat.userData.stoneFill = { value: .24 };
   mat.onBeforeCompile = (shader) => {
     // Low rock-coloured fill preserves shaded stone during the spell's cinematic world-darkening.
     shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>',
       '#include <emissivemap_fragment>\n totalEmissiveRadiance += diffuseColor.rgb * 0.2;');
     if (basalt) {
       shader.uniforms.uStoneGain = heatGain;
+      shader.uniforms.uStoneFill = stoneFill;
+      // The packed bake supplies cavity (R) and mineral roughness (G) in one texture read.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>',
+        '#include <roughnessmap_fragment>\n vec4 stoneCavity = texture2D(aoMap, vAoMapUv); roughnessFactor *= stoneCavity.g;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>',
+        THREE.ShaderChunk.aomap_fragment.replace('texture2D( aoMap, vAoMapUv ).r', 'stoneCavity.r'));
       shader.vertexShader = `attribute float aStoneHeat; attribute float aStoneBounce; attribute float aStoneEnergy;
         attribute vec3 aStonePivot; attribute float aStoneSeed; attribute vec2 aStoneCollapse;
         varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy; varying float vStoneFall;
@@ -82,7 +89,7 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
         transformed += vec3(cos(seed) * fall * 1.3 / sz.x, dy / sz.y, sin(seed) * fall * .9 / sz.z);
         }
       `);
-      shader.fragmentShader = 'uniform float uStoneGain; varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy; varying float vStoneFall;\n' + shader.fragmentShader;
+      shader.fragmentShader = 'uniform float uStoneGain; uniform float uStoneFill; varying float vStoneHeat; varying float vStoneBounce; varying float vStoneEnergy; varying float vStoneFall;\n' + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         float heat = max(0.,vStoneHeat) * vStoneEnergy;
         float mineral = clamp(texture2D(map, vMapUv).r * 1.8, .35, 1.);
@@ -97,24 +104,25 @@ export function stoneMaterial(color, glow, veins, protect, basalt = false) {
         // newly exposed breaks light from within, then cool orange -> red over half a second.
         float fracture = max(0.,-vStoneHeat) * step(.0001,vStoneFall);
         float coal = fracture * exp(-vStoneFall*3.2);
-        vec3 broken = mix(vec3(.8,.022,.001),vec3(5.,1.15,.075),smoothstep(.10,.65,coal));
-        totalEmissiveRadiance += broken * coal * mineral * uStoneGain;
+        vec3 broken = mix(vec3(.25,.009,.001),vec3(1.15,.18,.012),smoothstep(.10,.65,coal));
+        // Fresh cap heat remains below the old full-face bloom wash.
+        totalEmissiveRadiance += broken * coal * mineral * min(uStoneGain,1.);
         totalEmissiveRadiance += vec3(.55,.12,.015) * pow(vStoneBounce,1.35) * vStoneEnergy * mineral * uStoneGain;
         // Rock-coloured ambient fill keeps falling shaded facets readable against the ground.
-        totalEmissiveRadiance += diffuseColor.rgb * (.28 + .65*step(.0001,vStoneFall)*exp(-vStoneFall*2.));
+        totalEmissiveRadiance += diffuseColor.rgb * (uStoneFill + .18*step(.0001,vStoneFall)*exp(-vStoneFall*2.));
       `);
     }
     if (basalt) shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
       // Basalt pigment retains its dark value under the stage-2 gold boss key.
-      reflectedLight.indirectDiffuse *= .30;
+      reflectedLight.indirectDiffuse *= vec3(.33,.30,.27);
       reflectedLight.directDiffuse = min(reflectedLight.directDiffuse, diffuseColor.rgb * .65);
       // Rough basalt must not inherit a pale gold specular board from the boss/caster key.
-      reflectedLight.directSpecular = min(reflectedLight.directSpecular, diffuseColor.rgb * .12);
-      reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, diffuseColor.rgb * .08);
+      reflectedLight.directSpecular = min(reflectedLight.directSpecular, diffuseColor.rgb * vec3(.06,.055,.05));
+      reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, diffuseColor.rgb * vec3(.025,.023,.02));
     `);
 
   };
-  mat.customProgramCacheKey = () => `earth_stone_c2_r13_${protect ? 'protected' : 'solid'}_${basalt ? 'basalt' : 'rock'}`;
+  mat.customProgramCacheKey = () => `earth_stone_c2_r14_${protect ? 'protected' : 'solid'}_${basalt ? 'basalt' : 'rock'}`;
   return mat;
 }
 

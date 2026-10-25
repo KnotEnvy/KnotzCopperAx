@@ -104,6 +104,24 @@ try {
         await page.evaluate(() => window.__KCA.setManualClock && window.__KCA.setManualClock(true));
         await adv(P.warm);
       } catch (e) { const rec = { size: `${W}x${H}`, name: pid + '_LOAD', pass: false, count: 0, problems: ['LOAD FAILED ' + String(e.message).split('\n')[0]], errors: errs }; results.push(rec); console.log('FAIL', rec.size, rec.name, rec.problems[0]); await page.close(); continue; }
+      if (pid === 'title') {
+        // C2 r15 (board r14: perf/select_hands.json reported "EB Garamond 400 italic: unloaded" while the ranking uses italic titles): after the warm-up every
+        // bundled EB Garamond face - the italic included - must be LOADED, else the first italic run paints a synthesised faux-italic. Fails like any state.
+        const rec = { size: `${W}x${H}`, name: 'fonts_loaded', pass: false, count: 0, problems: [], errors: [] };
+        try {
+          const faces = await page.evaluate(async () => {
+            const out = []; document.fonts.forEach((f) => { if (f.family.replace(/"/g, '') === 'EB Garamond') out.push(`${f.weight} ${f.style}: ${f.status}`); });
+            return { out, italicCheck: document.fonts.check('italic 400 16px "EB Garamond"') };
+          });
+          rec.count = faces.out.length;
+          for (const f of faces.out) if (!f.endsWith('loaded')) rec.problems.push('font face not loaded: ' + f);
+          if (!faces.out.some((f) => f.includes('italic'))) rec.problems.push('no italic EB Garamond face declared');
+          if (!faces.italicCheck) rec.problems.push('document.fonts.check(italic 400 EB Garamond) is false');
+        } catch (e) { rec.problems.push('ERROR ' + String(e.message).split('\n')[0]); }
+        rec.pass = rec.problems.length === 0;
+        results.push(rec);
+        console.log(`${rec.pass ? 'PASS' : 'FAIL'} ${rec.size} ${rec.name} (${rec.count} faces)${rec.problems.length ? '\n   ' + rec.problems.join('\n   ') : ''}`);
+      }
       for (const st of P.states) {
         if (onlyStates && !onlyStates.some((o) => st.name.startsWith(o))) { if (st.run && !onlyStates.length) continue; }
         const rec = { size: `${W}x${H}`, name: st.name, pass: false, count: 0, problems: [], errors: [] };

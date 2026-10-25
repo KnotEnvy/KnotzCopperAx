@@ -58,6 +58,7 @@ export class Enemy extends Combatant {
       hp: Math.round((opts.hp ?? def.hp ?? 30) * (rank && opts.hp === undefined ? rank.hp : 1)), radius: def.radius ?? 0.36, height: def.height ?? 1.8,
       boundsMode: 'band', weight: def.weight ?? 1, mass: def.mass ?? 1.5,
       downTicks: def.downTicks ?? 34, getupInvuln: def.getupInvuln ?? 20, // back up quicker than heroes (pressure)
+      cheatYaw: def.cheatYaw, // C2 r15 (enemies-ai; Enemy Art B ask): per-type camera cheat, unset → Actor default 0.32 rad
     });
     this.speed = def.speed ?? 2.4;
     this.getupTicks = def.getupTicks ?? 24; // quicker get-up than heroes (30)

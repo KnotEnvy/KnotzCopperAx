@@ -139,7 +139,7 @@ export class DebrisPool {
       _ax.set(this.axis[o], this.axis[o + 1], this.axis[o + 2]);
       _q.setFromAxisAngle(_ax, this.ang[i]);
       const k = this.kind[i];
-      if (k === 4) _s.set(s * 0.22, s * 2.8, s * 0.12); else if (k === 2) _s.set(s * 0.35, s * 2.2, s * 0.35); else if (k === 1) _s.set(s * 1.2, s * 0.8, s * 1.1); else _s.set(s, s, s);
+      if (k === 4) _s.set(s * 0.30, s * 4.2, s * 0.20); else if (k === 2) _s.set(s * 0.35, s * 2.2, s * 0.35); else if (k === 1) _s.set(s * 1.2, s * 0.8, s * 1.1); else _s.set(s, s, s);
       _p.set(this.pos[o], this.pos[o + 1], this.pos[o + 2]);
       _m.compose(_p, _q, _s);
       _m.toArray(M, i * 16);

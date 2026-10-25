@@ -75,8 +75,8 @@ def atlas():
             x=-1+2*i/resolution
             seam=min(abs(y-.21*x-.14),abs(y+.75*x+.48),abs(x-.38-.10*math.sin(y*4)))
             groove=.032*math.exp(-(seam/.014)**2)
-            grain=.004*math.sin(x*71+math.sin(y*31)) * math.sin(y*83-x*19)
-            flake=.009*math.sin(x*12+y*7)*math.sin(y*16-x*5)
+            grain=.008*math.sin(x*117+math.sin(y*51)*2) * math.sin(y*133-x*39)
+            flake=.016*math.sin(x*27+y*17)*math.sin(y*36-x*15)
             vertices.append((x+9,y,.055+grain+flake-groove))
     for j in range(resolution):
         for i in range(resolution):
@@ -147,7 +147,7 @@ class Build:
         side.normalize(); up=axis.cross(side); rings=[]; sides=3 if r<.02 else 6
         ts=[0,1] if r<.03 else [0,.48,1]
         for t in ts:
-            rr=r*(1-.18*t); rings.append([a.lerp(b,t)+side*(math.cos(i*math.tau/sides)*rr)+up*(math.sin(i*math.tau/sides)*rr) for i in range(sides)])
+            rr=r*(1-.18*t+.10*math.sin(t*7+a.x*4+a.y*3)); bow=side*(math.sin(t*math.pi)*r*.48*math.sin(a.x*9+a.z*3)); rings.append([a.lerp(b,t)+bow+side*(math.cos(i*math.tau/sides)*rr*(1+.10*math.sin(i*5+a.x)))+up*(math.sin(i*math.tau/sides)*rr) for i in range(sides)])
         for j in range(len(ts)-1):
             for i in range(sides):
                 k=(i+1)%sides;self.face([rings[j][i],rings[j][k],rings[j+1][k],rings[j+1][i]],tile,[(i/sides,.02),(k/sides,.02),(k/sides,.98),(i/sides,.98)],col,ember)
@@ -190,7 +190,9 @@ class Build:
                 moss=max(0,1-abs(height-.12)/.19)*(.45+.55*max(0,math.sin(pp[j][0]*12+pp[j][1]*9))) if foundation else 0
                 mineral=np.array((.98,.92,.80))*tone*contact*soot
                 # Small fresh split planes, broad mineral faces, dark bedding.
-                if len(f)<=4 and crown>.3:mineral*=1.22
+                if len(f)<=4 and crown>.3:mineral*=1.04
+                # Crown facets are weathered, not a uniformly lit bevelled lid.
+                if crown>.55:mineral*=.72+.10*math.sin(pp[j][0]*19+pp[j][1]*23)
                 green=np.array((.23,.31,.075))*contact
                 cols.append(tuple(mineral*(1-moss*.72)+green*moss*.72))
             n=(Vector(pp[1])-Vector(pp[0])).cross(Vector(pp[2])-Vector(pp[0]))
@@ -224,16 +226,18 @@ for k in range(3):
     rng=random.Random(901+k*37)
     profile=[(1.0,.76,1.05),(1.26,.68,.65),(.62,.72,1.48)][k]
     bm=bmesh.new()
-    for z in [-.62,.65]:
+    for z in [-.62,.02,.65]:
         for x,y in [(-1,-.63),(-.55,-1),(.65,-.94),(1,-.35),(.86,.75),(.10,1),(-.88,.70)]:
-            taper=1 if z<0 else [.80,.98,.63][k]
+            taper=1 if z<0 else ([1.02,.94,.91][k] if z<.1 else [.60,.82,.48][k])
             px=(x*taper+rng.uniform(-.13,.13))*profile[0]
             py=(y*taper+rng.uniform(-.12,.12))*profile[1]
-            pz=(z+.10*x+(.16*y if k==0 else 0)+rng.uniform(-.10,.10))*profile[2]+.17
+            pz=(z+.25*x+.18*y+rng.uniform(-.23,.23))*profile[2]+.10
             bm.verts.new((px,py,pz))
     hull=bmesh.ops.convex_hull(bm,input=list(bm.verts))
     bmesh.ops.delete(bm,geom=hull.get('geom_interior',[]),context='VERTS')
-    bmesh.ops.bevel(bm,geom=list(bm.edges),offset=.055,segments=2,affect='EDGES')
+    # Chisel only selected edges, with small unequal chips, never round every edge.
+    edges=[e for i,e in enumerate(bm.edges) if i%3!=0]
+    bmesh.ops.bevel(bm,geom=edges,offset=.035,segments=1,affect='EDGES')
     bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces))
     bm.verts.ensure_lookup_table();bm.verts.index_update()
     vv=[tuple(v.co) for v in bm.verts];ff=[tuple(v.index for v in f.verts) for f in bm.faces]
@@ -241,7 +245,7 @@ for k in range(3):
     B=Build('stone_'+str(k));B.stone(vv,ff,np.zeros(3),np.ones(3));objects.append(B.finish())
 
 specs=[(19,5.2,3.9,2.5,.5,None,False),(3,5.6,4,2.5,.75,1,False),(5,5.4,3.9,2.5,0,None,True),(7,6,4.2,2.8,1,-.6,False),(11,5.2,3.9,2.5,.35,1.2,False),(13,5.8,3.9,2.5,.8,None,False),(17,5.4,3.9,2.5,0,None,True)]
-meta={'version':2,'revision':'C2-r15-collapsed-recesses-warm-stone','fast':FAST,'stoneBake':{'normal':'selected-to-active carved relief','ao':'Cycles cavity AO multiplied into albedo','atlasSize':1024 if FAST else 2048},'huts':{}}
+meta={'version':2,'revision':'C2-r16-split-stone-broken-sheaves','fast':FAST,'stoneBake':{'normal':'selected-to-active carved relief','ao':'Cycles cavity AO multiplied into albedo','atlasSize':1024 if FAST else 2048},'huts':{}}
 for seed,w,d,rise,collapse,hu,gutted in specs:
     rng=random.Random(seed);B=Build('hut_'+str(seed));C=Build('straw_'+str(seed)); wall=2.05;H=wall+rise;hx=w/2;hz=d/2;hu=hu if hu is not None else hx*.4
     # Hand-laid mixed footing: large sunk blocks, slabs bridging gaps, small
@@ -326,8 +330,9 @@ for seed,w,d,rise,collapse,hu,gutted in specs:
             elif side==-1:
                 for z in np.arange(.65,wall-.1,.13):
                     if bay==0 and not gutted and z<1.72:continue
-                    B.beam((x0+.1,-hz-.03,z),(x1-.1,-hz-.045,z+rng.uniform(-.035,.035)),.021,col=(1.5,1.35,1.1))
-                for x in np.arange(x0+.18,x1,.27):B.beam((x,-hz-.055,.5),(x,-hz-.06,wall-.1),.025)
+                    if rng.random()>.14:B.beam((x0+rng.uniform(.04,.22),-hz-.03,z+rng.uniform(-.05,.05)),(x1-rng.uniform(.04,.30),-hz-.045,z+rng.uniform(-.10,.10)),rng.uniform(.013,.026),col=(1.1,1.0,.78))
+                for x in np.arange(x0+.18,x1,.31):
+                    if rng.random()>.15:B.beam((x,-hz-.055,rng.uniform(.40,.70)),(x+rng.uniform(-.09,.09),-hz-.06,wall-rng.uniform(.06,.36)),rng.uniform(.016,.027))
     if not gutted:
         for x in [-hx,hx]:
             B.box((x,0,1.2),(.055,hz-.1,.8),2,col=(.75,.71,.64))
@@ -390,7 +395,7 @@ for seed,w,d,rise,collapse,hu,gutted in specs:
             h=hole(u,v)
             # Carbon directly tints each straw card over 2-3 adjacent courses.
             # No brown intermediate halo: weathered reed -> grey ash -> black.
-            burn=clamp((1.27-h+.045*math.sin(u*23-v*17))/.21)
+            burn=clamp((1.40-h+.065*math.sin(u*43-v*6))/.20)
             soot=0
             if side==-1:
                 soot=math.exp(-((u-hu)/(1.0+collapse*.75))**2)*clamp((slope*.46-v)/.75)*(.54+.30*math.sin(u*13+v*.7)**2)
@@ -399,7 +404,7 @@ for seed,w,d,rise,collapse,hu,gutted in specs:
             straw=np.array((.90,.77,.59))*(1-weather)+np.array((.52,.60,.65))*weather
             straw*=.63+.42*patch
             straw*=1-soot*.38
-            char=np.array((.045,.052,.057))*(.72+.48*abs(math.sin(u*31-v*17)))
+            char=np.array((.018,.020,.019))*(.72+.48*abs(math.sin(u*31-v*17)))
             return tuple(straw*(1-burn)+char*burn)
         stage1_straw.roof(B,C,rng,hx,H,slope,D,N,hole,paint,rim,side,sag)
     if C.f:objects.append(C.finish(STRAW))

@@ -22,7 +22,7 @@ export function terrainH(x, z) {
   return front * (0.5 + fbm2(x * 0.08, z * 0.1, 5, 3) * 0.9);
 }
 
-export function buildTerrain(ctx, huts = [], rocks = []) {
+export async function buildTerrain(ctx, huts = [], rocks = []) {
   const x0 = -70, x1 = 160, z0 = -120, z1 = 18;
   const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0, 230, 120);
   g.rotateX(-Math.PI / 2);
@@ -53,7 +53,7 @@ export function buildTerrain(ctx, huts = [], rocks = []) {
     mat.customProgramCacheKey = () => source.customProgramCacheKey() + '|s1DiffuseSoil';
     source.dispose();
   }
-  roadDetail(mat, huts);
+  await roadDetail(mat);
   groundFirelight(mat, huts, rocks);
   // Each ground fragment sampled the shared noise atlas at many scales with
   // four-way anisotropy. The shader already fades subpixel detail with fwidth;

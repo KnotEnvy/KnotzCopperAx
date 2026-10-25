@@ -10,6 +10,7 @@
 // ready instead of the imperious fist-on-hip. Walk: a heavy, forward-leaning stalk with the ball swinging ahead of the
 // lead foot. `&varkhulcarry=0` = the r12 upright stance (A/B).
 import { dir, W, torso, feet, gait } from './_kit.js';
+import { twoBeat, IDLE_R14 } from './_bossIdle.js';   // C2 r15: two-beat idle (&bossidle=r14 = old)
 
 const OLD = typeof location !== 'undefined' && /[?&]varkhulcarry=0/.test(location.search);
 
@@ -67,7 +68,7 @@ export default {
         k(0),
         k(90, { pose: T(1.6, 2), hips: [-0.01, -0.025, 0], wpn: FL(0.05, 5) }),
         k(180),
-      ] : [
+      ] : !IDLE_R14 ? twoBeat(180, k, { sway: 0.05, rise: 0.018, pitch: 6, roll: 3.2, yaw: 5, head: 13, lift: 0.04 }) : [
         k(0),
         // a slow, heavy breath: shoulders rise and roll back a touch, the flail fist lifts, then he settles forward again
         k(90, { pose: T(2.2, 2), hips: [-0.012, -0.068, 0], wpn: FL(-0.03, 6), handL: [FIST[0] - 0.03, FIST[1] + 0.03, FIST[2]] }),
