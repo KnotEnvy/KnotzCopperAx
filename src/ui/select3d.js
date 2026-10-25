@@ -21,13 +21,13 @@ export const SELECT_LIGHTING = {
   sky: { top: '#050508', horizon: '#10121a', bottom: '#050406', zenith: '#030306', sunDir: [0, 0.2, -1], sunColor: '#ff9a50', sunGlow: 0, hazeHeight: 0.4, stars: 0 },
   sun: { color: '#bccaf0', intensity: 3.3, dir: [-0.5, 0.8, 0.25], frustum: [-10, 10, 8, -4] },
   background: '#050407',
-  hemi: { sky: '#4c6592', ground: '#1c1a22', intensity: 0.5 },
+  hemi: { sky: '#4c6592', ground: '#1c1a22', intensity: 0.32 },   // C2 r16 0.5 -> 0.32 + fill 0.22 -> 0.12: the flat fill lit every hero's shadow side (board r15: flat, no modelling)
   rim: { color: '#86bcff', intensity: 2.0, dir: [-0.62, 0.4, -0.78] },
-  fill: { color: '#6a7aa8', intensity: 0.22, dir: [0, 0.3, 1] },
+  fill: { color: '#6a7aa8', intensity: 0.12, dir: [0, 0.3, 1] },
   fog: { color: '#07060a', near: 22, far: 62 },
   env: { intensity: 0.22 },
   exposure: 1.05,
-  character: { rim: '#a8d4ff', intensity: 0.55, power: 3.2, floor: 0.02, base: 0.0, edge: 1.7, width: 2.4, maxNdv: 0.5, key: { color: '#ffdcba', intensity: 1.7, wrap: 0.0, dir: [-0.72, 0.5, 0.48] }, ambient: '#6a7aa8', ambientIntensity: 0.13 },
+  character: { rim: '#a8d4ff', intensity: 0.7, power: 3.2, floor: 0.02, base: 0.0, edge: 1.7, width: 2.4, maxNdv: 0.5, key: { color: '#ffdcba', intensity: 1.7, wrap: 0.0, dir: [-0.86, 0.44, 0.26] }, ambient: '#6a7aa8', ambientIntensity: 0.13 },
   bloom: { intensity: 0.8, threshold: 0.85 },
 };
 export const HAND_X = [-3.9, 0, 3.9];
@@ -233,7 +233,7 @@ function buildVault(mat) {
     const hue = 0.5 + 0.5 * Math.sin(x * 0.22 + y * 0.15 + z * 0.1);
     // C2 r15: a darker value pocket behind each hero (centre deepest: Seraphine's teal / slate armour sat on the same mid-blue as the wall) so the figures part from it
     let pocket = 1;
-    for (const [cx, amt] of [[-3.9, 0.20], [0, 0.34], [3.9, 0.20]]) pocket -= amt * Math.exp(-(((x - cx) / 1.7) ** 2)) * Math.exp(-(((y - 3.6) / 3.4) ** 2));
+    for (const [cx, amt] of [[-3.9, 0.34], [0, 0.46], [3.9, 0.42]]) pocket -= amt * Math.exp(-(((x - cx) / 2.0) ** 2)) * Math.exp(-(((y - 3.3) / 3.4) ** 2));   // r16: deeper + wider (board r15: Brann / Gorrim merged with the wall)
     col[i * 3] = v * pocket * (0.9 + 0.12 * hue); col[i * 3 + 1] = v * pocket * (0.97 + 0.04 * hue); col[i * 3 + 2] = v * pocket * (1.04 - 0.1 * hue);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -248,15 +248,18 @@ function buildVault(mat) {
 // cool ambient (form instead of one orange plane); Seraphine's key is lifted and her scene light is pushed warm / slightly desaturated so she parts from the
 // blue-slate wall by hue AND value; Gorrim is lifted a touch. Seraphine's non-metal texels also get a roughness floor (cloth, not patent leather).
 const SELECT_GRADE = {
-  brann: { key: '#ffe2c8', keyMul: 0.92, amb: ['#7f93c8', 0.10], scene: [0.97, 1.0, 1.04] },
-  seraphine: { key: '#fff2e2', keyMul: 1.58, amb: ['#8a9ac8', 0.06], scene: [1.04, 1.0, 0.90], desat: 0.10, rough: 0.86 },
-  gorrim: { key: '#ffe6cc', keyMul: 1.12, amb: ['#7f93c8', 0.10] },
+  // C2 r16 (board r15 'Brann and Gorrim barely separate from the wall in greyscale; Seraphine flat, no cheek / jaw shadow'): every hero's rim is
+  // pushed (rimMul) so each reads as a bright edge against the darkened wall pocket; Seraphine's scene-lit share (hemi / fill / spot: flat light)
+  // drops and her directional key carries her, so she gets a lit side and a real shadow side.
+  brann: { key: '#ffe2c8', keyMul: 0.95, amb: ['#7f93c8', 0.09], scene: [0.95, 0.98, 1.03], rimMul: 1.7 },
+  seraphine: { key: '#ffe8d2', keyMul: 1.15, amb: ['#b4bdd6', 0.13], scene: [0.86, 0.83, 0.78], desat: 0.07, rough: 0.62, rimMul: 0.8 },
+  gorrim: { key: '#ffe6cc', keyMul: 1.18, amb: ['#7f93c8', 0.09], rimMul: 1.8 },
 };
 function gradeSelectHero(h, id) {
   const g = SELECT_GRADE[id];
   const root = h && h.modelRoot;
   if (!g || !root) return;
-  bossGrade(root, { scene: g.scene || [1, 1, 1], desat: g.desat || 0, key: g.key, keyMul: g.keyMul, amb: g.amb });
+  bossGrade(root, { scene: g.scene || [1, 1, 1], desat: g.desat || 0, key: g.key, keyMul: g.keyMul, amb: g.amb, rimMul: g.rimMul || 1 });
   if (!g.rough) return;
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -346,16 +349,16 @@ export async function buildSelectSet(game, heroIds) {
   const firePool = new FirePool({ capacity: 56, name: 'select_authored_fire' }); group.add(firePool.mesh);
   const smokers = [];
   const brazierFire = (x, y, z, k, ph) => {
-    const FL = 0.74;   // C2 r15 (board r14 'in the greyscale the centre hero and hand compete with the brazier flames'): flame cards ~26 % dimmer, so the heroes are the brightest read
+    const FL = 0.60;   // C2 r16 0.74 -> 0.60 + cooler cores (board r15: the flames clip to white and out-value the heroes in greyscale). C2 r15 (board r14 'in the greyscale the centre hero and hand compete with the brazier flames'): flame cards ~26 % dimmer, so the heroes are the brightest read
     const L = [[-0.07, 0.95, 1.0, 0.0, 0.00, 0.78 * FL], [0.0, 1.0, 0.92, 0.33, 0.31, 1.0 * FL], [0.08, 0.8, 0.8, 0.66, 0.62, 0.9 * FL]];
-    for (const [dz, w, h, phase, , a] of L) firePool.emit({ clip: 'flame', pos: [x + dz * 0.6 * k, y + 0.5 * h * k, z + dz * k], size: [0.9 * w * k, 1.15 * h * k], life: 0.95, loop: true, phase: (phase + ph) % 1, core: 0.8, soft: 0.1, floor: y - 0.02, alpha: a });
-    firePool.emit({ clip: 'flame', pos: [x, y + 0.34 * k, z + 0.02 * k], size: [0.46 * k, 0.72 * k], life: 0.7, loop: true, phase: (ph * 1.7) % 1, core: 1.0, additive: true, alpha: 0.42 });
+    for (const [dz, w, h, phase, , a] of L) firePool.emit({ clip: 'flame', pos: [x + dz * 0.6 * k, y + 0.5 * h * k, z + dz * k], size: [0.9 * w * k, 1.15 * h * k], life: 0.95, loop: true, phase: (phase + ph) % 1, core: 0.14, radiance: 0.64, tint: '#ffa860', soft: 0.1, floor: y - 0.02, alpha: a });
+    firePool.emit({ clip: 'flame', pos: [x, y + 0.34 * k, z + 0.02 * k], size: [0.46 * k, 0.72 * k], life: 0.7, loop: true, phase: (ph * 1.7) % 1, core: 0.2, radiance: 0.6, additive: true, alpha: 0.2 });   // r16: radiance ceilings keep the white roots below the heroes' highlights
     firePool.emit({ clip: 'embers', pos: [x, y + 0.8 * k, z], size: [0.8 * k, 1.4 * k], life: 1.6, loop: true, phase: ph, alpha: 0.8, additive: true });
     smokers.push({ x, y: y + 1.0 * k, z, k, t: ph * 3.2 });
   };
   const ironMat = new THREE.MeshStandardMaterial({ color: '#2f2a26', roughness: 0.5, metalness: 0.85 });
   const pedMat = new THREE.MeshStandardMaterial({ color: '#7c8088', map: flag.map, normalMap: flag.normalMap, roughness: 0.9 });
-  const coalMat = new THREE.MeshStandardMaterial({ color: '#2a0e04', emissive: '#ff5a14', emissiveIntensity: 2.4, roughness: 1 });
+  const coalMat = new THREE.MeshStandardMaterial({ color: '#2a0e04', emissive: '#ff4a10', emissiveIntensity: 1.25, roughness: 1 });   // r16 2.4 -> 1.25: the coals clipped to peach and were the brightest value in each bay
   const poolGlowTex = glowTexture();   // the braziers' warm pool on the flagstones is painted (additive); the real light is kept low so the bone stays neutral
   const torchX = [-5.9, -1.95, 1.95, 5.9];
   const torches = [];
@@ -373,7 +376,7 @@ export async function buildSelectSet(game, heroIds) {
     brazierFire(x, 1.5 * BS, z, 1.0, (x + 6) * 0.137);
     { const gm = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 4.4), new THREE.MeshBasicMaterial({ map: poolGlowTex, color: '#ff8a3c', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
       gm.rotation.x = -Math.PI / 2; gm.position.set(x, 0.02, z + 0.9); gm.renderOrder = 3; group.add(gm); }
-    fx.glow([x, 1.85 * BS, z], { size: 2.6, color: '#ff7a2a', intensity: 0.62 });
+    fx.glow([x, 1.85 * BS, z], { size: 2.6, color: '#ff7a2a', intensity: 0.42 });
     fx.sparks([x, 1.7 * BS, z], { count: 10, radius: 0.3, rise: 2.4 });
     // C2 r14 (board r13 "Brann's flank still washes warm from the brazier, flattening his shadow side"): the two INNER braziers sit between the heroes
     // and rim the neighbours' inner flanks; their real lights are cut hard (the warm pool is the painted floor decal above) and pulled behind the hero line
@@ -381,6 +384,10 @@ export async function buildSelectSet(game, heroIds) {
     // C2 r15 (board r14 'Brann's right flank / hip still a flat orange brazier wash'): the OUTER braziers stood 2 m beside Brann / Gorrim at the hero's own depth,
     // so their point light flooded the near flank flat. Pulled back behind the hero line (z -1.7 -> -3.4) and lowered in power, the light grazes the far edge
     // (a rim) and leaves the flank to the cool fill + key.
+    // C2 r16: the two INNER point lights (0.5) are gone - they only filled Brann's and Seraphine's shadow sides (board r15: 'flat, no shadow-side
+    // modelling') and cost a light-loop iteration on every lit pixel (perf: the r16 hands' true cost is 1.58 ms, select must win time back);
+    // `&selinner=1` restores them for an A/B. The inner braziers keep their painted floor pool + glow sprite.
+    if (inner && !/[?&]selinner=1/.test(typeof location !== 'undefined' ? location.search : '')) continue;
     const base = inner ? 0.5 : 1.35;
     const L = new THREE.PointLight(inner ? '#ff9a58' : '#ffb070', base, inner ? 7 : 9, 1.7); L.position.set(x + (inner ? 0 : Math.sign(x) * 0.6), 2.2, z + (inner ? -0.9 : -1.7)); group.add(L);
     torches.push({ L, base, phase: x });
@@ -392,7 +399,9 @@ export async function buildSelectSet(game, heroIds) {
   // wall sconces on the two outer pilasters (glow only — the brazier lights wash the vault)
   for (const x of [-9.2, 9.2]) { brazierFire(x, 3.15, -10.6, 0.8, x * 0.11); fx.glow([x, 3.5, -10.6], { size: 2.6, color: '#ff7a2a', intensity: 0.8 }); }
   const fxObj = fx.build(); if (fxObj) group.add(fxObj);
-  const wash = new THREE.PointLight('#d29468', 6, 15, 1.2); wash.position.set(0, 4.6, -6.5); group.add(wash);
+  // C2 r16: the warm centre wash lamp (6, behind the centre hand) also back-lit Brann's and Seraphine's SHADOW-side edges (board r15: flat heroes)
+  // and cost a light-loop slot on every lit pixel; the vault's centre glow is now carried by the wall's vertex colour. `&selwash=1` = old.
+  if (/[?&]selwash=1/.test(typeof location !== 'undefined' ? location.search : '')) { const wash = new THREE.PointLight('#d29468', 6, 15, 1.2); wash.position.set(0, 4.6, -6.5); group.add(wash); }
   // Chosen spotlights (P1 warm amber, P2 cool blue) that glide between hands.
   const spots = [['#ffb060', 0], ['#7ab8ff', 1]].map(([c]) => {
     const S = new THREE.SpotLight(c, 0, 16, 0.42, 0.9, 1.2);
@@ -492,7 +501,7 @@ export async function buildSelectSet(game, heroIds) {
     },
     confirm(idx, player) {
       const h = heroes[idx];
-      if (h && h.play) { h.play('victory', { restart: true }); }
+      if (h && h.play) { h.play(h.animator?.has?.('select_ready') ? 'select_ready' : 'victory', { restart: true }); }
       punch = 1;
       const s = spots[player]; if (s) s.S.intensity *= 1.25;
       if (game.cameraRig.shake) game.cameraRig.shake(0.25);

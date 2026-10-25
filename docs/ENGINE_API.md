@@ -408,6 +408,33 @@ to disable. Current hit/camp consumers use ground softness where needed and dept
 `game.vfx.fire` is the transient hit pool (96High/48Low), updated and disposed by VfxSystem.
 Campfire owns a16-instance pool; roof-fire and dragon-fire teams should own their pools and teardown.
 
+**Procedural combustion clips (r12, same program/draw):** `blaze` (tongue cluster), `burn` (wide body sheet), `ignite`
+(ragged contact burst) and `glow` (soft additive radiance pool; use `additive:true`, optionally `surface:normal` to lie on a
+surface). These are evaluated in the fragment shader (domain-warped value noise eroding an envelope, painted temperature
+bands, interior gaps, tips that tear away) instead of sampling the atlas; the atlas clips are unchanged. Extra options:
+`seed` (0..1, defaults to a per-pool sequence; every instance should differ) and `fallShrink` (followed sheets shorten
+toward their root when the followed node drops). For procedural clips `erosion` is a burn-away amount that consumes tips
+first. The pool keeps its own time uniform (advanced by `update(dt)`). Keep all screen-derivative ops at the top of the
+fragment `main()` (not inside the proc/atlas branch): ANGLE/D3D otherwise flattens the branch and every fire/smoke pixel
+pays for both paths (measured +1.5% S1 combat).
+r14: procedural flames/ignition carry their own colour: `tint`, `radiance` and the hot-kernel emission no longer apply to
+`blaze`/`burn`/`ignite` (they still apply to atlas clips and to `glow`); `core` scales the HDR of the top stop. The ramp is
+authored against the AgX post (bright linear orange displays as peach): saturated colour lives at low/mid value, only the
+core is bright; cool red parts occlude less than they emit (output alpha x temperature). Offline check: `tools/lib-agx-r14.mjs`
+(JS port of three's AgXToneMapping). New emit option `keepTint` (looping smoke keeps its tint instead of the 82 % lerp to
+white; used for a fire-lit smoke underside).
+
+C2 fire r11: `rooted` applies base shading/fade without silently enlarging the sprite or creating coal cards.
+`emitRoofEdge({pos, normal:[nx,ny,nz], height, width, phase, life, fuel:true})` returns `{tongue,bed}`;
+`fuel:false` omits the planar bed when the consumer supplies conformed geometry. `surface:[nx,ny,nz]`
+orients an emitted fuel patch in world space. Roof tongues carry `rootNormal` and use signed
+height above that plane for the existing soft fade; their cards are recessed behind the roof edge. Stage1 uses `emitHutFire()` / `finishHutFuel()` from
+`levels/stages/stage1/roofFire.js`: anchors project to existing baked roof triangles and fuel decals are
+clipped to those triangles, merged into one additional village draw sharing the pool's material/atlas.
+The environment owns decal geometry disposal; the shared material is the pool's. No frozen hut geometry
+or material is changed. `emitCombustion({pos,target,scale,dir})` keeps flame, ember residue and soot attached
+to the target's posed chest; the 560ms flame fades from 49% of its lifetime.
+
 C2 pre-board atlas guard: `python3 src/vfx/author_atlas.py --check` verifies all64cells have exactly zero
 alpha on their 2px border and writes `public/assets/vfx/fire-hit-atlas.check.json` with per-frame transparent
 padding. Packing applies an8-18px smooth gutter and6px RGB bleed; runtime clamps to cell texel centres,

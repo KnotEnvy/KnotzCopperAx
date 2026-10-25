@@ -181,7 +181,7 @@ const METAL_TINT = {                       // [strength, shadow floor, highlight
   weapon_copperax: [1.0, 0.22, 0.12, 0.7],
   weapon_grudgebrand: [0.85, 0.3, 0.5, 0.45],
   weapon_dawn: [0.85, 0.24, 0.55, 0.6],
-  weapon_dusk: [1.0, 0.30, 0.12, 0.35],      // r8: violet-steel chroma survives both scene keys without white/select or blue/play wash
+  weapon_dusk: [1.0, 0.15, 0.12, 0.7],       // C2 r11 (board r10 "Dusk in-band no light-to-dark range"): lower floor + contrast = a dark side (r8 [1, .30, .12, .35])
 };
 const METAL_ENV = { weapon_copperax: 0.4, weapon_grudgebrand: 0.6, weapon_dawn: 0.45, weapon_dusk: 0.45 };
 function markEdgeDark(weapon) {
@@ -211,8 +211,15 @@ function markEdgeDark(weapon) {
         // The map still supplies the face-to-bevel gradient; assignment is idempotent on reattach.
         if (hero === 'weapon_grudgebrand') m.color.setScalar(1.0);
         if (hero === 'weapon_copperax') m.color.setScalar(0.70);
-        // Across-reflection scale, sabre curvature, highlight chroma retention, select centre offset.
-        const shape = hero === 'weapon_copperax' ? [0.25, 0, 0.72, 0]
+        // C2 r9: Dusk in play drifted periwinkle against the select violet: a violet-ward body multiplier (select re-sets its own colour).
+        if (hero === 'weapon_dusk') m.color.setRGB(1.1, 0.8, 1.1);   // C2 r11: a touch lighter body (r9 1, .73, 1) so the deeper contrast keeps a violet mid
+        // C2 r9: deeper knotwork channel walls at every distance (select read as surface linework).
+        if (hero === 'weapon_copperax' && m.normalScale) m.normalScale.setScalar(1.6);
+        // Swords: across-reflection scale, sabre curvature, highlight chroma retention, select centre offset.
+        // C2 r11 Copper Ax (its own shader branch, characterLook.js): body ceiling x albedo, hotspot amplitude, hotspot width (m),
+        // face value-structure depth. A/B hook `&axshape=a,b,c,d`.
+        const axq = /[?&]axshape=([\d.,-]+)/.exec(q);
+        const shape = hero === 'weapon_copperax' ? (axq ? axq[1].split(',').map(Number) : [1.3, 2.8, 0.05, 1.0])
           : hero === 'weapon_grudgebrand' ? [0.095, 0, 0.12, 0] : [0.066, 0.165, hero === 'weapon_dusk' ? 0.32 : 0.28, 0];
         m.userData.kcaWeaponShape = shape;
         if (m.userData.kcaWeaponShapeU) m.userData.kcaWeaponShapeU.value.fromArray(shape);

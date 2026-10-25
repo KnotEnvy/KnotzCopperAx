@@ -7,7 +7,7 @@
 import { Color } from 'three';
 import { spellKit } from '../SpellKit.js';
 import { rockField, preloadTitanFist, preloadBasalt } from '../meshes.js';
-import { groundRing, dustRing, debris, crackDecal, dustPuffs, embers, coreGlow } from '../../vfx/effects/_lib.js';
+import { groundRing, dustRing, crackDecal, dustPuffs, embers, coreGlow } from '../../vfx/effects/_lib.js';
 
 const VEIN = '#ffad42';
 let columnSerial = 0;
@@ -27,9 +27,11 @@ function stoneFragments(S, x, y, z, ground, n = 6, size = 0.24, split = true) {
   const f = rockField(S.vfx, 'chip', { glow: VEIN }), r = S.r;
   f.glow(.65);
   for (let i = 0; i < n; i++) {
-    const a = i / n * Math.PI * 2 + r.range(-0.4, 0.4), s = size * (i === 0 ? 1.65 : i % 3 === 0 ? .28 : r.range(0.55, 1.1)), speed = r.range(0.7, 2.3);
-    f.add({ pos: { x: x + Math.cos(a) * 0.38, y: y + r.range(-0.28, 0.28), z: z + Math.sin(a) * 0.3 },
-      scale: [s * r.range(.65, 1.5), s * r.range(.45, 1.3), s * r.range(.35, .95)], yaw: a, vel: [Math.cos(a) * speed, y > ground + 0.5 ? r.range(-1.8, 0.3) : r.range(1.4, 3.4), Math.sin(a) * speed * 0.6],
+    const a = i / n * Math.PI * 2 + r.range(-0.4, 0.4), s = size * (i === 0 ? 1.65 : i % 3 === 0 ? .28 : r.range(0.55, 1.1)), speed = size > .35 ? r.range(3.5, 7) : r.range(0.7, 2.3);
+    // Titan ejecta starts at the hand perimeter; centre-born chunks stay hidden inside the fist.
+    const burstRadius = size > .35 ? 2.35 : .38;
+    f.add({ pos: { x: x + Math.cos(a) * burstRadius, y: y + r.range(-0.28, 0.28), z: z + Math.sin(a) * (size > .35 ? 1.3 : .3) + (size > .35 ? 1.15 : 0) },
+      scale: [s * r.range(.65, 1.5), s * r.range(.75, 1.2), s * r.range(.70, 1.1)], yaw: a, vel: [Math.cos(a) * speed, y > ground + 0.5 ? r.range(-1.8, 0.3) : (size > .35 ? r.range(4, 8) : r.range(1.4, 3.4)), Math.sin(a) * speed * 0.6],
       gravity: 15, bounce: 0.3, spin: [r.range(-5, 5), r.range(-4, 4), r.range(-5, 5)], rise: 0, hold: 2.2, sink: 0.45, groundY: ground + s * 0.35,
       onLand: it => {
         if (split && i === 0) earthDust(S, it.x, ground + .02, it.z, 1, .5);
@@ -38,27 +40,29 @@ function stoneFragments(S, x, y, z, ground, n = 6, size = 0.24, split = true) {
   }
 }
 
-function spikeCluster(S, x, z, { n = 5, h = 1.3, delay = 0, hold = 1.0 } = {}) {
+function spikeCluster(S, x, z, { n = 5, h = 1.3, delay = 0, hold = 1.0, pool = false } = {}) {
   const f = rockField(S.vfx, 'spike', { glow: VEIN }), r = S.r, y = S.gy(x, z);
   f.glow(3.6);
   for (let i = 0; i < n; i++) {
-    const a = (i / n) * 6.28 + r.range(-0.3, 0.3), d = i === 0 ? 0 : r.range(0.25, 0.6);
-    const sc = h * (i === 0 ? 1.15 : r.range(0.55, 0.9));
-    f.add({ pos: { x: x + Math.cos(a) * d, y, z: z + Math.sin(a) * d * 0.7 }, scale: [sc * 1.35, sc, sc * 1.35], tilt: [Math.sin(a) * 0.35 * (i ? 1 : 0.2), -Math.cos(a) * 0.35 * (i ? 1 : 0.2)], rise: 0.09, hold: hold + r.range(0, 0.2), sink: 0.45, delay: delay + i * 0.02 });
+    const a = (i / n) * 6.28 + r.range(-0.3, 0.3), d = i === 0 ? 0 : r.range(0.28, 0.66);
+    const sc = h * (i === 0 ? 1.15 : r.range(0.55, 0.92));
+    // r17: broad bases (scale x/z 1.75) so the tier-1 shards have presence next to L2-L4.
+    f.add({ pos: { x: x + Math.cos(a) * d, y, z: z + Math.sin(a) * d * 0.7 }, scale: [sc * 1.75, sc, sc * 1.75], tilt: [Math.sin(a) * 0.35 * (i ? 1 : 0.2), -Math.cos(a) * 0.35 * (i ? 1 : 0.2)], rise: 0.09, hold: hold + r.range(0, 0.2), sink: 0.45, delay: delay + i * 0.02 });
   }
   S.vfx.delay(delay, () => {
-    crackDecal(S.vfx, x, y, z, { radius: 1.0, glow: S.pal.tail, glowIntensity: 1.8, life: 1.8 });
+    if (pool) S.vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [x, y + .045, z], size: [2.6, 2.0], life: hold + .35, color: ['#ff9a28', '#b2440d'], alpha: [.7, .25], intensity: 2.2, p0: [2.3, .2] });
+    crackDecal(S.vfx, x, y, z, { radius: pool ? 1.4 : 1.0, glow: S.pal.tail, glowIntensity: 1.8, life: 1.8 });
     earthDust(S, x, y + .04, z, 2, .8);
     stoneFragments(S, x, y + .1, z, y, 4, .14, false);
     groundRing(S.vfx, x, y, z, { radius: 1.3, color: [S.pal.hot, S.pal.tail], intensity: 0.7, life: 0.3 });
   });
 }
 
-function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, lean = 0 } = {}) {
+function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, lean = 0, width = null } = {}) {
   const f = rockField(S.vfx, 'column', { glow: VEIN, variant }), r = S.r;
   f.glow(1.5);
   let rockX, rockZ;
-  const id = ++columnSerial, w = scenic ? r.range(.85, 1.15) : r.range(1.35, 1.55);
+  const id = ++columnSerial, w = width ?? (scenic ? r.range(.85, 1.15) : r.range(1.35, 1.55));
   let x = target.pos.x, z = target.pos.z, y = S.gy(x, z);
   const tick = S.g.tick, foot = { x, y: target.pos.y, z };
   const struck = scenic || S.strike(target, 1, { final: true, launch: Math.sqrt(56 * (h + .12)), knockback: .35, hitstop: 0, shake: .0 });
@@ -95,8 +99,8 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
         });
       }
       // Ground-projected soft radiance persists through hold, independent of the small real light pool.
-      if (!scenic) S.vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [x, y + .045, z], size: [2.8, 2.2],
-        life: hold + .3, color: ['#ff9a28', '#b2440d'], alpha: [.65, .28], intensity: 1.9, p0: [2.3, .2] });
+      if (!scenic) S.vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [x, y + .045, z], size: [3.3, 2.5],
+        life: hold + .3, color: ['#ff9a28', '#b2440d'], alpha: [.75, .32], intensity: 2.4, p0: [2.3, .2] });
       embers(S.vfx, { x, y: y + .3, z }, { n: 9, dir: 0, speed: [-1, 1], up: [2, 5], color: ['#fff6cb', '#ff9a21'], intensity: 4 });
     },
     onCrumble: () => {
@@ -107,6 +111,8 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
       // Warm translucent billows reveal the glowing break faces; staggered lifetimes avoid a dark curtain.
       earthDust(S, rockX, y + .08, rockZ, scenic ? 3 : 8, scenic ? .9 : 1.25, true);
       if (!scenic) earthDust(S, rockX, y + h * .35, rockZ, 3, 1.1, true);
+      // Ember burst from the opened break faces (r16: collapse debris needs a dust/ember burst, not only chunks).
+      embers(S.vfx, { x: rockX, y: y + h * .4, z: rockZ }, { n: scenic ? 6 : 12, dir: 0, speed: [-2.5, 2.5], up: [1.5, 4.5], color: ['#fff0c0', '#ff7a1c'], intensity: 3.5 });
       rockField(S.vfx, 'chip', { glow: VEIN })._tick(0);
       S.g.bus.emit('magic:earthCrumble', { column: id, tick: S.g.tick, x, y, z, height: h });
     } });
@@ -115,7 +121,7 @@ function column(S, target, { h = 3.7, hold = .76, variant = 0, scenic = false, l
 
 function boulder(S, target, { delay = 0, size = 0.7, from = null, onLand } = {}) {
   const f = rockField(S.vfx, 'boulder', { glow: '#ffb040' }), r = S.r, vfx = S.vfx;
-  f.glow(2.2);
+  f.glow(2.8);
   const gy = S.gy(target.x, target.z);
   const secs = 0.42;
   const o = from || { x: target.x - S.F * r.range(1.5, 3.5), y: gy + 11, z: target.z - 0.6 };
@@ -125,7 +131,10 @@ function boulder(S, target, { delay = 0, size = 0.7, from = null, onLand } = {})
       crackDecal(vfx, target.x, gy, target.z, { radius: 1.2 + size * 0.5, glow: '#ff9030', glowIntensity: 1.8, life: 1.6 });
       groundRing(vfx, target.x, gy, target.z, { radius: 2 + size, color: [S.pal.hot, S.pal.tail], intensity: 0.8, life: 0.35 });
       dustRing(vfx, target.x, gy, target.z, { radius: 1.6 + size, alpha: 0.85, life: 1.1 });
-      debris(vfx, target.x, gy, target.z, { n: 12, speed: [2, 5], up: [3, 7], size: [0.07, 0.18] });
+      // Ground contact: a warm pool under the hot rock (r16: boulders read as floating smooth lumps).
+      vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [target.x, gy + .045, target.z], size: [2.4 + size, 1.9 + size * .6],
+        life: .9, color: ['#ff9a28', '#b2440d'], alpha: [.6, .2], intensity: 1.6, p0: [2.3, .2] });
+      stoneFragments(S, target.x, gy + .12, target.z, gy, 7, .17, false);   // r17: faceted chunks only (no round pebbles)
       coreGlow(vfx, { x: target.x, y: gy + 0.5, z: target.z + 0.3 }, { size: 1.6, color: '#ffd080', tail: '#ff7020', intensity: 1.6, life: 0.14, core: 0.2 });
       S.g.cameraRig && S.g.cameraRig.shake(0.22 + size * 0.1);
       if (onLand) onLand();
@@ -149,7 +158,7 @@ async function tremorShards(S) {
     const d = Math.abs(e.pos.x - h.pos.x) + Math.abs(e.pos.z - h.pos.z);
     const secs = 0.12 + d / 16;
     S.fx.crackRun({ x: h.pos.x + S.F * 0.6, z: h.pos.z }, { x: e.pos.x, z: e.pos.z }, { secs, onArrive: () => {
-      spikeCluster(S, e.pos.x, e.pos.z, { n: 5, h: 1.25, hold: 0.6 });
+      spikeCluster(S, e.pos.x, e.pos.z, { n: 6, h: 1.5, hold: 0.7, pool: true });
       S.strike(e, 1, { final: true, launch: 6, hitstop: 7 });
     } });
   }
@@ -160,7 +169,7 @@ async function stonePillars(S) {
   await S.intro({ charge: 22, light: 1.8, dark: .24, dist: 16.3, height: 5.5, lookHeight: 1.8 });
   const h = S.hero, speed = 18, foes = S.alive();
   const bosses = foes.filter(e => e.poise || e.kind === 'boss' || e.def?.boss);
-  S.g.magic?.spellLight(h, VEIN, 78);
+  S.g.magic?.spellLight(h, '#ffd4a2', 18);
   // Sword-to-earth breach, 2–3 frames at 60 Hz, followed by the traveling fracture front.
   const gy = S.gy(h.pos.x, h.pos.z);
   coreGlow(S.vfx, { x: h.pos.x + S.F * .7, y: gy + .12, z: h.pos.z + .18 },
@@ -182,9 +191,28 @@ async function stonePillars(S) {
     }
   }
   if (bosses.length) {
+    // Boss presence (r16): tall scenic basalt flanks the boss on both sides and rises behind it. Everything stays
+    // behind the fighters in depth, and the opaque sightline guard still owns placement/retirement.
     const rg=S.g.cameraRig?.visibleRange();
-    const edge=rg ? Math.max(rg.xMin+1.4, Math.min(...bosses.map(b=>b.pos.x))-3.3) : h.pos.x-3;
-    S.g.after(12,()=>column(S,{pos:{x:edge,y:gy,z:h.pos.z-1.8},height:0},{h:2.6,hold:1.0,variant:2,scenic:true}));
+    const bMin=Math.min(...bosses.map(b=>b.pos.x)), bMax=Math.max(...bosses.map(b=>b.pos.x)), bz=bosses[0].pos.z;
+    const left=rg ? Math.max(rg.xMin+1.4, bMin-3.3) : h.pos.x-3, right=rg ? Math.min(rg.xMax-1.4, bMax+3.3) : bMax+3.3;
+    const flanks=[[left,2.6,2,12],[right,2.3,0,16],[(bMin+bMax)/2-S.F*1.1,3.2,1,20]];
+    flanks.forEach(([x,hh,variant,delay],i)=>S.g.after(delay,()=>column(S,{pos:{x,y:gy,z:(i===2?bz-2.6:h.pos.z-1.8)},height:0},{h:hh,hold:1.0,variant,scenic:true,lean:i===2?0:(i?-.08:.08)})));
+    // r18 (board r17: boss columns small and hidden behind the melee pile): ONE full-size showcase cluster in the
+    // clearest open stretch of the visible lane, behind every fighter in depth. The opaque sightline guard still owns
+    // placement, so it can only move further back, never over a fighter.
+    if (rg) {
+      const fighters=S.g.world.actors.filter(a=>!a.removed&&a.pos&&a.height&&(a.team==='players'||a.team==='enemies'));
+      let bestX=null,best=-1;
+      for (let x=rg.xMin+2.2;x<=rg.xMax-2.2;x+=.4) {
+        const clear=Math.min(...fighters.map(a=>Math.abs(a.pos.x-x)-(a.radius||.4)*(a.poise||a.kind==='boss'?2.5:1)));
+        if (clear>best) { best=clear; bestX=x; }
+      }
+      // A crowded lane pushes it deeper so it rises above the melee instead of being skipped.
+      const zBack=Math.min(h.pos.z,...fighters.map(a=>a.pos.z))-(best>.9?1.5:2.8);
+      if (bestX!==null) S.g.after(8,()=>column(S,{pos:{x:bestX,y:gy,z:zBack},height:0},{h:3.7,hold:1.15,variant:0,scenic:true,width:1.5,lean:.04*S.F}));
+      S.g.bus.emit('magic:earthShowcase',{x:bestX,z:zBack,clear:best});
+    }
   }
   foes.forEach((e, i) => {
     const t = Math.min(.3, Math.abs(e.pos.x - h.pos.x) / speed);
@@ -228,7 +256,7 @@ async function boulderRain(S) {
 
 async function mountainsWrath(S) {
   const g = S.g, h = S.hero, vfx = S.vfx;
-  await S.intro({ charge: 34, dark: .48, light: 2.4, dist: 22.5, height: 8 });
+  await S.intro({ charge: 34, dark: .50, light: 1.2, dist: 20, height: 6.2, lookHeight: 2.7 });
   const foes = S.alive();
   const cx = foes.length ? foes.reduce((a, e) => a + e.pos.x, 0) / foes.length : h.pos.x + S.F * 4;
   const cz = 0, gy = S.gy(cx, cz);
@@ -236,17 +264,19 @@ async function mountainsWrath(S) {
   for (let i = 0; i < 4; i++) { S.fx.quake(0.18 + i * 0.07, { dust: 5 }); await S.wait(8); }
   // the fist descends: slow reveal from the sky, then a violent slam
   const fist = rockField(vfx, 'fist', { glow: '#ffc060' });
-  fist.glow(1.0);
-  g.magic?.spellLight({ pos: { x: cx - .5, y: gy + .1, z: cz + .4 }, facing: 1 }, '#ffb35c', 100);
-  const SC = 2.6, y0 = gy + 9, yHit = gy + 0.05;
+  fist.glow(1.35);
+  g.magic?.spellLight({ pos: { x: cx - .5, y: gy + .1, z: cz + .4 }, facing: 1 }, '#ffd0a0', 32);
+  const SC = 3.35, y0 = gy + 9.5, yHit = gy + 0.05;   // r17: ~3.3 hero heights of hand (was 2.6)
   const T_REVEAL = 0.72, T_SLAM = 0.13, tick0 = g.tick;
-  fist.add({ pos: { x: cx, y: y0, z: cz + 0.2 }, scale: [SC, SC * 0.85, SC], yaw: -0.30 * S.F, tilt: [0.03, 0.025 * S.F], rise: 0.001, hold: T_REVEAL + T_SLAM + 0.9, sink: 0.7, sinkDepth: SC * 3.4,
+  // r18: the low three-quarter pose (knuckle row + thumb toward the camera, wrist and forearm rising back) is baked
+  // into the carved fist mesh; no runtime yaw/squash (r17's yaw -.85 turned the hand side-on and merged the thumb).
+  fist.add({ pos: { x: cx, y: y0, z: cz + 0.2 }, scale: [SC, SC, SC], yaw: 0, tilt: [0, 0], rise: 0.001, hold: T_REVEAL + T_SLAM + 0.9, sink: 0.7, sinkDepth: SC * 3.2,
     update: (it) => {
       // driven by the SIM clock (the impact is scheduled on sim ticks; the render clock lags under slow-mo, which
       // made the fist arrive AFTER its own impact in r1 → read as a tower rising out of the spikes)
       const a = (g.tick - tick0) / 60;
-      if (a < T_REVEAL) { const k = Math.min(1, a / .52); it.y = y0 - (y0 - (gy + 2.8)) * (1 - (1 - k) ** 2); }
-      else if (a < T_REVEAL + T_SLAM) { const k = (a - T_REVEAL) / T_SLAM; it.y = gy + 2.8 - (gy + 2.8 - yHit) * k * k; }
+      if (a < T_REVEAL) { const k = Math.min(1, a / .52); it.y = y0 - (y0 - (gy + 3.2)) * (1 - (1 - k) ** 2); }
+      else if (a < T_REVEAL + T_SLAM) { const k = (a - T_REVEAL) / T_SLAM; it.y = gy + 3.2 - (gy + 3.2 - yHit) * k * k; }
       else it.y = yHit;
     } });
   // falling-debris streaks around the descending fist
@@ -258,21 +288,37 @@ async function mountainsWrath(S) {
   g.bus.emit('magic:earthFistImpact',{tick:g.tick,x:cx,y:gy,z:cz});
   const P = { x: cx, y: gy + 0.8, z: cz + 0.4 };
   g.slowmo(0.25, 0.35, { out: 0.35 });
-  S.g.renderer && S.g.renderer.post && S.g.renderer.post.pulse({ flash: 0.3, flashColor: '#ffe8a0', ca: 0.006, duration: 0.4 });
+  S.g.renderer && S.g.renderer.post && S.g.renderer.post.pulse({ flash: 0.5, flashColor: '#ffe8a0', ca: 0.010, duration: 0.45 });
+  // r17: a screen-wide response you can see in a strip: the camera drops and rolls with the slam (drama override on
+  // top of the intro framing), the world dips darker right after the flash, and the ground answers at fist scale.
+  const slam = g.cameraRig?.drama({ height: 4.6, lookHeight: 1.9, roll: 1.6 * S.F, in: .04, hold: .12, out: .5, priority: 5 });
+  if (slam) g.after(14, () => slam.release());
+  const dip = g.magic?.darkHold(.64); if (dip) g.after(16, dip);
+  // Ground-crack flash: one broad warm plane under the fist, gone in half a second (no new draw kinds).
+  vfx.shape.emit({ shape: 'glow', mode: 'plane', pos: [cx, gy + .05, cz], size: [13, 7], life: .6, color: ['#ffd27a', '#c0481a'], alpha: [.95, 0], intensity: 2.8, p0: [2.3, .2] });
+  embers(vfx, { x: cx, y: gy + .4, z: cz + .6 }, { n: 48, dir: 0, speed: [-7, 7], up: [3, 11], color: ['#fff6cb', '#ff8a21'], intensity: 4, gravity: 6 });
+  // Upheaved ground slabs: a ring of flat faceted chips tilts up around the hand, then settles (same chip draw).
+  { const slabs = rockField(vfx, 'chip', { glow: VEIN }); slabs.glow(.65);
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * 6.28 + S.r.range(-.2, .2), R = S.r.range(3.6, 5.2), sx = cx + Math.cos(a) * R * 1.25, sz = cz + Math.sin(a) * R * .42;
+      // r18: slabs scaled to the fist (2-3 m) and already up in the impact frame (board: no ground payoff in the still).
+      slabs.add({ pos: { x: sx, y: S.gy(sx, sz) - .08, z: sz }, scale: [S.r.range(1.8, 2.6), S.r.range(.42, .6), S.r.range(1.1, 1.6)], yaw: a + 1.57, tilt: [Math.sin(a) * .62, -Math.cos(a) * .62], rise: .035, hold: S.r.range(.6, .9), sink: .6, delay: 0 });
+    } }
   g.cameraRig && g.cameraRig.shake(1.0);
-  g.cameraRig && g.cameraRig.punch(0.12, 14);
+  g.cameraRig && g.cameraRig.punch(0.16, 14);
   // Aftershock persists beyond the single impact tick (camera trauma otherwise decays too early in slow motion).
-  for (const [ticks, strength] of [[5,.72],[11,.55],[18,.38]]) g.after(ticks,()=>g.cameraRig?.shake(strength));
+  for (const [ticks, strength] of [[5,.85],[11,.65],[18,.48],[26,.32]]) g.after(ticks,()=>g.cameraRig?.shake(strength));
   S.fx.pop({ x: P.x, y: gy + 0.4, z: P.z + 1.4 }, 1.1);
-  vfx.light({ x: cx, y: gy + 1.4, z: cz + 2.4 }, { color: '#ffc27a', intensity: 6, distance: 2.6, life: 1.3 });   // key-light the knuckles
-  fist.glow(1.25);
+  vfx.light({ x: cx - 1.2, y: gy + 2.6, z: cz + 3.6 }, { color: '#ffc27a', intensity: 16, distance: 9, life: 1.4 });   // key-light the knuckles and thumb (r16: the fist sat in shadow at impact)
+  fist.glow(1.6);
   vfx.shape.emit({ shape: 'flare', pos: [P.x, P.y, P.z + 0.5], size: [5.5, .65], life: 0.13, color: ['#fff0b0', S.pal.mid], intensity: 1.8, p0: [0.06, 0.12] });
-  for (let k = 0; k < 3; k++) groundRing(vfx, cx, gy, cz, { radius: 5 + k * 3, color: [S.pal.hot, S.pal.tail], intensity: 1.1 - k * 0.25, life: 0.5 + k * 0.15, delay: k * 0.07 });
-  crackDecal(vfx, cx, gy, cz, { radius: 5.5, glow: S.pal.mid, glowIntensity: 2.4, life: 3 });
-  earthDust(S,cx,gy+.06,cz,10,1.8,true);
-  earthDust(S,cx,gy+.05,cz+1.9,8,1.6,true);
-  dustRing(vfx, cx, gy, cz, { radius: 6, alpha: 0.9, life: 1.6, n: 28, size: [0.6, 1.8], stretchX: 1.5 });
-  debris(vfx, cx, gy, cz, { n: 40, speed: [3, 9], up: [5, 11], size: [0.08, 0.26] });
+  for (let k = 0; k < 3; k++) groundRing(vfx, cx, gy, cz, { radius: 6 + k * 3.5, color: [S.pal.hot, S.pal.tail], intensity: 1.2 - k * 0.25, life: 0.5 + k * 0.15, delay: k * 0.07 });
+  crackDecal(vfx, cx, gy, cz, { radius: 8, glow: S.pal.mid, glowIntensity: 2.6, life: 3 });
+  earthDust(S,cx,gy+.06,cz,12,2.0,true);
+  earthDust(S,cx,gy+.05,cz+1.9,10,1.8,true);
+  dustRing(vfx, cx, gy, cz, { radius: 8.5, alpha: 0.9, life: 1.7, n: 40, size: [0.7, 2.0], stretchX: 1.5 });
+  stoneFragments(S, cx, gy + .3, cz, gy, 24, .5, false);
+  stoneFragments(S, cx, gy + .25, cz + .8, gy, 14, .22, false);   // r17: faceted grit replaces the round debris pebbles
   // shockwave of spikes rippling outward
   for (let ring = 2; ring <= 4; ring++) {   // ring 1 skipped: nothing hides the fist itself
     const n = 3 + ring * 3;

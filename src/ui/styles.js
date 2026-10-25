@@ -273,6 +273,7 @@ const CSS = `${FONT_FACES}
 .kca-select .timer { position: absolute; top: 26px; right: 40px; text-align: center; font-size: 12px; letter-spacing: .3em; color: #d8c09a; }
 .kca-select .timer .forge { height: 44px; display: block; margin: 2px auto 0; }
 .kca-cards { position: absolute; bottom: 46px; left: 0; right: 0; display: flex; justify-content: center; gap: 36px; }
+@media (max-height: 800px) { .kca-cards { transform: scale(.8); transform-origin: 50% 100%; bottom: 40px; } } /* C2 r16: on short screens (720p) the fixed-size cards covered the centre hand's heel */
 .kca-hcard { position: relative; width: 318px; padding: 12px 16px 10px; transition: transform .35s ${EASE}, box-shadow .3s; transform: translateY(4px) scale(.96); }
 .kca-hcard.hov { transform: translateY(-6px) scale(1); }
 .kca-hcard.hov.p1 { box-shadow: 0 0 0 1px #0a0503, 0 0 0 5px #2a180c, 0 0 0 6px var(--p1), 0 0 34px rgba(255,150,60,.45), 0 18px 40px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.65); }
@@ -280,10 +281,10 @@ const CSS = `${FONT_FACES}
 .kca-hcard.hov.p1.p2 { box-shadow: 0 0 0 1px #0a0503, 0 0 0 5px #2a180c, -4px 0 0 6px var(--p1), 4px 0 0 6px var(--p2), 0 18px 40px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.65); }
 .kca-hcard .top { display: flex; gap: 12px; align-items: center; }
 .kca-hcard .nm .forge { height: 26px; filter: drop-shadow(0 2px 2px #000); }
-.kca-hcard .ttl { font-size: 14.5px; letter-spacing: .2em; color: #d8b888; font-variant: small-caps; margin-top: 3px; }
+.kca-hcard .ttl { font-size: 14.5px; letter-spacing: .1em; color: #d8b888; font-variant: small-caps; margin-top: 3px; white-space: nowrap; } /* C2 r16: one line (the card is ~60 px shorter so the centre hand's heel clears it) */
 .kca-hcard p { margin: 6px 0 6px; font-size: 13.5px; line-height: 1.4; color: #ecdcbc; }
 .kca-hcard .el .n { margin-left: auto; display: flex; align-items: center; gap: 4px; color: #bfe2ff; }
-.kca-stats { display: grid; grid-template-columns: 82px 1fr; gap: 3.5px 10px; align-items: center; font-size: 14px; letter-spacing: .2em; color: #c8ae84; font-variant: small-caps; }
+.kca-stats { display: grid; grid-template-columns: 64px 1fr 64px 1fr; gap: 5px 9px; align-items: center; font-size: 13.5px; letter-spacing: .1em; color: #c8ae84; font-variant: small-caps; } /* C2 r16: 2 x 2 (was 4 rows) */
 .kca-stats .pips { display: flex; gap: 3px; }
 .kca-stats .pips i { flex: 1; height: 8px; transform: skewX(-20deg); background: #2a1a10; border: 1px solid #4a3020; }
 .kca-stats .pips i.on { background: linear-gradient(#ffe0a0, #e08a3a 60%, #8a3a0a); border-color: #1a0a02; box-shadow: 0 0 6px rgba(255,160,60,.45); }

@@ -45,7 +45,7 @@ export class HeroBot {
     hero.aiBot = true;
     const qp = (k) => { const P = game.params; return P && P.raw && P.raw.get ? P.raw.get(k) : P && P.get ? P.get(k) : null; };
     this.edgeOn = qp('botedge') !== '0';
-    this.spreadOn = qp('botspread') !== '0'; // C2 r15: co-op bots work their own front (&botspread=0: off)
+    this.spreadOn = qp('botspread') !== '0'; this.spreadFix = qp('botspread') !== 'r15'; // C2 r16: &botspread=r15 → r15 drift rule // C2 r15: co-op bots work their own front (&botspread=0: off)
     this.thiefOn = qp('botthief') !== '0';
     const gp = Number(qp('botgap')); this.mateGap = gp > 0 ? gp : MATE_GAP; // A/B knob &botgap=
     const pb = Number(qp('botpin')); this.pinBand = pb > 0 ? pb : PIN_BAND; // C2 r3 A/B: &botpin=<band>
@@ -125,7 +125,11 @@ export class HeroBot {
     const dirX = dx > 0 ? 'right' : 'left';
     const busy = h.fsm.tagged('busy') || h.fsm.is('attack');
     const dirs = [];
-    if (Math.abs(dz) > 0.2 && !(this.spreadOn && mate && target.aiCrossing && Math.abs(dz) > 0.8)) dirs.push(dz < 0 ? 'up' : 'down'); // C2 r15: never chase a foe going round me in depth (co-op)
+    // C2 r15: never chase a foe going round me in depth (co-op) — C2 r16: except a wave's LAST foe or once 'stuck' (2P gate softlock, stage 5
+    // screen 1: the last foe at the left lock edge, vetoed on the outer side of both pinned heroes, circling between them in depth while
+    // both bots waited for it: 100 s). &botspread=r15: old rule.
+    const lastOrStuck = this.spreadFix && (stuck || enemies.filter((e) => !(e.def && e.def.passive)).length < 2); // A/B 'last foe only': 2P stage 4 797 / 763 / 854 s vs 686 / 740 / 688 with 'stuck' (skeleton-wave one-sided 54 vs 63 %, few samples) → kept
+    if (Math.abs(dz) > 0.2 && !(this.spreadOn && mate && target.aiCrossing && Math.abs(dz) > 0.8 && !lastOrStuck)) dirs.push(dz < 0 ? 'up' : 'down');
     const reach = this.closeUntil > g.tick ? 0.7 : 1.35; // close pick: get chest-to-chest so the string branches close
     // C2 r2 EDGE BAND: where would the bot stand to hit this foe? Not further out than EDGE_BAND of the frame: it holds at
     // the band and lets the foe come in (the crowd director brings attackers to the hero, the frame floor keeps them in).
@@ -164,7 +168,10 @@ export class HeroBot {
     }
     // C2 r15 OWN FRONT: no foe within reach and the partner within MATE_FAR (screen x, overlapping depth) → the higher-id bot drifts away
     // from him (never into its edge band), so the pair keeps a gap the crowd can flank from (&botspread=0: off)
-    if (this.spreadOn && edge && mate && mate.alive && mate.grounded && h.id > mate.id && !inward && !mateClose && Math.abs(mate.pos.x - h.pos.x) < MATE_FAR && Math.abs(mate.pos.z - h.pos.z) < MATE_DZ && !enemies.some((e) => Math.abs(e.pos.x - h.pos.x) < 2.2 && Math.abs(e.pos.z - h.pos.z) < 1.2)) {
+    // C2 r16 (2P pace, r15 gate: the last foe of a wave at the lock edge while the second bot drifted AWAY from it): only with 2+ foes
+    // left (A/B v2–v4: also gating on 'stuck' / the target's side bunched the bots: within 3.3 m 32–65 % of the time vs 17–33 %)
+    const fighters = enemies.filter((e) => !(e.def && e.def.passive));
+    if (this.spreadOn && edge && mate && mate.alive && mate.grounded && h.id > mate.id && !inward && !mateClose && (!this.spreadFix || fighters.length >= 2) && Math.abs(mate.pos.x - h.pos.x) < MATE_FAR && Math.abs(mate.pos.z - h.pos.z) < MATE_DZ && !enemies.some((e) => Math.abs(e.pos.x - h.pos.x) < 2.2 && Math.abs(e.pos.z - h.pos.z) < 1.2)) {
       const sx = Math.sign(h.pos.x - mate.pos.x) || (hf < 0.5 ? -1 : 1);
       if (!outward(sx) && !(sx > 0 ? hf > 1 - band - 0.05 : hf < band + 0.05)) { for (let i = dirs.length - 1; i >= 0; i--) if (horizD(dirs[i])) dirs.splice(i, 1); dirs.push(sx > 0 ? 'right' : 'left'); this.spreadT = g.tick; }
     }

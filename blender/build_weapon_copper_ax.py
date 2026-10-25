@@ -258,8 +258,11 @@ def p_copper(c, pal):
     wall = rune * shaders.smooth01(c.cav, 0.015, 0.16)
     rgb = shaders.mix(rgb, shaders.srgb(9, 30, 25), wall * 0.45)
     lip = shaders.smooth01(c.ridge, 0.035, 0.28) * oxide * (1.0 - rune)
-    rgb = shaders.mix(rgb, pal["copper_spec"], lip * 0.30)
-    rgb = shaders.mix(rgb, pal["copper_spec"], 0.6 * c.ridge * (1 - pat) * (1 - rune) * (1 - side) * (1 - oxide))
+    # C2 r11 (board r10: "an even pale rim around the whole bit perimeter -- a cel outline"): the convex-ridge lift painted
+    # EVERY edge (beard curves, eye block, knot lips) pale peach (copper_spec 255/206/172 at 0.6). Ridges now take the
+    # saturated bright copper (copper_hi) at a lower amount; the only pale bright line is the cutting-edge band (p_steel).
+    rgb = shaders.mix(rgb, pal["copper_hi"], lip * 0.30)
+    rgb = shaders.mix(rgb, pal["copper_hi"], 0.35 * c.ridge * (1 - pat) * (1 - rune) * (1 - side) * (1 - oxide))
     # C2 r5: metal 0.78-0.9 on the cheeks (r2-r4 kept it at 0.5-0.7 because the mirror cheeks reflected the purple dusk
     # sky; the engine's hue lock now keeps those reflections copper), rough 0.30-0.42 so the key prints a real highlight
     # C2 r6: glossier cheeks (0.20-0.30; r5 0.30-0.42 blurred the key into a wash), tarnish rougher
@@ -275,9 +278,14 @@ def p_steel(c, pal):
     # instead of printing a wide warm-white border at every angle
     n1 = c.noise(40.0, 2, 93)
     rgb = np.tile(pal["steel"], (c.n, 1)) * (1.0 + 0.04 * n1)[:, None]
-    rgb = shaders.mix(rgb, shaders.srgb(255, 236, 222), 0.5 * c.ridge)
+    rgb = shaders.mix(rgb, shaders.srgb(255, 232, 190), 0.5 * c.ridge)   # C2 r11: warm gold-white, not pink-white (255/236/222)
+    # C2 r11: the honed line is brightest across the middle of the cutting arc and burnishes back to copper toward the
+    # horn tips (the horns curl back toward the haft: they are not the cutting edge), so the bit is not ringed in pale
+    dz = np.abs(c.P[:, 2] - HEAD_Z) / (0.325 * HZ)
+    tipk = shaders.smooth01(dz, 0.55, 0.92)
+    rgb = shaders.mix(rgb, pal["copper_hi"], 0.75 * tipk)
     rgb = shaders.mix(rgb, rgb * 0.55, 0.6 * c.cav)
-    return shaders.out(c.n, rgb, np.clip(0.14 + 0.05 * n1, 0.10, 0.4), 0.92)
+    return shaders.out(c.n, rgb, np.clip(0.14 + 0.05 * n1 + 0.12 * tipk, 0.10, 0.4), 0.92)
 
 
 def p_wood(c, pal):
@@ -296,14 +304,17 @@ def p_brass(c, pal):
 
 PAINTERS = {"copper": p_copper, "steel": p_steel, "wood": p_wood, "brass": p_brass}
 KINDS = {"copper": "bronze", "steel": "iron", "wood": "leather", "brass": "bronze"}
-PAL = dict(copper=shaders.srgb(162, 55, 20), copper_hi=shaders.srgb(221, 102, 41), copper_spec=shaders.srgb(255, 206, 172),   # C2 r6: darker, more saturated mid copper
+# C2 r11 (board r10: "peach-painted panels", Orchestrator: "pale SALMON-PINK, desaturated"): the copper moves from red toward
+# ORANGE copper (green share up: hue ~15 -> ~20 deg) and the pale accents lose their pink (blue share down)
+PAL = dict(copper=shaders.srgb(172, 68, 22), copper_hi=shaders.srgb(230, 120, 44), copper_spec=shaders.srgb(255, 204, 140),
            copper_deep=shaders.srgb(98, 34, 14), copper_dark=shaders.srgb(80, 28, 14),           # C2 r4: value range (r6 a step darker)
            copper_oxide=shaders.srgb(54, 20, 11),                                                 # C2 r6: dark oxidised recesses
-           copper_patina=shaders.srgb(40, 110, 92), copper_patina_amt=0.34, rune=shaders.srgb(22, 132, 112),   # C2 r6: deeper teal
-           steel=shaders.srgb(246, 214, 192), wood=shaders.srgb(104, 66, 40),                     # C2 r6: polished pale-copper bevel; lighter haft
+           copper_patina=shaders.srgb(40, 110, 92), copper_patina_amt=0.34, rune=shaders.srgb(30, 96, 80),   # C2 r11: recessed verdigris (r6 22/132/112 out-contrasted the metal)
+           steel=shaders.srgb(250, 206, 128), wood=shaders.srgb(104, 66, 40),                     # C2 r6: polished pale-copper bevel; lighter haft
            brass=shaders.srgb(236, 190, 98), brass_patina=shaders.srgb(96, 130, 108), brass_patina_amt=0.22,
            leather_dark=shaders.srgb(112, 74, 50), leather_dark_worn=shaders.srgb(176, 128, 90))   # C2 r5: lifted wrap (Muse: haft lost against the ground)
-GLOW = np.array([0.10, 0.52, 0.42])    # teal rune glow (emissive map); C2 r6: lower (the pale teal washed the head high-key)
+GLOW = np.array([0.05, 0.26, 0.21])   # C2 r11: half (runes read as inlay, not glowing decals)
+_GLOW_R6 = np.array([0.10, 0.52, 0.42])    # teal rune glow (emissive map); C2 r6: lower (the pale teal washed the head high-key)
 
 
 def build(args):

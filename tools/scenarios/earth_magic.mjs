@@ -70,6 +70,7 @@ export default async (api) => {
     window.__earthBreaches = []; window.__earthCrumbles = [];
     window.__KCA.game.bus.on('magic:earthBreach', e => window.__earthBreaches.push(e));
     window.__KCA.game.bus.on('magic:earthCrumble', e => window.__earthCrumbles.push(e));
+    window.__earthShowcase = []; window.__KCA.game.bus.on('magic:earthShowcase', e => window.__earthShowcase.push(e));
     window.__KCA.game.bus.on('hit', e => {
       if (e.moveId === 'magic_t2') window.__earthHits.push({ tick: window.__KCA.game.tick, id: e.target.id, x: e.target.pos.x, z: e.target.pos.z, damage: e.damage, moveId: e.moveId });
     });
@@ -108,8 +109,11 @@ export default async (api) => {
     const score = samples.at(-1).rocks.filter(r => r.kind === 'magic_column').reduce((n, r) => n + r.heights.reduce((sum,h,i)=>sum+(r.collapse[i]>0?0:h),0), 0);
     const heat = samples.at(-1).rocks.reduce((n, r) => n + r.energy.reduce((a, e) => a + e, 0), 0);
     if (heat > hottest) { hottest = heat; hotSample = i; await api.shot('peak'); }
-    if (score > 0 && score > bestHold) { bestHold = score; peakSample = i; await api.shot('hold');
-      if (process.env.EARTH_UNLIT === '1' && !unlitShot && i>=24) {
+    if (score > 0 && score > bestHold) { bestHold = score; peakSample = i; await api.shot('hold'); }
+    // r17: the unlit silhouette pair is taken during the peak hold itself (>= 90 % of the best hold score), not only
+    // when a later frame sets a new best.
+    if (process.env.EARTH_UNLIT === '1' && !unlitShot && i>=22 && score > 0 && score >= bestHold * .9) {
+      {
         unlitShot=true;
         await api.shot('silhouette-lit');
         const gains=await api.evalGame(()=>{const a=[];window.__KCA.game.vfx.group.traverse(m=>{if(m.material?.userData.stoneHeatGain){a.push([m.uuid,m.material.userData.stoneHeatGain.value]);m.material.userData.stoneHeatGain.value=0;}});window.__KCA.game.renderer.render(0);return a;});
@@ -175,7 +179,7 @@ export default async (api) => {
   const peakSummary = { sample: peakSample, tick: peak?.tick, count: peakColumns.reduce((n, r) => n + r.count, 0),
     fullyOpaque: peakColumns.reduce((n, r) => n + r.opacity.filter(a => a >= 0.9).length, 0),
     maskOnly: peakColumns.every(r => r.maskOnly), magicOcc: peak?.boss?.magicOcc ?? null };
-  const strikeProbe = await api.evalGame(() => ({ columns: window.__earthBreaches, crumbles: window.__earthCrumbles }));
+  const strikeProbe = await api.evalGame(() => ({ columns: window.__earthBreaches, crumbles: window.__earthCrumbles, showcase: window.__earthShowcase }));
   strikeProbe.pass = strikeProbe.columns.length > 0 && strikeProbe.columns.every(c => c.baseToTarget <= .01 && (c.boss || (!c.skipped && c.columnBaseToTarget <= .01)) && c.strikeTick === c.breachTick && (c.boss || c.launchTick === c.breachTick));
   fs.writeFileSync(path.join(api.outDir, 'strike-probe.json'), JSON.stringify(strikeProbe, null, 2));
   const programAudit = await auditPrograms();

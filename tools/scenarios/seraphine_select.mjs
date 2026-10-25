@@ -34,8 +34,9 @@ export default async api=>{
     }
    });
    const left=Math.max(0,Math.floor(minX)-12),top=Math.max(0,Math.floor(minY)-12);
-   return {flow:g.flow.state,source:h.model.source,bad,box:{left,top,width:Math.min(innerWidth-left,Math.ceil(maxX)-left+12),height:Math.min(innerHeight-top,Math.ceil(maxY)-top+12)},camera:{position:g.camera.position.toArray(),fov:g.camera.fov}};
+   return {flow:g.flow.state,source:h.model.source,clip:h.animator?.name,bad,box:{left,top,width:Math.min(innerWidth-left,Math.ceil(maxX)-left+12),height:Math.min(innerHeight-top,Math.ceil(maxY)-top+12)},camera:{position:g.camera.position.toArray(),fov:g.camera.fov}};
   });
+  if(name==='select_both_ready'&&proof.clip!=='select_ready')throw new Error('READY lost Seraphine presentation clip: '+proof.clip);
   if(proof.bad.length||!Number.isFinite(proof.box.width)||proof.box.width<=0)throw new Error('Nonfinite select hero');
   await api.shot(name);
   await sharp(`${api.outDir}/${name}.png`).extract(proof.box).resize(proof.box.width*2,proof.box.height*2,{kernel:'nearest'}).png().toFile(`${api.outDir}/${name}_2x.png`);

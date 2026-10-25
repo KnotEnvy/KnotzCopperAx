@@ -21,43 +21,40 @@ def rgba(col, alpha):
     a[:, :4] = a[:, -4:] = 0
     return Image.fromarray(np.uint8(np.dstack([np.clip(col, 0, 1), a]) * 255))
 
+def thermal_palette(value):
+    # Saturated orange/red carries the volume. Ivory occupies only a small fuel seam.
+    stops=np.array([[.075,.006,.003],[.31,.014,.003],[.74,.055,.003],
+                    [1,.22,.008],[1,.49,.025],[1,.78,.12],[1,.96,.64]])
+    v=np.clip(value,0,.9999)*6;i=v.astype(int);f=(v-i)[...,None]
+    return stops[i]*(1-f)+stops[i+1]*f
+
+
 def flame(t, burst=False):
-    # Separated fuel roots, rather than a continuous luminous ellipse underneath the licks.
-    phase=t*math.tau
-    noise=turbulence(x,y,t*2)
+    # Four unequal fuel roots; a hooked lick, split spear, broad curl and short shoulder.
+    # Heat is painted inside each tongue, rather than a shared horizontal orange skirt.
+    phase=t*math.tau;n=turbulence(x,y,t*2);fine=turbulence(x,y,t*3.7+1.2)
     field=np.zeros_like(x);heat=np.zeros_like(x)
-    for j,(base_x,base_height,base_width) in enumerate([(-.43,.70,.32),(.03,.90,.40),(.46,.63,.29)]):
-        height=base_height*(.82+.16*math.sin(phase+j*2.4))
-        width=base_width*(1+.13*math.sin(phase*2+j*3))
-        yy=y/height
-        bend=base_x+.19*np.sin(yy*6-phase+j)*yy+.15*np.sin(phase+j*3)*yy*yy
-        w=width*np.maximum(0,1-yy)**1.18+.003
-        d=np.abs(x-bend)/w
-        torn=.12*noise+.08*np.sin(x*39+y*43-phase*3)
-        body=(1-smooth(.83,1.02,d+torn))*(1-smooth(.86,1.02,yy))*smooth(.035,.10,y)
-        lick=np.clip(1.30-.83*yy-.29*d+.12*np.sin(y*35+x*21-phase*4)+.13*noise,0,1)
-        # Narrow sinuous hot filaments inside each tongue, with cool breaks between them.
-        filament=np.exp(-((x-bend+.025*np.sin(yy*23-phase*3+j))/(w*.17+.004))**2)
-        lick=np.clip(lick+filament*.43*(1-yy)+.10*np.sin(yy*51+x*35-phase*5)*noise,0,1)
-        # Deep curved channels remain visible even when several ambient layers overlap.
-        channel=np.exp(-((x-bend-w*.36*np.sin(yy*8+j))/(w*.25+.003))**2)
-        body*=1-channel*smooth(.13,.33,yy)*.62
-        field=np.maximum(field*(1-channel*smooth(.20,.40,yy)*.26),body)
-        heat=np.maximum(heat,lick*body)
-        # A detached curling tip changes position, brightness and silhouette every loop cell.
-        cx=base_x+.18*math.sin(phase+j);cy=height+.07
-        tip=np.sqrt(((x-cx)/.05)**2+((y-cy)/.055)**2)
-        fleck=(1-smooth(.55,1.05,tip))*max(0,math.sin(phase+j*2))
-        field=np.maximum(field,fleck);heat=np.maximum(heat,fleck*.55)
-    field*=smooth(.025,.09,y+.012*np.sin(x*19+phase))
-    # Fuel breaks stay dark even when the consumer overlaps several phased cards.
-    roots=np.maximum.reduce([np.exp(-((x-c)/.13)**4) for c in [-.43,.03,.46]])
-    field*=1-(1-roots)*(1-smooth(.10,.31,y))
-    stops=np.array([[.26,.009,.002],[.67,.052,.003],[1,.24,.006],[1,.57,.025],[1,.86,.24],[1,.995,.88]])
-    value=np.clip(heat*5,0,4.999)
-    value=np.floor(value*1.5)/1.5+np.mod(value*1.5,1)*.14
-    i=value.astype(int);f=(value-i)[...,None]
-    return rgba(stops[i]*(1-f)+stops[i+1]*f,field)
+    for j,(bx,h,w,root) in enumerate([(-.55,.46,.22,.10),(-.24,.76,.32,.075),(.20,.86,.30,.13),(.56,.53,.20,.08)]):
+        h*=.88+.12*math.sin(phase+j*2.1)
+        v=(y-root)/h;u=np.clip(v,0,1)
+        spine=bx+(.17*np.sin(u*(5+j)-phase+j)+.075*np.sin(u*15+phase*2))*u
+        width=w*np.maximum(0,1-u)**(.72+j*.11)+.007
+        d=np.abs(x-spine+n*.026)/width
+        contour=d+n*.22+fine*.12
+        body=(1-smooth(.83,1.04,contour))*(1-smooth(.90,1.,v))
+        body*=smooth(-.045,.065,v-.075*d*d)
+        # Long open channels and curls divide the mass; edges remain soft at game size.
+        channel=np.exp(-((x-spine-.075*np.sin(u*10-phase))/(.016+.030*u))**2)
+        body*=1-channel*smooth(.29,.72,u)*.91
+        inner=(1-smooth(.30,.67,d+.18*n))*(1-smooth(.18,.65,u))
+        hot=(1-smooth(.12,.36,d+.12*fine))*(1-smooth(.10,.38,u))
+        value=.61-.28*u-.13*d+.055*n+.035*fine
+        value=np.maximum(value,.84*inner+.12)
+        value=np.maximum(value,.995*hot)
+        # The hottest ribbons originate at fuel and taper independently, never a line.
+        heat=np.where(body>field, value, np.maximum(heat,value*body))
+        field=np.maximum(field,body)
+    return rgba(thermal_palette(heat),field)
 
 def smooth(a, b, v):
     q = np.clip((v-a)/(b-a), 0, 1)
@@ -95,40 +92,30 @@ def smoke(t):
 
 
 def fireball(t):
-    # One connected, turbulent combustion mantle, rooted across the lower torso.
-    # Lobes share an irregular fuel mass; only their tips split into little wisps.
-    n=turbulence(x,y,t*3.8);fine=turbulence(x,y,t*6.1+1.7)
-    burn=smooth(.32,1.,t)
-    base=.19+.012*math.sin(t*24)
-    root=np.sqrt(((x+.025)/(.61*(1-.66*burn)))**2+((y-base)/(.16*(1-.50*burn)))**2)
-    field=(1-smooth(.62,1.06,root+n*.25))*(1-.87*burn)
-    heat=np.clip(1.07-root*.49+n*.19-burn*.45,0,1)*field
-    for j,(root_x,height,width) in enumerate([(-.36,.58,.28),(-.04,.77,.34),(.31,.61,.29)]):
-        phase=t*15+j*2.13
-        h=height*(.86+.14*math.sin(phase))*(1-.64*burn)
-        yy=(y-base)/max(.08,h);v=np.clip(yy,0,1)
-        spine=root_x*(1-.65*burn)+(.19*np.sin(v*6-phase)+.075*np.sin(v*14+phase))*v
-        w=width*(1-.66*burn)*np.maximum(0,1-v)**.86+.005
-        d=np.abs(x-spine+n*.044)/w
-        contour=d+n*.34+fine*.18
-        body=(1-smooth(.70,1.06,contour))*smooth(-.18,.045,yy)*(1-smooth(.86,1.03,yy))
-        # Cool grooves above the connected root; curling cut-outs break the tips.
-        groove=np.exp(-((x-spine-.07*np.sin(v*11-phase))/(.013+.026*v))**2)
-        body*=1-groove*smooth(.32,.75,v)*.88
-        body*=1-smooth(.54,.86,n*.5+.5+v*.16)*smooth(.45,.85,v)
-        body*=1-.92*burn
+    # Three separated body-bound ignition tongues with staggered rounded roots.
+    # Keep the eight-pose burn-down and CPU fade; expose the waist between roots.
+    n=turbulence(x,y,t*3.3);fine=turbulence(x,y,t*5.2+1.7)
+    burn=smooth(.36,1.,t);scale=1-.50*burn
+    field=np.zeros_like(x);heat=np.zeros_like(x)
+    for j,(bx,height,width,base) in enumerate([(-.42,.62,.25,.13),(-.06,.68,.23,.25),(.37,.62,.24,.18)]):
+        phase=t*17+j*2.1
+        h=height*(.89+.10*math.sin(phase))*(1-.57*burn)
+        v=(y-base)/max(.08,h);u=np.clip(v,0,1)
+        spine=bx*scale+(.15*np.sin(u*(6+j)-phase)+.06*np.sin(u*15+phase))*u
+        w=width*scale*np.maximum(0,1-u)**.82+.006
+        d=np.abs(x-spine+n*.027)/w
+        body=(1-smooth(.78,1.04,d+n*.18+fine*.09))*(1-smooth(.85,1.,v))
+        body*=smooth(-.02,.13,v-.14*d*d)
+        groove=np.exp(-((x-spine-.065*np.sin(u*11-phase))/(.015+.022*u))**2)
+        body*=1-groove*smooth(.28,.75,u)*.86
+        inner=(1-smooth(.23,.62,d+.15*n))*(1-smooth(.14,.58,u))
+        hot=(1-smooth(.12,.32,d+.08*fine))*(1-smooth(.13,.36,u))
+        value=np.maximum(.63-.29*u-.12*d+.05*n,.90*inner)
+        value=np.maximum(value,.995*hot)-.30*burn
+        heat=np.where(body>field,value,np.maximum(heat,value*body))
         field=np.maximum(field,body)
-        hval=np.clip(1.06-.69*v-.32*d+n*.20+fine*.12-.46*burn,0,1)
-        heat=np.maximum(heat,hval*body)
-    # As combustion subsides, small hot fragments stay at the body instead of a grey swap.
-    for j in range(8):
-        cx=.43*math.sin(j*2.4+t*8)*(1-.65*burn);cy=.18+(j%3)*.07+t*.035
-        rad=.012+.008*math.sin(j*3+t*19)**2
-        ember=(1-smooth(.3,1.,np.sqrt(((x-cx)/rad)**2+((y-cy)/(rad*1.9))**2)))*smooth(.44,.78,t)*(1-.65*smooth(.85,1.,t))
-        field=np.maximum(field,ember);heat=np.maximum(heat,ember*.86)
-    stops=np.array([[.28,.006,.001],[.78,.045,.002],[1,.25,.008],[1,.57,.035],[1,.87,.30],[1,.995,.93]])
-    value=np.clip(heat*5,0,4.999);i=value.astype(int);f=(value-i)[...,None]
-    return rgba(stops[i]*(1-f)+stops[i+1]*f,field)
+    field*= (1-.68*burn)*(.83-.19*smooth(.25,.64,y))
+    return rgba(thermal_palette(heat),field)
 
 def knockdown(t):
     u=x*.5;v=y
@@ -285,13 +272,21 @@ def main():
     file=OUT/'fire-hit-atlas.png'
     if '--check' in sys.argv:
         check_atlas(file);return
-    atlas=Image.new('RGBA',(SIZE*8,SIZE*8))
+    rows_arg=next((a.split('=',1)[1] for a in sys.argv if a.startswith('--rows=')),None)
+    rows=set(map(int,rows_arg.split(','))) if rows_arg else set(range(8))
+    atlas=Image.open(file).convert('RGBA') if rows_arg and file.exists() else Image.new('RGBA',(SIZE*8,SIZE*8))
     for row,kind in enumerate(KINDS):
+        if row not in rows: continue
         for frame in range(8):
             t=frame/8 if row==0 else min(frame,3)/3 if row in (4,5) else frame/7
             im=flame(t) if row==0 else fireball(t) if row==1 else smoke(t) if row==2 else painted(kind,t)
             atlas.paste(pack_cell(im),(frame*SIZE,row*SIZE))
-    atlas.save(file,optimize=True)
+    # Re-read other rows immediately before promotion in this shared working tree.
+    if rows_arg and file.exists():
+        latest=Image.open(file).convert('RGBA')
+        for row in range(8):
+            if row not in rows: atlas.paste(latest.crop((0,row*SIZE,SIZE*8,(row+1)*SIZE)),(0,row*SIZE))
+    temporary=file.with_suffix('.tmp.png');atlas.save(temporary,optimize=True);temporary.replace(file)
     check_atlas(file)
     print(file)
 

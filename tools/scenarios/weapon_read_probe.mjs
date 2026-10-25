@@ -85,6 +85,9 @@ export default async (api) => {
     return out;
   });
   const rows = [];
+  // C2 r11: LHH_CLEAN0=1 removes every live foe BEFORE the first press -> a deterministic, unhit light string (the hero can't be
+  // knocked into hitstun first; trails still emit on the moves' hit windows)
+  if (process.env.LHH_CLEAN0) await api.evalGame(() => { const K = window.__KCA; for (const e of K.game.world.query({ team: 'enemies' })) if (e.alive) K.debug.kill(e.id); });
   await api.advance(400);
   api.press(0, 'light', 60); await api.advance(step * 12);
   api.press(0, 'light', 60); await api.advance(step * 2);
@@ -95,6 +98,12 @@ export default async (api) => {
     await api.page.screenshot({ path: p }); i++;
   };
   for (let k = 0; k < 10; k++) { await api.advance(step); await grab(); }
+  // C2 r10: LHH_CLEAN=1 removes every live foe before the heavy so the swing + follow-through play unhit (no hitstun / hitstop).
+  if (process.env.LHH_CLEAN) {
+    await api.evalGame(() => { const K = window.__KCA; for (const e of K.game.world.query({ team: 'enemies' })) if (e.alive) K.debug.kill(e.id); });
+    // a 3-hit light string swallows the heavy press: let it finish (idle) first, then press (frames keep being captured)
+    for (let w = 0; w < 24 && rows.length && rows[rows.length - 1].move; w++) { await api.advance(step); await grab(); }
+  }
   api.press(0, 'heavy', 60);
   while (i < n) { await api.advance(step); await grab(); }
   // ---- summary

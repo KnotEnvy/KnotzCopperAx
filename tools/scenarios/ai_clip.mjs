@@ -9,6 +9,7 @@ import path from 'node:path';
 
 export default async (api) => {
   const E = (fn, arg) => api.evalGame(fn, arg);
+  if (process.env.AI_FLAGS) await E(flags => Object.assign(window.__KCA.game.ai.director, flags), JSON.parse(process.env.AI_FLAGS));
   const wave = Number(process.env.AI_WAVE || 0), warm = Number(process.env.AI_WARM || 4000);
   const n = Number(process.env.AI_FRAMES || 180), step = Number(process.env.AI_STEP || 33);
   await E(() => { const k = window.__KCA; if (k.debug && k.debug.god) k.debug.god(true); });
@@ -24,11 +25,13 @@ export default async (api) => {
   // standing foe on EACH side within 0.7–2.6 m of screen x (at his depth ±1.8 m) and at least one more foe standing in frame —
   // the board's "a hero visibly sandwiched while a third circles" — then capture from there. Writes the find into clip_foes.json.
   let found = null;
-  if (process.env.AI_FIND === 'sandwich') {
+  // bracket also accepts the two-foe co-op pack: two skeletons cannot supply a third fighter. The legacy sandwich finder
+  // keeps its extra-foe requirement; both modes observe real positions and never move/spawn actors to stage the shot.
+  if (process.env.AI_FIND === 'sandwich' || process.env.AI_FIND === 'bracket') {
     const lim = Number(process.env.AI_FIND_S || 60) * 10;
     for (let i = 0; i < lim && !found; i++) {
       await api.advance(100);
-      found = await E(() => {
+      found = await E((pairOK) => {
         const g = window.__KCA.game, c = g.cameraRig.camera, V = c.position.constructor, w = window.innerWidth;
         c.updateMatrixWorld();
         const NO = ['knockdown', 'down', 'getup', 'thrown', 'grabbed', 'dead', 'bones', 'rise', 'reform', 'enter', 'clinch'];
@@ -40,10 +43,10 @@ export default async (api) => {
           const L = foes.filter((e) => near(e) < 0), R = foes.filter((e) => near(e) > 0);
           if (!L.length || !R.length) continue;
           const third = foes.filter((e) => !L.includes(e) && !R.includes(e) && (() => { const b = sx(e); return b.x > 0.06 * w && b.x < 0.94 * w; })());
-          if (third.length) return { tick: g.tick, hero: h.id, left: L.map((e) => [e.typeId, e.id, e.fsm.name]), right: R.map((e) => [e.typeId, e.id, e.fsm.name]), third: third.map((e) => [e.typeId, e.id, e.fsm.name]) };
+          if (third.length || pairOK) return { tick: g.tick, hero: h.id, left: L.map((e) => [e.typeId, e.id, e.fsm.name]), right: R.map((e) => [e.typeId, e.id, e.fsm.name]), third: third.map((e) => [e.typeId, e.id, e.fsm.name]) };
         }
         return null;
-      });
+      }, process.env.AI_FIND === 'bracket');
     }
     api.log('FIND ' + JSON.stringify(found));
   }
@@ -58,6 +61,32 @@ export default async (api) => {
     }
     api.log('FIND ' + JSON.stringify(found));
   }
+  // C2 r16 AI_FIND=cross: step 100 ms until the co-op flank balancer (director._coX) sends a foe round its hero (a one-sided hero
+  // recovering his open flank, usually right after he moved past his foes), both on screen, then capture from ~0.3 s before.
+  // AI_FIND=down: until a hero lies down / gets up with 2+ standing foes within 4 m (the gank-pile check).
+  if (process.env.AI_FIND === 'cross' || process.env.AI_FIND === 'down') {
+    const mode = process.env.AI_FIND, lim = Number(process.env.AI_FIND_S || 60) * 10;
+    for (let i = 0; i < lim && !found; i++) {
+      await api.advance(100);
+      found = await E((m) => {
+        const g = window.__KCA.game, d = g.ai && g.ai.director, c = g.cameraRig.camera, V = c.position.constructor;
+        c.updateMatrixWorld();
+        const fx = (a) => (new V(a.pos.x, 1, a.pos.z).project(c).x + 1) / 2, on = (a) => { const x = fx(a); return x > 0.1 && x < 0.9; };
+        if (m === 'cross') {
+          if (!d || !d._coX) return null;
+          for (const [hid, cr] of d._coX) { const h = g.world.byId.get(hid), e = g.world.byId.get(cr.id); if (h && e && on(h) && on(e) && g.tick - cr.t < 8) return { tick: g.tick, hero: hid, foe: [e.typeId, e.id], side: cr.side, dx: +(e.pos.x - h.pos.x).toFixed(1), dz: +(e.pos.z - h.pos.z).toFixed(1) }; }
+          return null;
+        }
+        for (const h of g.world.query({ kind: 'hero' })) {
+          if (!h.alive || !(h.fsm && h.fsm.is('down', 'getup', 'knockdown')) || !on(h)) continue;
+          const near = g.world.query({ team: 'enemies' }).filter((e) => e.alive && e.kind !== 'boss' && e.fsm && e.fsm.is('idle', 'walk', 'pause', 'attack') && Math.abs(e.pos.x - h.pos.x) < 4 && Math.abs(e.pos.z - h.pos.z) < 2);
+          if (near.length >= 2) return { tick: g.tick, hero: h.id, state: h.fsm.name, near: near.map((e) => [e.typeId, e.id, e.fsm.name, +(e.pos.x - h.pos.x).toFixed(1)]) };
+        }
+        return null;
+      }, mode);
+    }
+    api.log('FIND ' + JSON.stringify(found));
+  }
   await E(() => {
     const g = window.__KCA.game, R = (window.__CLIP = { frames: [], hits: [] });
     g.bus.on('hit', (ev) => { if (ev.target && ev.target.team === 'enemies' && ev.attacker && ev.attacker.kind === 'hero') R.hits.push([g.tick, ev.target.id]); });
@@ -67,12 +96,19 @@ export default async (api) => {
       const sx = (a) => (new V(a.pos.x, a.pos.y + (a.height || 1.8) * 0.55, a.pos.z).project(c).x + 1) / 2 * w;
       const hit = new Set(R.hits.filter((h) => g.tick - h[0] < 3).map((h) => h[1]));
       R.frames.push({ tick: g.tick, heroes: g.world.query({ kind: 'hero' }).map((h) => [h.id, Math.round(sx(h)), h.fsm.name]),
-        foes: g.world.query({ team: 'enemies' }).filter((e) => e.alive && e.kind !== 'boss' && e.kind !== 'mount').map((e) => { const x = sx(e); return [e.typeId, e.id, e.fsm.name, Math.round(x), Math.round(Math.min(x, w - x)), hit.has(e.id) ? 1 : 0]; }) });
+        foes: g.world.query({ team: 'enemies' }).filter((e) => e.alive && e.kind !== 'boss' && e.kind !== 'mount').map((e) => { const x = sx(e); return [e.typeId, e.id, e.fsm.name, Math.round(x), Math.round(Math.min(x, w - x)), hit.has(e.id) ? 1 : 0, e.animator?.cur?.name || '', +e.pos.y.toFixed(2)]; }) });
     };
   });
-  for (let i = 0; i < n; i++) { await api.frames(1, step); await E(() => window.__CLIP.sample()); } // sampled at the screenshot's tick
+  for (let i = 0; i < n; i++) {
+    await api.frames(1, step); await E(() => window.__CLIP.sample()); // sampled at the screenshot's tick
+    // Full game-camera stills of the recoil, transition and held guard. No extra time advance; the long MP4/sheet remains
+    // the motion evidence, while these retain 1600x900 detail that the MP4's standard 1280-wide encode cannot preserve.
+    if (process.env.AI_FIND === 'react' && [4, 12, 24].includes(i)) await api.shot('reaction_frame_' + String(i).padStart(4, '0'));
+  }
   const r = await E(() => { const R = window.__CLIP, w = window.innerWidth, lim = 90 / 1600 * w; let struck = 0, struckIn = 0, anyCut = 0; for (const f of R.frames) { let cut = false; for (const e of f.foes) { if (e[2] !== 'enter' && e[4] < lim) cut = true; if (e[5]) { struck++; if (e[4] >= lim) struckIn++; } } if (cut) anyCut++; } return { w, frames: R.frames.length, struckFoeFrames: struck, struckInside90px: struckIn, framesAnyFoeWithin90px: anyCut, minStruckInsetPx: Math.min(...R.frames.flatMap((f) => f.foes.filter((e) => e[5]).map((e) => e[4])), 9999), list: R.frames }; });
   r.find = found;
+  r.authoredPoseFrames = {};
+  for (const frame of r.list) for (const foe of frame.foes) if (foe[6]?.startsWith('crowd_')) r.authoredPoseFrames[foe[6]] = (r.authoredPoseFrames[foe[6]] || 0) + 1;
   fs.writeFileSync(path.join(api.outDir, 'clip_foes.json'), JSON.stringify(r));
   api.log('CLIP ' + JSON.stringify({ ...r, list: undefined }));
 };

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
-const out = process.argv[2] || 'progress/shots/magic-vfx/c2r14/assets.json';
+const out = process.argv[2] || 'progress/shots/magic-vfx/c2r15/assets.json';
 const names = ['magic_basalt0','magic_basalt1','magic_basalt2','magic_earth_chip','magic_earth_boulder','magic_earth_fist'];
 const rows = names.map(name => {
   const b=fs.readFileSync(`public/assets/models/${name}.glb`);
@@ -22,14 +22,27 @@ const rows = names.map(name => {
     const a=key(indices[i+e]), b=key(indices[i+(e+1)%3]);
     const k=a<b?a+'|'+b:b+'|'+a;edges.set(k,(edges.get(k)||0)+1);
   }
+  const volumes=new Map(), bounds=new Map();
+  for(let i=0;i<indices.length;i+=3) {
+    const [a,b,c]=indices.slice(i,i+3).map(j=>positions[j]);
+    const id=chunks[indices[i]][1];
+    const v=(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;
+    volumes.set(id,(volumes.get(id)||0)+v);
+    const box=bounds.get(id)||{min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};
+    for(const p of [a,b,c])for(let k=0;k<3;k++){box.min[k]=Math.min(box.min[k],p[k]);box.max[k]=Math.max(box.max[k],p[k]);}
+    bounds.set(id,box);
+  }
+  const physicalScale=name.startsWith('magic_basalt')?[1.4,3.65,1.4]:[1,1,1];
+  const chunkAspects=[...bounds.values()].map(b=>{const d=b.max.map((v,k)=>(v-b.min[k])*physicalScale[k]);return Math.max(...d)/Math.min(...d);});
   const heats=uv.map(v=>v[0]), heights=positions.map(v=>v[1]);
   const maxY=Math.max(...heights), minY=Math.min(...heights);
   const maxHeat=(low,high)=>Math.max(0,...heats.filter((h,i)=>heights[i]>=low&&heights[i]<=high));
   const row={name,triangles:indices.length/3,vertices:positions.length,chunks:new Set(chunks.map(v=>v[1])).size,
     nonmanifoldEdges:[...edges.values()].filter(n=>n!==2).length,
+    inwardChunks:[...volumes.values()].filter(v=>v<=0).length,maxChunkAspect:Math.max(...chunkAspects),
     finite:Object.values(at).every(v=>v.flat().every(Number.isFinite)),
     heatMin:Math.min(...heats),heatMax:Math.max(...heats),baseHeat:maxHeat(minY,minY+(maxY-minY)*.2),crownHeat:maxHeat(maxY-(maxY-minY)*.2,maxY)};
-  row.pass=row.finite&&row.nonmanifoldEdges===0&&row.triangles<16000;
+  row.pass=row.finite&&row.inwardChunks===0&&row.nonmanifoldEdges===0&&row.triangles<16000;
   if(name.startsWith('magic_basalt')) row.pass&&=row.heatMin<-.8&&row.baseHeat>row.crownHeat&&row.chunks>=12&&row.chunks<=24&&row.triangles<=2400;
   return row;
 });

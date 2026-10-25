@@ -79,17 +79,37 @@ export function applySelectWeaponEnv(game, heroes, { intensity = 1.0 } = {}) {
             shape[3] = raisedSteel ? -0.18 : -0.08;
             // The nearly frontal steel flat needs a wider reflected-light image
             // across its width so its maximum falls on the polished bevel, not the fuller.
-            if (raisedSteel) shape[0] = 0.32;
+            if (raisedSteel) shape[0] = 0.12;   // C2 r9: 0.32 put the image 0.29 m off the 0.12 m half-width blade in the live pose
             m.userData.kcaWeaponShape = shape;
             if (m.userData.kcaWeaponShapeU) m.userData.kcaWeaponShapeU.value.fromArray(shape);
           }
           // The warm chosen-hand rig otherwise washes copper cheeks pale salmon.
           // Keep the recess/body energy below the independent polished reflection peak.
           if (w.getObjectByName('weapon_copperax')) m.color.setScalar(0.60);
+          // C2 r9: the raised greatsword's whole flat read one mid grey (board r8: no visible bevel hotspot): darker body so the bevel streak carries.
+          if (raisedSteel && w.getObjectByName('weapon_grudgebrand')) {
+            const t = [0.85, 0.18, 0.5, 1.05];   // lower floor + stronger contrast: dark face, hot bevel (colour stays 1)
+            m.userData.kcaMetalTint = t;
+            if (m.userData.kcaMetalTintU) m.userData.kcaMetalTintU.value.fromArray(t);
+          }
           // The raised READY pose and the r15 chosen-hand key otherwise put Dusk's
           // whole flat at its reflection ceiling. Keep its violet-steel body value
           // in the same family as play; the independent edge hotspot retains its peak.
-          if (w.getObjectByName('weapon_dusk')) m.color.setRGB(0.12, 0.105, 0.16);
+          if (w.getObjectByName('weapon_dusk')) {
+            // C2 r10 (board r9: select Dusk still pale lavender-grey / blue-white at the tip vs the richer violet in play): a more violet
+            // body (green down, blue up; select reads brighter than play at the same colour, so luminance is set ~20% under the r8 value) and a violet-tinted glint (chroma share .32 -> .8), select only.
+            // C2 r11 (board r10: select still ~20 % brighter / milkier than play, no dark side): darker body + the select's own
+            // lower floor / stronger contrast, measured to the play median (violet pixels p50 .14 select vs .148 play).
+            m.color.setRGB(0.075, 0.04, 0.13);
+            const dt = [1.0, 0.10, 0.12, 1.0];
+            m.userData.kcaMetalTint = dt;
+            if (m.userData.kcaMetalTintU) m.userData.kcaMetalTintU.value.fromArray(dt);
+            if (m.userData.kcaWeaponShape) {
+              const sh = [...m.userData.kcaWeaponShape]; sh[2] = 0.8;
+              m.userData.kcaWeaponShape = sh;
+              if (m.userData.kcaWeaponShapeU) m.userData.kcaWeaponShapeU.value.fromArray(sh);
+            }
+          }
           if (raisedSteel && m.userData.kcaWeaponGlint) {
             const glint = [...m.userData.kcaWeaponGlint];
             // A grazing bevel needs higher source radiance in this frontal pose;

@@ -33,13 +33,13 @@ const EASE = [
 const EASE_IDS = { out: 0, in: 1, inout: 2, linear: 3, back: 4 };
 // Default occlusion (premultiplied 'over' amount, 0..0.9) per shape: silhouettes that must read on pale bodies
 // cover more; big soft/ground shapes stay nearly additive.
-const DEF_OCC = { glow: 0.2, ring: 0.1, star: 0.6, slash: 0.6, line: 0.5, crack: 0.3, bolt: 0.5, flame: 0.12, ripple: 0.1, flare: 0.3, disc: 0, burst: 0.55, orb: 0.15, shard: 0.7 };
+const DEF_OCC = { glow: 0.2, ring: 0.1, star: 0.6, slash: 0.6, line: 0.5, crack: 0.3, bolt: 0.5, flame: 0.12, ripple: 0.1, flare: 0.3, disc: 0, burst: 0.55, orb: 0.15, shard: 0.7, spike: 0.9 };
 // Default shape params per shape (p0 when not given).
 const DEF_P = {
   glow: [2.2, 0.6, 0, 0], ring: [0.2, 0.25, 0.5, 1], star: [8, 22, 1, 0.6], slash: [0.35, 0.22, 0.5, 1],
   line: [0.35, 1, 1, 0], crack: [1, 0.06, 0.6, 7], bolt: [0.35, 0.05, 0.08, 0], flame: [0.6, 0.6, 1.5, 0.8],
   ripple: [0.3, 0.05, 0.12, 0.6], flare: [0.08, 0.2, 0, 0], dustring: [0.3, 0.15, 0, 0.5], disc: [2, 0, 0, 0],
-  burst: [7, 0.42, 0.12, 0], orb: [0.6, 0.5, 2.0, 0.5], shard: [0.4, 0.5, 0, 0], lick: [0.7, 0.5, 1, 0], spike: [0.2, 0.1, 0, 0], contact: [0, 0, 0, 0], combustion: [0.65, 0.5, 1, 0], cutarc: [0.36, 0.28, 0, 0],
+  burst: [7, 0.42, 0.12, 0], orb: [0.6, 0.5, 2.0, 0.5], shard: [0.4, 0.5, 0, 0], lick: [0.7, 0.5, 1, 0], spike: [0, 3, 0.3, 1], contact: [0, 0, 0, 0], combustion: [0.65, 0.5, 1, 0], cutarc: [0.36, 0.28, 0, 0],
 };
 
 const VERT = /* glsl */`
@@ -242,15 +242,22 @@ void main() {
     vec4 ink = texture2D(uContactFlame, f * 0.5 + 0.5);
     a = ink.a;
     designed = pow(ink.rgb, vec3(2.2)) * 1.35;
-  } else if (s == 16) {    // SPIKE: asymmetric swept nib; dark copper contour and a narrow hot interior.
+  } else if (s == 16) {    // SPIKE (hit burst blade / fragment): tapered nib, base at -x, tip at +x. ONE instance carries
+    // the dark copper contour, the vCol body and a white-hot spine, so the layers never depend on instance order.
+    // P: taper exponent (0 = 1.15; < 1 = fat blade), contour width in SCREEN PIXELS, spine band, spine heat.
     float u = p.x * 0.5 + 0.5;
-    float bend = P.x * sin(u * 3.14159265);
-    float width = pow(max(0.0, 1.0 - u), 1.6) * smoothstep(0.0, 0.12, u) * 0.82;
-    float sd = width - abs(p.y - bend);
-    float aa = max(fwidth(sd), 0.006);
+    float width = pow(max(0.0, 1.0 - u), P.x > 0.05 ? P.x : 1.15) * smoothstep(0.0, 0.05, u) * 0.94;
+    float sd = width - abs(p.y);
+    float pxu = max(fwidth(sd), 1e-4);
+    float aa = max(pxu, 0.006);
     a = smoothstep(-aa, aa, sd);
-    float inset = smoothstep(0.01, 0.12 + P.y, sd);
-    designed = vCol.rgb * mix(0.24, 1.3, inset);
+    float r = sd / max(width, 1e-3);
+    // constant-pixel contour (survives bloom on thick blades); none at the hub end, where blades overlap as one hot core
+    float ink = P.y * pxu * smoothstep(0.04, 0.3, u);
+    float body = smoothstep(ink - pxu, ink + pxu, sd);
+    float spine = smoothstep(1.0 - P.z - 0.1, 1.0 - P.z + 0.1, r) * (1.0 - smoothstep(0.3, 0.92, u));
+    designed = mix(vec3(0.15, 0.018, 0.005), vCol.rgb, body);
+    designed = mix(designed, vec3(3.2, 2.5, 1.5) * P.w + vCol.rgb * (1.0 - P.w), spine);
   } else if (s == 17) {    // CONTACT: copper contour + tiny hot kernel; P.x selects compact boss/repeat contacts.
     float sd = length(p * vec2(1.0, 1.15)) - 0.21;
     for (int i = 0; i < 6; i++) {

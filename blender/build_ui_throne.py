@@ -235,10 +235,15 @@ def obsidian_shader(nt, panel=False):
 
 
 def scale_shader(nt):
-    """Cobra skin: imbricate overlapping scales (staggered rows, rounded free tips pointing to the tail, dark grooves between them),
-    per-scale tone from a white-noise hash, wet specular, pale belly/hood front via the 'Col' red channel."""
+    """Cobra skin. C2 r16 (board r15 'shaggy fur / moss topiary / quilted upholstery - uniform pebbly bumps, no size gradation; dense scales overwhelm
+    the big forms'): FEW, LARGE, FLAT overlapping plates. Each plate is an inclined shingle (low where it slides under the row above, high at its
+    free rounded tip, then a sharp step down onto the plate below) - no domes, no per-scale random lift - and the plate size is graded by the
+    sweep's UVs (small on the neck, large across the hood, sliver-small toward the hood rim, fine on the head). A smooth VENTRAL band of broad
+    transverse belly plates runs up the throat and the hood front ('Col2': R band mask, G ventral row coordinate, B across-band -1..1).
+    'Col': R pale throat, G bronze (hood rim + skull scutes), B spectacle, A hood-edge factor (rows compress toward the rim)."""
     uv = N(nt, 'ShaderNodeUVMap', uv_map='UV')
     col_attr = N(nt, 'ShaderNodeAttribute', attribute_name='Col', attribute_type='GEOMETRY')
+    col2 = N(nt, 'ShaderNodeAttribute', attribute_name='Col2', attribute_type='GEOMETRY')
     sep = N(nt, 'ShaderNodeSeparateXYZ')
     nt.links.new(uv.outputs['UV'], sep.inputs['Vector'])
     X0, Y0 = sep.outputs['X'], sep.outputs['Y']
@@ -254,32 +259,22 @@ def scale_shader(nt):
                 nt.links.new(v, n.inputs[i])
         return n.outputs[0]
 
-    # C2 r13 (board r12 "hood scales tile as a halftone repeat"): warp the scale lattice with two low-frequency noises so rows wander and scale
-    # sizes breathe instead of printing a regular dot grid (at title size a perfect lattice aliases into halftone).
-    wz1 = N(nt, 'ShaderNodeTexNoise'); wz1.inputs['Scale'].default_value = 0.55; wz1.inputs['Detail'].default_value = 2.0
+    # gentle lattice warp: the rows wander a little (no printed grid) but stay orderly - big plates must read as plates, not wobble
+    wz1 = N(nt, 'ShaderNodeTexNoise'); wz1.inputs['Scale'].default_value = 0.45; wz1.inputs['Detail'].default_value = 1.0
     nt.links.new(uv.outputs['UV'], wz1.inputs['Vector'])
     voff = N(nt, 'ShaderNodeVectorMath', operation='ADD'); voff.inputs[1].default_value = (7.3, 3.1, 0.0)
     nt.links.new(uv.outputs['UV'], voff.inputs[0])
-    wz2 = N(nt, 'ShaderNodeTexNoise'); wz2.inputs['Scale'].default_value = 0.8; wz2.inputs['Detail'].default_value = 2.0
+    wz2 = N(nt, 'ShaderNodeTexNoise'); wz2.inputs['Scale'].default_value = 0.6; wz2.inputs['Detail'].default_value = 1.0
     nt.links.new(voff.outputs[0], wz2.inputs['Vector'])
-    # C2 r15 (board r14 "hood rows = stamped shingle rows"): a third, mid-frequency noise makes the rows wavy, and the 'Col' alpha channel (hood-edge
-    # factor e, 0 on the body and the hood centre -> 1 at the hood's side edge) compresses the row lattice toward the edge about the hood's own origin
-    # (yh0 = the hood's first row), so the scales shrink and the rows curve like real hood scales fall off toward the rim.
-    wz3 = N(nt, 'ShaderNodeTexNoise'); wz3.inputs['Scale'].default_value = 2.4; wz3.inputs['Detail'].default_value = 2.0
-    voff3 = N(nt, 'ShaderNodeVectorMath', operation='ADD'); voff3.inputs[1].default_value = (3.7, 11.9, 0.0)
-    nt.links.new(uv.outputs['UV'], voff3.inputs[0])
-    nt.links.new(voff3.outputs[0], wz3.inputs['Vector'])
     edgef = col_attr.outputs['Alpha']
     yh0 = N(nt, 'ShaderNodeValue'); yh0.outputs[0].default_value = 0.0
     SD['yh0'] = yh0
-    X = m('ADD', X0, m('MULTIPLY', m('SUBTRACT', wz1.outputs['Fac'], 0.5), 1.1))
-    Yw = m('ADD', m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 1.25)), m('MULTIPLY', m('SUBTRACT', wz3.outputs['Fac'], 0.5), 0.55))
-    Y = m('ADD', Yw, m('MULTIPLY', m('MULTIPLY', edgef, 0.70), m('SUBTRACT', Yw, yh0.outputs[0])))
+    X = m('ADD', X0, m('MULTIPLY', m('SUBTRACT', wz1.outputs['Fac'], 0.5), 0.55))
+    Yw = m('ADD', Y0, m('MULTIPLY', m('SUBTRACT', wz2.outputs['Fac'], 0.5), 0.55))
+    Y = m('ADD', Yw, m('MULTIPLY', m('MULTIPLY', edgef, 0.75), m('SUBTRACT', Yw, yh0.outputs[0])))       # rows shrink toward the hood rim
     row = m('FLOOR', Y)
     par = m('MODULO', row, 2.0)
     xs = m('ADD', X, m('MULTIPLY', par, 0.5))
-    # C2 r14 (board r13 "hood scales = uniform stamped scallop rows with identical arc highlights, plastic-smooth"): every scale owns three independent
-    # hashes (cell colour channels): h1 tone / highlight gain, h2 size + warm tint, h3 tilt + where its arc highlight sits.
     cells = N(nt, 'ShaderNodeCombineXYZ')
     nt.links.new(m('FLOOR', xs), cells.inputs['X'])
     nt.links.new(row, cells.inputs['Y'])
@@ -290,71 +285,93 @@ def scale_shader(nt):
     h1, h2, h3 = hsp.outputs['Red'], hsp.outputs['Green'], hsp.outputs['Blue']
     fxr = m('SUBTRACT', m('FRACT', xs), 0.5)
     fyr = m('SUBTRACT', 1.0, m('FRACT', Y))
-    fx = m('ADD', fxr, m('MULTIPLY', m('MULTIPLY', m('SUBTRACT', h3, 0.5), 0.70), fyr))      # per-scale tilt: the free tip drifts sideways
-    fy = m('ADD', fyr, m('MULTIPLY', m('SUBTRACT', h2, 0.5), 0.26))                           # per-scale length
-    sizev = m('ADD', 0.70, m('MULTIPLY', h2, 0.55))                                           # per-scale tip-size
-    tipy = m('MULTIPLY', m('ADD', 0.66, m('MULTIPLY', 0.34, m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', fx, fx), 4.0)))), sizev)
-    rel0 = m('DIVIDE', fy, tipy)
-    rel = m('MULTIPLY', rel0, m('ADD', 0.93, m('MULTIPLY', h3, 0.12)))                         # the bright rim band slides per scale
-    hr = ramp(nt, [(0.0, (0.0, 0, 0, 1)), (0.30, (0.45, 0.45, 0.45, 1)), (0.80, (0.9, 0.9, 0.9, 1)), (0.93, (1, 1, 1, 1)), (0.985, (0.25, 0.25, 0.25, 1)), (1.0, (0.0, 0, 0, 1))])
+    fx = m('ADD', fxr, m('MULTIPLY', m('MULTIPLY', m('SUBTRACT', h3, 0.5), 0.30), fyr))      # slight per-plate tilt
+    fy = m('ADD', fyr, m('MULTIPLY', m('SUBTRACT', h2, 0.5), 0.12))                           # slight per-plate length
+    tipy = m('MULTIPLY', m('ADD', 0.58, m('MULTIPLY', 0.42, m('SQRT', m('MAXIMUM', m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', fx, fx), 4.0)), 0.0)))), m('ADD', 0.92, m('MULTIPLY', h2, 0.16)))   # r16: round scalloped tip
+    rel = m('DIVIDE', fy, tipy)          # 0 where the plate slides under the row above -> 1 at its free tip; > 1 = the plate below shows
+    # albedo: a plate lightens toward its tip (the overlapped base sits in the shadow of the row above), a thin dark line under the free edge,
+    # beyond the tip the next plate's (shadowed) base
+    hr = ramp(nt, [(0.0, (0.26, 0.26, 0.26, 1)), (0.55, (0.58, 0.58, 0.58, 1)), (0.92, (0.86, 0.86, 0.86, 1)), (0.955, (0.62, 0.62, 0.62, 1)), (0.985, (0.04, 0.04, 0.04, 1)), (1.0, (0.20, 0.20, 0.20, 1))])
     nt.links.new(rel, hr.inputs['Fac'])
-    # per-scale highlight gain (0.38..1.0) so the arcs are not identical stamps; the groove (value 0) is untouched
-    hrg = N(nt, 'ShaderNodeMath', operation='MULTIPLY')
-    nt.links.new(hr.outputs[0], hrg.inputs[0])
-    nt.links.new(m('ADD', 0.38, m('MULTIPLY', h1, 0.62)), hrg.inputs[1])
+    # displacement: a flat inclined shingle with a step at the tip (not a dome); a faint cross-plate camber
+    hd = ramp(nt, [(0.0, (0.10, 0.10, 0.10, 1)), (0.94, (1, 1, 1, 1)), (0.975, (0.92, 0.92, 0.92, 1)), (0.995, (0.0, 0.0, 0.0, 1)), (1.0, (0.10, 0.10, 0.10, 1))])
+    nt.links.new(rel, hd.inputs['Fac'])
+    sideg = N(nt, 'ShaderNodeMapRange'); sideg.inputs['From Min'].default_value = 0.50; sideg.inputs['From Max'].default_value = 0.43
+    nt.links.new(m('ABSOLUTE', fx), sideg.inputs['Value'])                     # 0 in the thin groove between neighbours of a row, 1 on the plate
+    side_ok = m('ADD', sideg.outputs['Result'], m('MULTIPLY', m('MAXIMUM', m('SUBTRACT', rel, 0.995), 0.0), 200.0))   # (beyond the tip: the plate below, no groove)
+    side_ok = m('MINIMUM', side_ok, 1.0)
+    camber = m('MULTIPLY', m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', fx, fx), 0.9)), m('ADD', 0.35, m('MULTIPLY', side_ok, 0.65)))
+    hplate = m('MULTIPLY', hd.outputs[0], camber)
     big = N(nt, 'ShaderNodeTexNoise')
-    big.inputs['Scale'].default_value = 0.35
-    big.inputs['Detail'].default_value = 3.0
+    big.inputs['Scale'].default_value = 0.30
+    big.inputs['Detail'].default_value = 2.0
     nt.links.new(uv.outputs['UV'], big.inputs['Vector'])
-    tonef = m('ADD', m('MULTIPLY', h1, 0.80), m('MULTIPLY', big.outputs['Fac'], 0.9))
-    sk = ramp(nt, [(0.0, (0.006, 0.009, 0.007, 1)), (0.50, (0.030, 0.044, 0.026, 1)), (1.0, (0.095, 0.110, 0.050, 1))])      # r15: value lift ~x2.8 (board r14: near-black green mass at 1x); r12 olive-brown
+    tonef = m('ADD', m('MULTIPLY', h1, 0.38), m('MULTIPLY', big.outputs['Fac'], 1.0))
+    sk = ramp(nt, [(0.15, (0.009, 0.011, 0.008, 1)), (0.55, (0.029, 0.038, 0.022, 1)), (1.0, (0.080, 0.085, 0.042, 1))])
     nt.links.new(tonef, sk.inputs['Fac'])
-    warmf = m('MINIMUM', m('MAXIMUM', m('MULTIPLY', m('SUBTRACT', h2, 0.40), 1.3), 0.0), 0.75)     # r14: ~half the scales drift toward warm umber, the rest stay olive
-    body = mix(nt, warmf, sk.outputs[0], (0.150, 0.088, 0.034, 1))
-    shade = mix(nt, hr, (0.0030, 0.007, 0.005, 1), body)                          # grooves dark, scale body = tone
+    warmf = m('MINIMUM', m('MAXIMUM', m('MULTIPLY', m('SUBTRACT', big.outputs['Fac'], 0.45), 2.2), 0.0), 0.65)   # warm umber drifts in broad patches, not per scale
+    body = mix(nt, warmf, sk.outputs[0], (0.130, 0.080, 0.034, 1))
+    hrs = m('MULTIPLY', hr.outputs[0], m('ADD', 0.25, m('MULTIPLY', side_ok, 0.75)))
+    shade = mix(nt, hrs, (0.0030, 0.006, 0.004, 1), body)
     pale = mix(nt, hr, (0.006, 0.007, 0.004, 1), mix(nt, wn.outputs['Value'], (0.085, 0.085, 0.040, 1), (0.16, 0.15, 0.075, 1)))
     sp = N(nt, 'ShaderNodeSeparateColor')
     nt.links.new(col_attr.outputs['Color'], sp.inputs['Color'])
     fin = mix(nt, 0.0, shade, pale)
     nt.links.new(sp.outputs['Red'], fin.inputs[0])
-    # r12 bronze (hood rim, skull scutes): scale bodies go warm bronze-brown, tips catch a copper edge; spectacle: pale parchment scales with dark groove lines
-    bron_body = mix(nt, wn.outputs['Value'], (0.17, 0.115, 0.032, 1), (0.34, 0.24, 0.075, 1))      # r15: olive bronze (the orange read against the orange sky)
+    bron_body = mix(nt, wn.outputs['Value'], (0.17, 0.115, 0.032, 1), (0.30, 0.215, 0.070, 1))
     bron = mix(nt, hr, (0.012, 0.007, 0.003, 1), bron_body)
     fin2 = mix(nt, 0.0, fin, bron)
     nt.links.new(sp.outputs['Green'], fin2.inputs[0])
-    spec_body = mix(nt, wn.outputs['Value'], (0.80, 0.60, 0.32, 1), (1.0, 0.86, 0.52, 1))
-    spec = mix(nt, hr, (0.018, 0.012, 0.006, 1), spec_body)
+    spec_body = mix(nt, wn.outputs['Value'], (0.62, 0.48, 0.27, 1), (0.80, 0.68, 0.42, 1))
+    spec = mix(nt, hr, (0.030, 0.022, 0.012, 1), spec_body)
     fin3 = mix(nt, 0.0, fin2, spec)
     nt.links.new(sp.outputs['Blue'], fin3.inputs[0])
-    b = principled(nt, rough=0.42, spec=0.20)                                    # r14: matte keratin (was a wet 0.35 spec / 0.42 rough)
+    # ---- ventral band: broad transverse belly plates, smooth and slightly paler, each overlapping the next toward the tail
+    s2 = N(nt, 'ShaderNodeSeparateColor')
+    nt.links.new(col2.outputs['Color'], s2.inputs['Color'])
+    vm, vrow, vac = s2.outputs['Red'], s2.outputs['Green'], s2.outputs['Blue']
+    vrel = m('SUBTRACT', 1.0, m('FRACT', vrow))
+    vh = ramp(nt, [(0.0, (0.25, 0.25, 0.25, 1)), (0.93, (1, 1, 1, 1)), (0.975, (0.90, 0.90, 0.90, 1)), (0.995, (0.0, 0.0, 0.0, 1)), (1.0, (0.25, 0.25, 0.25, 1))])
+    nt.links.new(vrel, vh.inputs['Fac'])
+    vdome = m('SUBTRACT', 1.0, m('MULTIPLY', m('MULTIPLY', vac, vac), 0.45))
+    vheight = m('MULTIPLY', vh.outputs[0], vdome)
+    vwn = N(nt, 'ShaderNodeTexWhiteNoise', noise_dimensions='1D')
+    nt.links.new(m('FLOOR', vrow), vwn.inputs['W'])
+    vbody = mix(nt, vwn.outputs['Value'], (0.072, 0.060, 0.030, 1), (0.112, 0.088, 0.044, 1))
+    vlip = mix(nt, m('MULTIPLY', m('MAXIMUM', m('SUBTRACT', vrel, 0.80), 0.0), 5.5), vbody, (0.20, 0.140, 0.060, 1))   # a bronze lip toward each plate's free edge
+    vcol = mix(nt, vh.outputs[0], (0.006, 0.005, 0.003, 1), vlip)
+    seam = m('MULTIPLY', m('MULTIPLY', vm, m('SUBTRACT', 1.0, vm)), 3.2)                    # dark seam where the band meets the dorsal plates
+    alb = mix(nt, vm, fin3, vcol)
+    alb2 = mix(nt, m('MINIMUM', seam, 0.85), alb, (0.004, 0.004, 0.003, 1))
+    b = principled(nt, rough=0.42, spec=0.20)
     b.inputs['Coat Weight'].default_value = 0.0
     b.inputs['Coat Roughness'].default_value = 0.25
-    nt.links.new(fin3.outputs[2], b.inputs['Base Color'])
+    nt.links.new(alb2.outputs[2], b.inputs['Base Color'])
     SD.update({'fin': fin, 'fin2': fin2, 'fin3': fin3, 'spec': spec, 'sp': sp, 'b': b, 'bron': bron})
     b.inputs['Metallic'].default_value = 0.0
-    nt.links.new(m('MULTIPLY', sp.outputs['Green'], 0.65), b.inputs['Metallic'])
-    rg = m('ADD', 0.80, m('MULTIPLY', hrg.outputs[0], -0.20))
-    nt.links.new(m('ADD', rg, m('MULTIPLY', sp.outputs['Green'], -0.22)), b.inputs['Roughness'])
-    # keratin micro-grain: fine striations running along the scale (stretched noise) so a lit scale is not a smooth plastic dome
+    nt.links.new(m('ADD', m('MULTIPLY', sp.outputs['Green'], 0.65), m('MULTIPLY', vm, 0.12)), b.inputs['Metallic'])
+    rg = m('ADD', 0.78, m('MULTIPLY', hr.outputs[0], -0.16))
+    rgd = m('ADD', rg, m('MULTIPLY', sp.outputs['Green'], -0.22))
+    nt.links.new(m('ADD', rgd, m('MULTIPLY', vm, m('SUBTRACT', 0.50, rgd))), b.inputs['Roughness'])      # the belly plates are smoother (0.50)
+    # keratin micro-grain: fine striations running along the plates (stretched noise); fainter on the belly plates
     stv = N(nt, 'ShaderNodeVectorMath', operation='MULTIPLY')
     nt.links.new(uv.outputs['UV'], stv.inputs[0])
-    stv.inputs[1].default_value = (46.0, 150.0, 1.0)
+    stv.inputs[1].default_value = (30.0, 95.0, 1.0)
     stn = N(nt, 'ShaderNodeTexNoise'); stn.inputs['Scale'].default_value = 1.0; stn.inputs['Detail'].default_value = 3.0; stn.inputs['Roughness'].default_value = 0.6
     nt.links.new(stv.outputs[0], stn.inputs['Vector'])
-    hbump = m('ADD', m('MULTIPLY', hrg.outputs[0], 0.55), m('MULTIPLY', m('SUBTRACT', stn.outputs['Fac'], 0.5), 0.34))
-    # C2 r15 (board r14 "stamped scale rows, smooth lofted tubes"): the imbricate height field (rising to the free tip, dropping to the groove) is now REAL
-    # displacement (per-scale gain, a per-scale lift so neighbours sit at different depths) on a pre-subdivided hood; the bump keeps the micro-grain only.
+    hbump = m('MULTIPLY', m('SUBTRACT', stn.outputs['Fac'], 0.5), m('SUBTRACT', 0.30, m('MULTIPLY', vm, 0.20)))
+    # real displacement of the plate height field (shallow: plates, not pebbles); damped on the bronze head scutes
     dsp = N(nt, 'ShaderNodeDisplacement')
     dsp.inputs['Midlevel'].default_value = 0.0
-    dsp.inputs['Scale'].default_value = 0.075
-    # (damped where the bronze head scutes are - 'Col' green - so the sculpted skull is not buried under scale noise; finer there)
-    nt.links.new(m('MULTIPLY', m('ADD', hrg.outputs[0], m('MULTIPLY', m('SUBTRACT', h1, 0.5), 0.22)), m('SUBTRACT', 1.0, m('MULTIPLY', sp.outputs['Green'], 0.80))), dsp.inputs['Height'])
+    dsp.inputs['Scale'].default_value = 0.07
+    hmix = m('ADD', hplate, m('MULTIPLY', vm, m('SUBTRACT', m('MULTIPLY', vheight, 0.85), hplate)))
+    nt.links.new(m('MULTIPLY', hmix, m('SUBTRACT', 1.0, m('MULTIPLY', sp.outputs['Green'], 0.80))), dsp.inputs['Height'])
     outn_ = [n_ for n_ in nt.nodes if n_.type == 'OUTPUT_MATERIAL'][0]
     nt.links.new(dsp.outputs['Displacement'], outn_.inputs['Displacement'])
     bump = N(nt, 'ShaderNodeBump')
-    bump.inputs['Strength'].default_value = 1.0
+    bump.inputs['Strength'].default_value = 0.7
     bump.inputs['Distance'].default_value = 0.05
-    nt.links.new(hbump, bump.inputs['Height'])
+    nt.links.new(m('ADD', hbump, m('MULTIPLY', hmix, 0.55)), bump.inputs['Height'])      # r16: the plate steps also in the bump (crisp at any render size)
     nt.links.new(bump.outputs['Normal'], b.inputs['Normal'])
     return b
 
@@ -443,7 +460,7 @@ def eye_shader(nt):
     sx_ = mathn(nt, 'ADD', dx, mathn(nt, 'MULTIPLY', dy, 0.18))
     nt.links.new(sx_.outputs[0], slit.inputs['Fac'])
     e = N(nt, 'ShaderNodeEmission')
-    e.inputs['Strength'].default_value = 3.4
+    e.inputs['Strength'].default_value = 2.3          # r16 3.4 -> 2.3: the eyes must not compete with the relic
     col = mix(nt, slit, (0.0, 0.0, 0.0, 1), rr)
     nt.links.new(col.outputs[2], e.inputs['Color'])
     return e
@@ -925,6 +942,13 @@ def sweep(name, P, A, B, mat, seg=28, wref=None, wref_from=1e9, cap_start=True, 
         col[..., 0], col[..., 1], col[..., 2] = ch[:3]
         if len(ch) > 3:
             col[..., 3] = ch[3]
+        if len(ch) > 6:                                          # C2 r16: 'Col2' = ventral band mask, ventral row coordinate, across-band
+            c2 = me.color_attributes.new('Col2', 'FLOAT_COLOR', 'POINT')
+            col2 = np.zeros((n, seg + 1, 4), np.float32)
+            col2[..., 0], col2[..., 1], col2[..., 2] = ch[4], ch[5], ch[6]
+            col2[..., 3] = 1
+            fl2 = np.concatenate([col2.reshape(-1, 4), np.tile(np.array([[0, 0, 0, 1]], np.float32), (NEXTRA, 1))]) if NEXTRA else col2.reshape(-1, 4)
+            c2.data.foreach_set('color', fl2.reshape(-1))
     elif pale is not None:
         # pale(f, nx, ny, nz) -> 0..1 ; normal approx from ring geometry
         col[..., 0] = pale(s / s[-1], nrm_t)
@@ -1436,7 +1460,17 @@ def cobra(sg, seed, name):
         LOG('hoodbox', name, Vh.min(0).round(2), Vh.max(0).round(2), 'P at hood0/mid/1', P[int(np.argmin(np.abs(s - s_hood0)))].round(2), P[int(np.argmin(np.abs(s - 0.5 * (s_hood0 + s_hood1))))].round(2), P[int(np.argmin(np.abs(s - s_hood1)))].round(2))
         LOG('paint', name, 'spect max', float(spect.max()), 'bronze max', float(bronze.max()), 'hood s', round(float(s_hood0), 2), round(float(s_hood1), 2), 's_top', round(float(s_top), 2), 'A max', round(float(c['A'].max()), 2))
         edge_e = smooth01((np.abs(across) - 0.30) / 0.62) * smooth01((s_top + 0.05 - sc_) / 1.1) * smooth01((sc_ - s_hood0) / 0.5)
-        return R, bronze, spect, np.broadcast_to(edge_e, R.shape)
+        # C2 r16 (board r15 'no smooth belly plates, the hood-to-neck transition does not read'): a ventral band of broad transverse belly plates up the
+        # throat and the centre of the hood front, widening with the hood; the dorsal plates frame it
+        xa = Aa * ct                                                                      # metres across the centreline (along the width axis)
+        wv = 0.40 + 0.26 * smooth01((sc_ - (s_hood0 + 0.2)) / 1.6) - 0.12 * smooth01((sc_ - (s_top - 1.2)) / 1.0)
+        vband = smooth01((1.0 - np.abs(xa) / wv) / 0.16) * smooth01((-nrm[..., 1] - 0.05) / 0.35) \
+            * smooth01((sc_ - (s_hood0 - 2.6)) / 0.5) * smooth01((s_top + 0.05 - sc_) / 0.35)
+        vrow = np.broadcast_to(sc_ / 0.34, R.shape)
+        vac = np.clip(xa / wv, -1, 1)
+        bronze = bronze * (1 - vband)
+        LOG('ventral', name, 'max', float(vband.max()), 'cells>0.5', int((vband > 0.5).sum()))
+        return R, bronze, spect, np.broadcast_to(edge_e, R.shape), vband, vrow, np.broadcast_to(vac, R.shape)
 
     # head frame (known from the path before the tube is built)
     i0 = int(np.searchsorted(s, s_top + 0.15))
@@ -1461,7 +1495,7 @@ def cobra(sg, seed, name):
         phi = np.arctan2(xw, shh)
         rib = (0.5 + 0.5 * np.cos(phi * 19.0 + 1.3 * np.sin(s_arr[:, None] * 0.9) + 0.9 * np.sin(phi * 7.0 + 2.0))) ** 1.6          # r13: fewer, irregular radiating ribs (46 evenly spaced ribs beat against the scale lattice into a halftone)
         face = np.abs(Nrm[..., 1])
-        V += Nrm * (0.13 * rib * inh[:, None] * face)[..., None]
+        V += Nrm * (0.03 * rib * inh[:, None] * face)[..., None]          # r16: 0.13 -> 0.03 (the radial ribs read as lumpy fur under the plates)
 
         # ---- skull sculpt (world-space anisotropic Gaussians placed on the undisplaced surface)
         def anchor(s_t, sx, wside, wup):
@@ -1498,7 +1532,12 @@ def cobra(sg, seed, name):
         V += Nrm * (disp * wu)[..., None]
         return V
 
-    ob, fr = sweep(name, P, A, Bd, M['scales'], seg=96, scale_fn=lambda s_: 1.25 + 0.30 * smooth01((s_ - (s_hood0 - 0.8)) / 1.2) - 0.80 * smooth01((s_ - (s_top - 0.1)) / 0.9), wref=(math.cos(PSI), sg * math.sin(PSI), 0), wref_from=(s_top - 5.5) / S_total, pale=pale,
+    def plate_mult(s_):
+        # C2 r16: plate size along the body - big on the coils, small on the neck, LARGE across the hood, small again at the hood crown, fine on the head
+        s_ = np.asarray(s_, np.float64)
+        return (2.10 - 0.85 * smooth01((s_ - (s_hood0 - 3.2)) / 2.6) + 1.85 * smooth01((s_ - (s_hood0 + 0.1)) / 1.7)
+                - 1.40 * smooth01((s_ - (s_top - 1.6)) / 1.3) - 0.62 * smooth01((s_ - (s_top - 0.1)) / 0.8))   # head 1.08 (r15 0.75: sub-pixel fuzz at 1x)
+    ob, fr = sweep(name, P, A, Bd, M['scales'], seg=96, scale_fn=plate_mult, wref=(math.cos(PSI), sg * math.sin(PSI), 0), wref_from=(s_top - 5.5) / S_total, pale=pale,
                    offset_fn=head_offsets, paint=paint)
     T, Bw, Bdv, s_, Vf, Nf = fr
     # C2 r15: pre-subdivide (SIMPLE: only density, no smoothing) so the material's scale displacement has vertices to move; and tell the shader where the
@@ -1507,7 +1546,7 @@ def cobra(sg, seed, name):
     smd.subdivision_type = 'SIMPLE'
     smd.levels = 0
     smd.render_levels = 2 if not FAST else 1
-    _mult = 1.25 + 0.30 * smooth01((s_ - (s_hood0 - 0.8)) / 1.2) - 0.80 * smooth01((s_ - (s_top - 0.1)) / 0.9)
+    _mult = plate_mult(s_)
     _vv = np.cumsum(np.concatenate([[0.0], np.diff(s_)]) / (0.15 * _mult))
     SD['yh0'].outputs[0].default_value = float(_vv[int(np.argmin(np.abs(s_ - s_hood0)))])
     # ---- eyes: a glowing iris nested in each socket + a faint green point light so the socket walls and brow glow with falloff
@@ -1519,7 +1558,7 @@ def cobra(sg, seed, name):
         lns.visible_shadow = False
         ln_e = bpy.data.lights.new(name + f'_eyelight{sx}', 'POINT')
         ln_e.color = (0.45, 1.0, 0.15)
-        ln_e.energy = 34.0
+        ln_e.energy = 20.0
         ln_e.shadow_soft_size = 0.05
         lo_e = link(bpy.data.objects.new(name + f'_eyelight{sx}', ln_e))
         lo_e.location = tuple(a - na * 0.02 * HS)

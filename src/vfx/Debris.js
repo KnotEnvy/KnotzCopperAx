@@ -68,6 +68,10 @@ export class DebrisPool {
     this.mesh.castShadow = shadows;
     this.mesh.name = 'vfx_debris';
     this.mesh.userData.sharedGeometry = true; this.mesh.userData.sharedMaterial = true;
+    // C2 r16: chips are not scenery. The boss-lock occluder fade (enemies/bosses/_occluders.js) took a chip flying in
+    // front of the band for an occluder and cloned it as a transparent non-instanced mesh = the one program linked in
+    // play (r15 gate, S3 boss `vfxStoneMetalSurface3` @vfx_debris#fade), and a frozen copy of that chip.
+    this.mesh.userData.bossFade = false;
   }
 
   emit(o) {

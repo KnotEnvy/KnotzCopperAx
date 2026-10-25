@@ -45,6 +45,33 @@ const PAGES = {
       { name: 'select_dup_toast', run: async (h) => { await h.press(2, 'left', 200); await h.press(2, 'left', 200); await h.press(2, 'light', 250); },
         need: (h) => h.page.evaluate(() => !!document.querySelector('.kca-toast') && document.querySelectorAll('.kca-stamp.on').length === 1 && document.querySelector('.kca-hcard.locked')) },
       { name: 'select_both_ready', run: async (h) => { await h.adv(1800); await h.press(2, 'right', 200); await h.press(2, 'light', 400); }, need: (h) => h.page.evaluate(() => document.querySelectorAll('.kca-stamp.on').length === 2) },
+      // C2 r16 (board r15: 'the centre hand's wrist / heel hidden behind the Seraphine info card in both-READY'): every palm + heel vertex of the
+      // centre hand (world y > 0.95, i.e. above the forearm / barrow heap) must project OUTSIDE every card, READY plaque and 1P/2P flag; card titles one line.
+      { name: 'select_both_ready_heel', need: (h) => h.page.evaluate(() => document.querySelectorAll('.kca-stamp.on').length === 2),
+        check: (h) => h.page.evaluate(() => {
+          const out = [], g = window.__KCA.game, cam = g.cameraRig.camera, set = g.renderer.scene.getObjectByName('selectSet');
+          if (!set) return ['no select set'];
+          cam.updateMatrixWorld(true);
+          const hands = set.children.filter((o) => o.isMesh && o.children.some((c) => c.isMesh));
+          const centre = hands.find((o) => Math.abs(o.position.x) < 0.5);
+          if (!centre) return ['centre hand not found'];
+          const cv = g.renderer.renderer ? g.renderer.renderer.domElement : document.querySelector('canvas');
+          const cr = cv.getBoundingClientRect();
+          const rects = [...document.querySelectorAll('.kca-hcard, .kca-stamp.on, .kca-flag.on')].map((e) => ({ e, r: e.getBoundingClientRect() }));
+          const p = centre.geometry.attributes.position, V = cam.position.clone(); let n = 0, hidden = 0, worst = null;
+          centre.updateMatrixWorld(true);
+          for (let i = 0; i < p.count; i += 2) {
+            V.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(centre.matrixWorld);
+            if (V.y <= 0.95) continue;
+            V.project(cam); const x = cr.left + (V.x * 0.5 + 0.5) * cr.width, y = cr.top + (1 - (V.y * 0.5 + 0.5)) * cr.height; n++;
+            const hit = rects.find(({ r }) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+            if (hit) { hidden++; if (!worst || y > worst.y) worst = { y: Math.round(y), x: Math.round(x), el: hit.e.className }; }
+          }
+          if (n < 100) out.push('too few palm vertices projected (' + n + ')');
+          if (hidden) out.push(`centre hand palm/heel: ${hidden}/${n} vertices under UI (lowest at ${worst.x},${worst.y} under .${worst.el.split(' ').join('.')})`);
+          for (const t of document.querySelectorAll('.kca-hcard .ttl')) if (t.scrollWidth > t.clientWidth + 1) out.push('card title overflows: ' + t.textContent);
+          return out;
+        }) },
     ],
   },
   title: {
@@ -130,6 +157,7 @@ try {
           await adv(st.wait || 300);
           await settleCss(page); // CSS animations/transitions run on the real clock: wait for every finite one to finish
           if (st.need && !(await st.need(h))) rec.problems.push('PRECONDITION: state not reached (the check would be vacuous)');
+          if (st.check) rec.problems.push(...(await st.check(h)));   // C2 r16: state-specific geometric checks (select_both_ready_heel)
           const r = await checkPage(page);
           rec.count = r.count; rec.problems.push(...r.problems);
           if (r.count < 2) rec.problems.push('no text collected (screen did not render?)');

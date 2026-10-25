@@ -229,7 +229,19 @@ def p_blade(c, pal):
     fuller = shaders.smooth01(FULLER_HW - au, 0.0, 0.04)
     rgb = shaders.mix(rgb, shaders.srgb(48, 42, 40), fuller * 0.92)
     rgb = shaders.mix(rgb, shaders.srgb(52, 30, 20), rune)                          # scorched groove
+    # C2 r10 (board r9: "uniform charcoal face with a narrow pale bevel; the swing reflection resolves into smooth parallel bands"):
+    # restrained FORGED surface on the flat faces only -- hammer-mark patches (cells ~3-5 cm) that are rougher + a touch darker, a
+    # few honed facets between them that are glossier + a touch brighter, and a slow forge-scale roughness drift. The engine's
+    # glint polish gate reads this roughness per texel, so the broad reflection breaks into worked-steel patches instead of bands.
+    face = (1.0 - bev) * (1.0 - fuller) * (1.0 - rune)
+    hm1 = c.noise(38.0, 2, 76)
+    hm2 = c.noise(81.0, 1, 77)
+    hdrift = c.noise(7.0, 2, 78)
+    marks = shaders.smooth01(hm1, 0.52, 0.64) * face
+    facets = shaders.smooth01(hm2, 0.60, 0.72) * (1.0 - marks) * face
+    rgb = rgb * (1.0 - 0.17 * marks + 0.09 * facets + 0.07 * (hdrift - 0.5) * face)[:, None]
     rough = 0.29 + 0.04 * n1 + 0.05 * n0 - 0.12 * bev - 0.30 * edge + 0.14 * fuller + 0.06 * scr_lo + 0.3 * rune
+    rough = rough + (0.17 * marks - 0.09 * facets + 0.10 * (hdrift - 0.5) * face)
     # C2 r5: metallic again (0.62 flats / 0.85 bevel / 0.95 edge) -- the engine hue lock keeps the reflections neutral-warm
     metal = (0.62 + 0.23 * bev + 0.33 * edge - 0.1 * fuller) * (1.0 - 0.9 * rune)
     return shaders.out(c.n, rgb, np.clip(rough, 0.14, 0.9), np.clip(metal, 0, 1), 0.0)

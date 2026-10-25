@@ -364,7 +364,7 @@ if os.path.exists(FR_NPY):
         soft = fl * .52
         for sg_, wt_ in ((2.0, .26), (6.5, .20), (16.0, .10)):      # r15: flame layer ~20% lower in luma so the copper relic is the brightest read
             soft = soft + np.stack([blur(fl[..., c_], max(1, int(round(sg_ * S)))) for c_ in range(3)], -1) * wt_
-        soft = soft * float(os.environ.get('KCA_FLAME_GAIN', '0.50'))      # r15: the flames sit below the relic in luma (board r14 'witchfire pulls focus from the relic')
+        soft = soft * float(os.environ.get('KCA_FLAME_GAIN', '0.40'))      # r16 0.50 -> 0.40 (board r15: witchfire still competes with the relic); r15: the flames sit below the relic in luma (board r14 'witchfire pulls focus from the relic')
         img[ty0 + cy0:ty0 + cy1, tx0 + cx0:tx0 + cx1] += soft[cy0:cy1, cx0:cx1]
     if kj:
         for k_, br in enumerate(kj['braziers']):

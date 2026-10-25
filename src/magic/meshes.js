@@ -191,18 +191,34 @@ export async function preloadBasalt(vfx) {
   geos.slice(0, 3).forEach((g, variant) => rockField(vfx, 'column', { variant }).geometry(g.clone()));
   // Lower-cost pointed chipped rocks for the many T1/T4 fault spikes; full columns remain hero assets.
   const shard = geos[3].clone(), sp = shard.attributes.position;
+  // r17: broad-based shards (board: thin dark splinters with low presence); the chip's glowing crack runs up them.
   for (let i=0;i<sp.count;i++) {
-    const taper=Math.max(.12,1-sp.getY(i)*.95);
-    sp.setXYZ(i,sp.getX(i)*taper*.70,sp.getY(i)*1.9,sp.getZ(i)*taper*.70);
+    const y=sp.getY(i), taper=Math.max(.10,1-y*.92)*(1+.35*Math.max(0,1-y*2.2));
+    sp.setXYZ(i,sp.getX(i)*taper*.82,y*1.9,sp.getZ(i)*taper*.82);
   }
   shard.computeVertexNormals(); shard.computeBoundingBox(); shard.computeBoundingSphere();
   rockField(vfx, 'spike').geometry(shard);
   rockField(vfx, 'boulder').geometry(geos[4].clone());
-  rockField(vfx, 'fist').geometry(geos[5].clone());
+  // r18: the carved fist is interpenetrating stone blocks; draw its triangles nearest-the-camera first (+Z faces the
+  // gameplay camera in the baked pose) so early-z rejects the hidden block faces behind the knuckles/forearm.
+  const fist = geos[5].clone();
+  if (fist.index) {
+    const ix = fist.index.array, ps = fist.attributes.position, n = ix.length / 3, order = new Uint32Array(n).map((_, i) => i);
+    const cz = new Float32Array(n); for (let t = 0; t < n; t++) cz[t] = ps.getZ(ix[t * 3]) + ps.getZ(ix[t * 3 + 1]) + ps.getZ(ix[t * 3 + 2]);
+    order.sort((u, v) => cz[v] - cz[u]);
+    const sorted = new ix.constructor(ix.length); for (let t = 0; t < n; t++) sorted.set(ix.subarray(order[t] * 3, order[t] * 3 + 3), t * 3);
+    fist.setIndex(new THREE.BufferAttribute(sorted, 1));
+  }
+  rockField(vfx, 'fist').geometry(fist);
   const chip = geos[3].clone(); chip.translate(0, -.40, 0); rockField(vfx, 'chip').geometry(chip);
 }
 const CAPS = { spike: 96, column: 40, boulder: 40, chip: 320, fist: 2 };
-const TINT = { spike: '#737477', column: '#7c7974', boulder: '#7a7772', chip: '#827b70', fist: '#898780' };
+// r17: one cool blue-black basalt for the whole family (board r16: tan columns next to blue-grey fist/debris, faces
+// close to the ground value). The baked per-face value steps carry the facet read; the magma is the brightest element.
+// r18: the L2 columns sit in the warm village light without their own glow pool, and at #5b5f67 they rendered near-black
+// navy (median sRGB 11,7,26); a lighter neutral slate + fill .32 gives cool grey-blue faces (median ~40,34,57) that stay
+// below the warm ground value (lum 37 vs 48) with blue >= red. L1/L3/fist keep their r17 tints.
+const TINT = { spike: '#5a5e66', column: '#8a8f98', boulder: '#5a5e66', chip: '#5e626a', fist: '#656973' };
 
 const fields = new WeakMap();
 
@@ -220,7 +236,8 @@ export function rockField(vfx, kind, { glow = '#ffad42', variant = 0 } = {}) {
   const tex = veinTexture();
   const protect = kind === 'column' || kind === 'spike';
   const mat = stoneMaterial(TINT[kind], glow, tex, protect, basalt);
-  if (kind === 'fist') mat.userData.stoneFill.value = .72;
+  if (kind === 'column') mat.userData.stoneFill.value = .32; // r18 (see TINT)
+  if (kind === 'fist') mat.userData.stoneFill.value = .44; // r16: .72 flattened the planes into a pale blob; r17 darker still
   const cap = CAPS[kind];
   const collapse = new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2).setUsage(THREE.DynamicDrawUsage);
   const energy = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(THREE.DynamicDrawUsage);

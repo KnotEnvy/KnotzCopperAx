@@ -75,6 +75,17 @@ HEAD_MM = 0.8             # base-mesh head grid resolution (mm) -- every build +
 VENV_PY = os.path.expanduser("~/kca-assets/venv/bin/python")   # numpy+scipy for seraphine_basemesh.py fit
 HAIR_CHAIN = 5
 FACE_DENSITY = 3.0
+# r7 (board r13 "wide columnar neck, lumpy clavicles, throat shadow fusing jaw to chest"): slimmer front volume and
+# column (88 mm wide under the jaw, was 94; base-mesh neck_slim .90 -> .86), clavicles 1.1 mm proud with a softer blend
+NECK_FRONT = (-0.006, -0.005, 0.041, 0.036)   # r6: front neck volume (y base, y top, r base, r top); r6 = -6,-6,44,40 mm
+NECK_FRONT_SQ = 0.88      # x squash of the front volume (r6 0.92)
+NECK_COL = (0.046, 0.033, 0.96, 0.95)          # slim neck column (r base, r top, squash x, squash y); r6 50,35,1.05,.95
+CLAV_PROUD, CLAV_K = 0.0011, 0.012              # clavicle ridge (proud m, blend k); r6 1.6 mm, 9 mm
+CLAVICLE = ((0.017, 1.463), (0.040, 1.466), (0.066, 1.474), (0.092, 1.486), (0.115, 1.497))   # r6 (x, z) right side
+SCM_R = 0.0085            # r6: lib sternocleidomastoid capsule radius 13.5 -> 8.5 mm (tubes on the upper chest)
+FACE_RELIEF = (1.0, 0.25, 1.0)   # r6: face_normal_relief scale for nose / lips / cheeks+jaw (r12 = 1, 1, 1)
+#   fast3: nose 0.5 printed a pale streak down the side of the nose -> back to 1.0; ears added (pale helix rim)
+MOUTH_HALF_W = 0.0215     # r6: measured half-width of the fitted mouth crease (seraphine_basemesh mouth_w 0.95)
 KILT_CHAIN = 3
 KILT_P = dict(top_z=0.985, hem_z=0.72, r_top=0.158, r_hem=0.2, squash=0.8)
 TAIL_Z = (0.50, 0.58)          # sash tail ends (left hip), kilt_L chain reaches the lower one
@@ -185,6 +196,7 @@ def body_sculpt(L, gear_on=True, parts=("torso", "arms", "legs", "head")):
             gear.bracer(S, snap, L, s, info["arms"][s], t0=0.38, thick=0.0065)
     if "legs" in parts:
         leggings(S, snap, L)
+        thigh_wraps(S, L)
         for s in ("L", "R"):
             gear.boot(S, snap, L, s, info["legs"][s], top=0.445, thick=0.008)
     if "torso" in parts:
@@ -280,9 +292,28 @@ def sera_head(S, L):
                         k=0.01), H(0, 0, -0.02) - 0.2, H(0, 0, -0.02) + 0.2), 0.012)
     S.sub(Sphere(L["head"] + V(0, -0.044, -0.035), 0.0135), 0.012)          # lib larynx read as a throat knob
     # slim ONE-column neck: visible below the weld, hidden inside the base-mesh neck above it (no cords)
-    S.add(RoundCone(L["neck"] + V(0, 0.014, -0.03), V(0, 0.046, NECK_CUT + 0.035), 0.050, 0.035, squash=(1.05, 0.95)),
-          0.028)
+    S.add(RoundCone(L["neck"] + V(0, 0.014, -0.03), V(0, 0.046, NECK_CUT + 0.035), NECK_COL[0], NECK_COL[1],
+                    squash=(NECK_COL[2], NECK_COL[3])), 0.028)
     S.add(Ellipsoid(L["neck"] + V(0, -0.030, -0.050), V(0.040, 0.022, 0.034)), 0.040)      # suprasternal fill (C2 r3: wider, softer)
+    # r6 (iter 13, board r12 "pinched sternum crease, deep pits, faceted neck"): the slim column leans back, so the
+    # throat sat ~70 mm behind the chest top. A front neck volume brings the throat forward (~-35 mm at the jaw,
+    # ~-50 mm at the base) and rolls it into the chest; the lib's Brann-sized sternocleidomastoid tubes are slimmed.
+    S.add(RoundCone(V(0, NECK_FRONT[0], 1.452), V(0, NECK_FRONT[1], 1.532), NECK_FRONT[2], NECK_FRONT[3],
+                    squash=(NECK_FRONT_SQ, 1.0)), 0.030)
+    for op in S.ops:
+        pr = op.prim
+        if op.kind == "add" and isinstance(pr, RoundCone) and abs(pr.ra - 0.0135) < 1e-9 and abs(pr.rb - 0.0135) < 1e-9:
+            pr.ra = pr.rb = SCM_R
+        if op.kind == "add" and isinstance(pr, Sphere) and abs(pr.r - 0.0095) < 1e-9:     # lib larynx: female, subtle
+            pr.r = 0.0005
+    # clavicles: a soft S-curved ridge from the sternal notch to the shoulder, ~1.5 mm proud (reference: defined
+    # collarbones; board r12 "lumpy collarbones" came from the tube ends, not from bones)
+    for sx in (1, -1):
+        raw = np.array([V(sx * x, -0.3, z) for x, z in CLAVICLE])
+        P = anatomy.surface_hit(S, raw, V(0, 1, 0))
+        Nn = S.grad(P)
+        rr = np.array([0.0040, 0.0046, 0.0046, 0.0042, 0.0038])
+        S.add(Chain(list(P - Nn * (rr - CLAV_PROUD)[:, None]), list(rr)), CLAV_K)
     # ---- the fitted base-mesh head + neck, cut at the weld plane (inside the column), soft weld
     head = Inter(grid, HalfSpace(V(0, 0, NECK_CUT), V(0, 0, -1)), k=0.006)     # keep z > NECK_CUT
     S.add(Bounded(head, grid.lo, grid.hi), 0.016)                              # C2 r3: softer weld (throat crease)
@@ -335,15 +366,28 @@ def face_paint(S, L, H, hi):
     eyes = hi["eyes"]
     ec = eyes[0]
     s = H.s
-    mw = min(float(lm.get("mouth_half_w", 0.026)), 0.0265)
+    # r6 (iter 13): the paint is fitted to the SCULPTED mouth. The fitted crease ends at |x| ~ 21.5 mm (measured on
+    # head_fit: crease depth > 0.6 mm up to x = 20-22 mm); the old 26.5 mm paint ran ~5 mm past each corner = the
+    # board's "flat pale band pasted across the lower face" with flecks at its ends. Upper vermilion up to its
+    # border ridge (+6 mm, cupid's-bow peaks +7 mm at |x| = 5 mm, the fit's upper_h), lower down to -8.5 mm, both
+    # tapering into the corners.
+    mw = MOUTH_HALF_W
     def vermilion(X,Y,Z):
-        u = np.clip(np.abs(X) / mw, 0, 1)
-        corner = np.sqrt(np.clip(1-u*u,0,1))
-        top = (.0028 + .0028*np.exp(-((np.abs(X)-.006)/.005)**2)) * corner
-        bottom = -.0080 * corner
+        ax = np.abs(X)
+        u = np.clip(ax / mw, 0, 1)
+        corner = np.clip(1 - u * u, 0, 1) ** 0.6
+        top = (.0056 + .0011*np.exp(-((ax-.005)/.0032)**2) - .0005*np.exp(-(ax/.0018)**2)) * corner
+        bottom = -.0085 * corner ** 0.85
         z = Z - lip[2]
-        return np.maximum.reduce(np.broadcast_arrays(z-top, bottom-z, np.abs(X)-mw, Y-(lip[1]+.013)))
-    S.paint(Func(vermilion, lip-.06,lip+.06), "lips",soft=.0011)
+        return np.maximum.reduce(np.broadcast_arrays(z-top, bottom-z, ax-mw, Y-(lip[1]+.010)))
+    S.paint(Func(vermilion, lip-.06,lip+.06), "lips",soft=.0009)
+    # closed mouth line: a thin dark crease from corner to corner (skin-range dark, not black), slightly down-turned
+    # at the corners only by the sculpt; radii taper so the corners do not end in dots
+    xs = np.linspace(-mw * 0.97, mw * 0.97, 25)
+    raw = np.array([V(x, lip[1] - 0.03, lip[2]) for x in xs])
+    P = anatomy.surface_hit(S, raw, V(0, 1, 0))
+    rr = 0.00035 + 0.00035 * np.clip(1 - (xs / mw) ** 2, 0, 1)
+    S.paint(Chain(list(P), list(rr)), "mouthline", soft=0.0008)
     S.paint(Union(Sphere(V(0.046, ec[1] - 0.004, ec[2] - 0.030), 0.019), Sphere(V(-0.046, ec[1] - 0.004, ec[2] - 0.030), 0.019),
                   Sphere(lm["nose_tip"] + V(0, 0.004, 0), 0.009), Sphere(lm["ear_R"], 0.03), Sphere(lm["ear_L"], 0.03)),
             "blush", soft=0.025, value=0.18)
@@ -355,8 +399,11 @@ def face_paint(S, L, H, hi):
         w = (Z - zc) / s
         n = sdf.fbm(X * 1.0, Y * 1.0, Z * 1.0, 2, 260.0, seed=9)
         n2 = sdf.fbm(X, Y, Z, 2, 90.0, seed=23)
-        half_h = 0.0053 + 0.00045 * n + 0.00025 * n2
-        d = np.maximum(np.abs(w) - half_h, np.abs(u) - (0.058 + 0.003 * n2))
+        # r8: tapered brush ends and fibre-scale edge erosion, rather than a rectangular tape mask.
+        taper = 1 - shaders.smooth01(np.abs(u), .043, .065)
+        brush = np.sin(Z*5400 + X*450 + 2*n2)
+        half_h = (0.0053 + 0.00085*n + 0.00045*brush) * taper
+        d = np.maximum(np.abs(w) - half_h, np.abs(u) - (0.064 + 0.0015*n2))
         return np.maximum(d * s, Y - (ey + 0.040 * s))          # front of the face only (wraps onto the cheeks)
     c0 = V(0, ey, zc)
     S.paint(Func(stripe, c0 - 0.15, c0 + 0.15), "tattoo", soft=0.00075, value=0.88)
@@ -372,6 +419,46 @@ def leggings(S, snap, L):
         raw = [hp + V(sx * 0.2, 0, 0.02), (hp + kn) / 2 + V(sx * 0.2, 0, 0), kn + V(sx * 0.2, 0, 0.02)]
         P = gear.project_path(S, raw, step=0.006, offset=0.0)
         S.add(Chain(list(P), 0.0022), 0.0012, mat="leather")
+
+
+def _ray_out(S, C, D, r_max=0.15, step=0.002):
+    """Per-point outward rays from INSIDE a limb (axis points C, directions D) to its surface (first inside->outside
+    crossing), so inner-thigh points never land on the other leg."""
+    t = np.zeros(len(C))
+    inside = S.dist(C) < 0
+    hit = np.zeros(len(C), bool)
+    lo = np.zeros(len(C))
+    for k in range(int(r_max / step)):
+        tt = (k + 1) * step
+        out = S.dist(C + D * tt) >= 0
+        new = out & ~hit & inside
+        lo[new] = tt - step
+        t[new] = tt
+        hit |= new
+        if hit.all():
+            break
+    for _ in range(10):
+        mid = 0.5 * (lo + t)
+        out = S.dist(C + D * mid[:, None]) >= 0
+        t = np.where(out, mid, t)
+        lo = np.where(out, lo, mid)
+    return C + D * t[:, None]
+
+
+def thigh_wraps(S, L):
+    """r7 (board r13 "flat plain leggings; dark legs merge with the ground"): cross-gartered mid-brown leather straps
+    spiralling up each thigh from the knee cop to mid-thigh (two opposite helices), on top of the dark leggings."""
+    for s, sx in (("L", 1), ("R", -1)):
+        hp, kn = L["hip_" + s], L["knee_" + s]
+        for hand, a0 in ((1, 0.35), (-1, math.pi - 0.35)):
+            ts = np.linspace(0.13, 0.66, 56)
+            C = np.array([kn + (hp - kn) * t for t in ts])
+            ang = a0 + hand * sx * 2 * math.pi * 1.5 * (ts - ts[0]) / (ts[-1] - ts[0])
+            D = np.stack([np.cos(ang), np.sin(ang), np.zeros_like(ang)], 1)
+            P = _ray_out(S, C, D)
+            Nn = S.grad(P)
+            # a flat strap: a fat cord sunk so ~3 mm stands proud over a ~10 mm wide band
+            S.add(Chain(list(P - Nn * 0.0025), 0.0055), 0.0012, mat="leather")
 
 
 def neck_cutter(L):
@@ -606,7 +693,7 @@ def sash_tails(S):
 # a French plait running down the centre-back of the scalp (reference seraphine_hair_back.png), which continues as
 # the thick free three-strand braid; three crown locks ride higher; two round temple tendrils per side frame the
 # face. Reference: docs/refs/c2/heroes/seraphine_head.png, seraphine_hair_back.png.
-SCALP = dict(thick=0.006, front_z=0.078, noise=0.0, k_edge=0.014, k_exclude=0.012)
+SCALP = dict(thick=0.006, front_z=0.078, back_z=-0.055, noise=0.0, k_edge=0.014, k_exclude=0.012)
 GATHER = dict(az=math.pi, el=math.radians(-24.0), off=0.004, r=0.022)
 BRAID = dict(length=0.60, r0=0.030, r1=0.016, period=0.082, clear=0.03)
 FRENCH = dict(el0=math.radians(55.0), r=0.026, period=0.075, clear=0.45)      # crown-to-nape plait on the scalp (v3: starts behind the crown; v4: wider = the dominant form on the back)
@@ -636,8 +723,10 @@ CARD_RIM_SCALE = 0.025     # r4: smooth scalp normals + restrained rim avoid pal
 #                           grazing-angle cards pale tan at every silhouette; probe progress/tmp/c2r3/matvar3/panel_e.png)
 # temple tendrils (head-frame points, right side; mirrored): width, thick
 # v3: 25 mm further back (fast build #1: they hung across the eye in profile) -- beside the cheekbone / in front of the ear
-TENDRILS = [([(0.066, -0.030, 0.022), (0.076, -0.038, 0.002), (0.082, -0.036, -0.022),
-              (0.081, -0.038, -0.045)], 0.010, 0.0062)]
+# r7 (board r13 "stiff detached side-lock in front of the ear"): the root starts higher, under the hairline locks, and
+# the strand group swings in a soft S (out over the cheekbone, in, out again at the tip) instead of a straight drop
+TENDRILS = [([(0.063, -0.028, 0.034), (0.071, -0.036, 0.014), (0.079, -0.040, -0.006), (0.079, -0.037, -0.024),
+              (0.083, -0.040, -0.044)], 0.010, 0.0062)]
 
 
 def ear_clear(H):
@@ -648,8 +737,6 @@ def ear_clear(H):
 
 def scalp_cap_for(S, snap, H, ears=None):
     gear.scalp_cap(S, snap, H, exclude=ears if ears is not None else ear_clear(H), **SCALP)
-    for sx in (1, -1):      # temple pads -- the cap's hairline plane leaves the temples bare under the circlet
-        S.add(Ellipsoid(H(sx * 0.0715, -0.024, 0.014), H.r(0.008, 0.022, 0.016), rot(0, 0, sx * -12)), 0.012, mat="hair")
 
 
 def _azel(d):
@@ -879,26 +966,21 @@ def hair_sculpts(S_body, L, H, seed=17):
 
 
 def design_hair_cards(S_body, S_under, src, seed=17):
-    """C2 r3: alpha-tested strand cards over the under-mass (blender/seraphine_hair_cards.py). The combined field
-    body + under-mass is what the cards ride on; tendrils rest on the body (cheek) field."""
+    """Continuous swept scalp, sparse edge wisps and the existing explicit braid/circlet."""
     import seraphine_hair_cards as HCARDS
     importlib.reload(HCARDS)
 
-    def dist(P):
-        return np.minimum(S_body.dist(P), S_under.dist(P))
-
-    def grad(P):
-        P = np.asarray(P, float)
-        g = np.zeros_like(P)
-        for a in range(3):
-            o = np.zeros(3)
-            o[a] = 0.0015
-            g[:, a] = (dist(P + o) - dist(P - o)) / 0.003
-        return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-9)
-    cards = HCARDS.design_cards(dist, grad, S_body.dist, S_body.grad, src["hc"], src["locks"], src["tendrils"],
-                               src["g_dir"], s=src["s"], seed=seed + 5, medallion=src.get("medallion"))
+    # r8: scalp geometry and fibre UVs share a continuous hairline-to-plait fan.
+    # The previous tiered under-mass remains a hidden bake support for the tail only.
+    from seraphine_scalp_flow import scalp_flow, edge_wisps, layered_locks, temple_locks
+    cards = scalp_flow(S_body.dist, src["hc"], s=src["s"])
+    cards.extend(layered_locks(cards[:2], s=src["s"]))
+    cards.extend(temple_locks(S_body.dist, src["hc"], s=src["s"]))
+    cards.extend(edge_wisps(cards[:2], src["tendrils"], S_body.dist, S_body.grad, s=src["s"]))
     cards.extend(HCARDS.braid_geometry(src["braid"], src["ties"]))
-    cards.append(HCARDS.band_geom(dist, src["medallion"], s=src["s"], groom=[c for c in cards if c.get("kind") != "medallion"]))
+    band=HCARDS.band_geom(S_body.dist, src["medallion"], s=src["s"], groom=cards)
+    cards.append(band)
+    cards.append(HCARDS.medallion_geom(S_body.dist, S_body.grad, src["medallion"], s=src["s"], mount=band))
     return cards
 
 
@@ -975,7 +1057,7 @@ def hair_attrs(ob, meta, uv=False):
 #   >  near-black-brown leather leggings / straps / boots ~10-14%.  Bronze/gold = bright warm metal accents.
 PAL = dict(
     skin=shaders.srgb(226, 152, 112), skin_warm=shaders.srgb(222, 112, 92), skin_cool=shaders.srgb(150, 110, 100),
-    lips=shaders.srgb(166, 66, 62), scar=shaders.srgb(230, 170, 150), skin_rough=0.58,
+    lips=shaders.srgb(150, 62, 60), scar=shaders.srgb(230, 170, 150), skin_rough=0.58,
     tattoo=shaders.srgb(178, 50, 34),
     iris=shaders.srgb(150, 94, 38), sclera=shaders.srgb(232, 226, 218),   # C2 r2: amber-brown iris (reference), not green
     hair=shaders.srgb(130, 40, 10), hair_tip=shaders.srgb(188, 86, 30), hair_hi=shaders.srgb(240, 160, 90),
@@ -1003,7 +1085,7 @@ def p_scale(c, pal):
     n1 = c.noise(30.0, 2, 81)
     rgb *= (1.0 + 0.08 * n1)[:, None]
     lip = shaders.smooth01(0.16 - t, 0.0, 0.1)
-    rgb = shaders.mix(rgb, pal["scale_rim"], 0.55 * lip)
+    rgb = shaders.mix(rgb, pal["scale_rim"], 0.72 * lip)
     rgb = shaders.mix(rgb, pal["scale_deep"], 0.7 * shaders.smooth01(t, 0.55, 1.0))
     rgb = shaders.mix(rgb, np.minimum(base * 1.6, 1), 0.22 * shaders.smooth01(1 - np.abs(xs), 0.6, 1.0) * (1 - t))
     rgb = shaders.mix(rgb, rgb * 0.5, 0.6 * c.cav)
@@ -1069,8 +1151,15 @@ def p_skin(c, pal):
     """lib p_skin + a dark lash line (clear eyes at gameplay distance) and a dry-brushed war-paint stripe."""
     # Local face palette: broad cheek/jaw curvature must not paint a bruised patch.
     face = shaders.smooth01(c.P[:,2], 1.50, 1.56) * (1-shaders.smooth01(c.P[:,1], .005, .045))
-    c = shaders.Ctx(c.P,c.N,c.cf*(1-.60*face),c.cb*(1-.75*face),c.paints,c.attrs,c.L,c.x)
+    c = shaders.Ctx(c.P,c.N,c.cf*(1-.78*face),c.cb*(1-.88*face),c.paints,c.attrs,c.L,c.x)
     rgb, rough, metal, emit = shaders.p_skin(c, pal)
+    # r7 (board r13 "harsh throat shadow fusing jaw to chest"): a warm albedo lift on the down-facing skin under the
+    # jaw (stylized fill), so the key-light shadow there reads as a soft form shadow, not a dark band
+    jaw = (shaders.smooth01(c.P[:, 2], 1.500, 1.515) * (1 - shaders.smooth01(c.P[:, 2], 1.545, 1.560)) *
+           (1 - shaders.smooth01(np.abs(c.P[:, 0]), 0.045, 0.065)) * (1 - shaders.smooth01(c.P[:, 1], -0.01, 0.02)) *
+           shaders.smooth01(-c.N[:, 2], 0.05, 0.45))
+    if jaw.any():
+        rgb = shaders.mix(rgb, np.minimum(rgb * np.array([1.22, 1.16, 1.10]), 1.0), jaw)
     tat = c.paint("tattoo")
     if tat.any():    # C2: the stripe is dry-brushed -- horizontal streaks of thinner paint, worn at the edges
         saved = c.paints.get("tattoo")
@@ -1089,18 +1178,59 @@ def p_skin(c, pal):
     lash = c.paint("lash")
     if lash.any():
         rgb = shaders.mix(rgb, shaders.srgb(22, 12, 10), np.clip(lash * 1.2, 0, 0.95))
+    lips = c.paint("lips")
+    if lips.any():       # r6: satin, not glossy (the lib's -0.14 roughness lit the lips as a pale band); a clear
+        rough = rough + 0.10 * lips     # muted-rose vermilion (fast2: the lib's 0.75 mix read as bare skin in-game)
+        # r7: .55 -> .62 (the lower lip still read as bare pale skin next to the shaded upper lip in fast1)
+        rgb = shaders.mix(rgb, pal["lips"], np.clip(0.62 * lips, 0, 0.62))
+    ml = c.paint("mouthline")
+    if ml.any():         # r6: closed mouth line, deep warm red-brown (stays in the skin/lip colour range)
+        # r9: fade the last few millimetres into the lips; the old dense corner
+        # mask read as a dark smudge under the showcase's side light.
+        ml = ml * (1 - 0.75 * shaders.smooth01(np.abs(c.P[:, 0]), 0.012, 0.022))
+        rgb = shaders.mix(rgb, shaders.srgb(96, 40, 36), np.clip(ml * 0.65, 0, 0.65))   # r7: .75 -> .65
+    return rgb, rough, metal, emit
+
+
+def p_leather_dark(c, pal):
+    """lib leather_dark + r7 leggings (z 0.47-0.98 = thighs only; straps / cuffs elsewhere unchanged): a dark
+    oxblood-brown quilted leather lifted off the ground value, diamond stitch lines (gambeson quilting)."""
+    rgb, rough, metal, emit = shaders.p_leather(c, pal, "leather_dark")
+    z = c.P[:, 2]
+    leg = shaders.smooth01(z, 0.47, 0.51) * (1 - shaders.smooth01(z, 0.95, 0.99)) * (np.abs(c.P[:, 0]) > 0.012)
+    if leg.any():
+        sx = np.sign(c.P[:, 0])
+        hx = np.where(sx > 0, c.L["hip_L"][0], c.L["hip_R"][0])
+        kx = np.where(sx > 0, c.L["knee_L"][0], c.L["knee_R"][0])
+        f = np.clip((z - c.L["knee_L"][2]) / max(c.L["hip_L"][2] - c.L["knee_L"][2], 1e-3), 0, 1)
+        cx = kx + (hx - kx) * f
+        cy = c.L["knee_L"][1] + (c.L["hip_L"][1] - c.L["knee_L"][1]) * f
+        arc = np.arctan2(c.P[:, 1] - cy, (c.P[:, 0] - cx) * sx) * 0.068
+        per = 0.036
+        g1 = ((arc + z) / per) % 1.0
+        g2 = ((arc - z) / per) % 1.0
+        w1 = 1 - 2 * np.minimum(g1, 1 - g1)
+        w2 = 1 - 2 * np.minimum(g2, 1 - g2)
+        seam = np.maximum(shaders.smooth01(w1, 0.84, 0.96), shaders.smooth01(w2, 0.84, 0.96))
+        puff = (1 - np.maximum(w1, w2)) ** 1.5           # quilted panel centres a touch lighter
+        base = shaders.srgb(83, 63, 53) * (0.90 + 0.22 * puff)[:, None] * (1.0 + 0.08 * c.noise(40.0, 2, 41))[:, None]
+        base = shaders.mix(base, shaders.srgb(43, 31, 24), 0.48 * seam)
+        rgb = shaders.mix(rgb, base, leg)
+        rough = rough + leg * (0.08 - 0.05 * puff)
     return rgb, rough, metal, emit
 
 
 def p_scalp(c, pal):
     # The scalp cap is on the BODY ('hair'), not the lock mesh ('mane'). The old
     # under-mass treatment never reached it and its painted sheen read as bare skin.
-    rgb = np.tile(shaders.srgb(64, 23, 10), (c.n, 1))
+    rgb = np.tile(shaders.srgb(104, 36, 12), (c.n, 1))    # r6: 64,23,10 -> hair-in-shadow (gaps read as black slits)
+    #                                                       r7: 92,32,12 -> the cards' backing colour
     rgb *= (0.92 + 0.08 * c.noise(50.0, 2, 17))[:, None]
     return shaders.out(c.n, rgb, 1.0)
 
 
-PAINTERS = {"skin": p_skin, "scale": p_scale, "armor": p_armor, "gem": p_gem, "mane": p_hair, "hair": p_scalp}
+PAINTERS = {"skin": p_skin, "scale": p_scale, "armor": p_armor, "gem": p_gem, "mane": p_hair, "hair": p_scalp,
+            "leather_dark": p_leather_dark}
 
 
 # ============================================================================ previews
@@ -1216,7 +1346,14 @@ def kilt_chain_points(n=KILT_CHAIN):
     return out
 
 
+# r8: groom edits must not move the existing spring-chain bind pose. These are
+# the r14 design's six rest points, retained independently of the scalp envelope.
+HAIR_REST_POINTS = [[1.0662391998977452e-17, 0.11809873521110864, 1.6115696990317792], [1.0706239885348336e-17, 0.14278626134254016, 1.5025905920432079], [1.0706239885348336e-17, 0.16465722022376905, 1.3926664138182874], [1.0706239885348336e-17, 0.17660953210789726, 1.2809658174116323], [1.0706239885348336e-17, 0.17808220941030647, 1.1684164657432896], [1.0706239885348336e-17, 0.17826397457505344, 1.0558543891000371]]
+
+
 def hair_chain_points(C, n=HAIR_CHAIN):
+    if n == HAIR_CHAIN:
+        return [V(p) for p in HAIR_REST_POINTS]
     sl = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(C, axis=0), axis=1))])
     ts = np.linspace(0.02, 0.97, n + 1) * sl[-1]
     return [V(np.array([np.interp(t, sl, C[:, a]) for a in range(3)])) for t in ts]
@@ -1520,9 +1657,42 @@ def build(args):
 
     def in_head(P):
         return np.all((P >= hb0) & (P <= hb1), axis=1)
-    h_lo = 0.0030 if not fast else 0.0045          # r5: 3.6 -> 3.0 mm (eye/lip edges on the game mesh)
-    body_lo = pipeline.lowpoly(S, "body_lo", h_lo, args.body_tris, regions=[(in_head, args.head_tris)],
+    h_lo = 0.0030          # r5: 3.6 -> 3.0 mm; r6 (iter 13): fast builds too, so fast previews show the real face
+    # r6 (iter 13): the old [(head, 9900)] region was followed by ONE whole-mesh decimate (759k -> 14.9k tris) that
+    # cut the head back to ~650 tris (the face ~260: wedge jaw, pasted mouth band, skewed chin). Every region now
+    # gets its own budget and the regions sum to the body target, so the closing decimate is a no-op.
+    # The polygonize box is mirror-symmetric in x (lattice symmetric about x = 0) so the symmetric decimate can pair
+    # the face's vertices.
+    eye_z = float(info["head"]["lm"]["eye_R"][2])
+    blo, bhi = S.bounds()
+    xh = math.ceil(max(abs(blo[0]), abs(bhi[0])) / h_lo) * h_lo
+    blo, bhi = V(-xh, blo[1], blo[2]), V(xh, bhi[1], bhi[2])
+
+    def in_face(P):                 # face, ears, jaw, nape: everything of the head below the hair mass
+        return in_head(P) & (P[:, 2] < eye_z + 0.060)
+
+    def in_scalp(P):                # under the groom (hair underlays cover it)
+        return in_head(P) & (P[:, 2] >= eye_z + 0.060)
+
+    def in_neck(P):                 # neck column, clavicles, upper chest (board r12: faceted neck/clavicle)
+        return ~in_head(P) & (np.abs(P[:, 0]) < 0.17) & (P[:, 2] > 1.36)
+
+    def in_rest(P):
+        return ~in_head(P) & ~in_neck(P)
+    rest = args.body_tris - args.head_tris - args.scalp_tris - args.neck_tris
+    body_lo = pipeline.lowpoly(S, "body_lo", h_lo, args.body_tris, blo, bhi,
+                               regions=[(in_rest, rest), (in_neck, args.neck_tris), (in_scalp, args.scalp_tris),
+                                        # faces straddling two regions stay dense after the per-region passes
+                                        # (fast1: 18.2k before the closing decimate cut the face 3000 -> 2260):
+                                        # one more pass over everything but the face, then the face last
+                                        (lambda P: ~in_face(P), rest + args.neck_tris + args.scalp_tris),
+                                        (in_face, args.head_tris)],
                                clean=lambda o: report.__setitem__("islands_dropped", drop_islands(o, h_lo)))
+    Pb = meshutil.get_verts(body_lo)
+    Cb = Pb[np.array([p.vertices[:] for p in body_lo.data.polygons])].mean(1)
+    report["region_tris"] = {k: int(fn(Cb).sum()) for k, fn in (("face", in_face), ("scalp", in_scalp),
+                                                                 ("neck", in_neck), ("rest", in_rest))}
+    pipeline.log(f"body_lo region tris: {report['region_tris']}")
     hands_lo = {}
     for s in ("L", "R"):
         w = L["wrist_" + s]
@@ -1696,6 +1866,27 @@ def build(args):
     # The sculpt's open lip crease needs a dark oral backstop. Keep it in the
     # existing body primitive and bind it rigidly to head; no extra draw or map.
     import subprocess
+    # r6: drop the symmetric decimate's mirror-plane fin triangles + the sealed ear-canal bubbles (index buffer only)
+    clean_out = out + ".clean.glb"
+    cleaned = json.loads(subprocess.check_output(
+        [VENV_PY, os.path.join(HERE, "seraphine_mesh_clean.py"), out, clean_out], text=True))
+    os.replace(clean_out, out)
+    report["mesh_clean"] = cleaned
+    if "totalTriangles" in cleaned:
+        report["tris_total"] = cleaned["totalTriangles"]
+    pipeline.log(f"mesh clean: {cleaned}")
+    if not args.mouth_finish:       # r6: the dense face has a closed, sculpted mouth; the r12 patch is opt-in
+        report["glb"] = out
+        report["glb_mb"] = os.path.getsize(out) / 1e6
+        report["seconds"] = time.time() - T0
+        pipeline.write_json(os.path.join(HERE, "out", "seraphine_report.json"), report)
+        pipeline.log(f"DONE {ASSET} in {report['seconds']:.0f}s -> {out} ({report['glb_mb']:.1f} MB, "
+                     f"{report['tris_total']} tris)")
+        if not args.no_weapon:
+            import build_weapon_dawn_dusk
+            importlib.reload(build_weapon_dawn_dusk)
+            build_weapon_dawn_dusk.build(args)
+        return
     mouth_out = out + ".mouth.glb"
     mouth = json.loads(subprocess.check_output(
         [VENV_PY, os.path.join(HERE, "seraphine_mouth_finish.py"), out, mouth_out, OUT_TEX], text=True))
@@ -1728,12 +1919,19 @@ def face_normal_relief(normal_map, body_lo, lm):
     def mask(c, r):
         d = np.linalg.norm((P - c) / np.array(r), axis=1)
         return 1 - shaders.smooth01(d, .65, 1.0)
-    strength = np.maximum(.82 * mask(nose, (.027, .025, .021)), .48 * mask(lip, (.034, .020, .018)))
+    # r6 (iter 13): the face is ~3000 tris now (was ~260), so the baked high/low difference is small; keep a light
+    # flattening only (the old .82/.48/.90 masks also erased the lip border and mouth crease)
+    # fast2: cheeks/jaw still need the full correction (the 35-degree cheek blotch returned at 0.35); the lips and
+    # nose keep most of their baked relief (lip border, mouth crease, alae)
+    kn, kl, kc = FACE_RELIEF
+    strength = np.maximum(.82 * kn * mask(nose, (.027, .025, .021)), .48 * kl * mask(lip, (.034, .020, .018)))
     chin = np.asarray(lm["chin"])
-    strength = np.maximum(strength, .90 * mask(chin + V(0,.005,.005), (.075,.085,.030)))
+    strength = np.maximum(strength, .90 * kc * mask(chin + V(0,.005,.005), (.075,.085,.030)))
     for key,sx in (("eye_R",1),("eye_L",-1)):
         cheek = np.asarray(lm[key]) + V(sx*.017,.010,-.037)
-        strength = np.maximum(strength, .90 * mask(cheek, (.035,.048,.041)))
+        strength = np.maximum(strength, .90 * kc * mask(cheek, (.035,.048,.041)))
+    for key in ("ear_R", "ear_L"):
+        strength = np.maximum(strength, .70 * mask(np.asarray(lm[key]), (.022, .026, .034)))
     uv = np.empty((len(me.loops), 2), np.float32)
     me.uv_layers.active.data.foreach_get("uv", uv.ravel())
     lv = np.empty(len(me.loops), np.int32)
@@ -1806,12 +2004,16 @@ def parse():
     ap.add_argument("--stage", default="all")
     ap.add_argument("--device", default="AUTO")
     ap.add_argument("--skin", default="sdf")
-    ap.add_argument("--body-tris", type=int, default=14900)     # r5: preserve face density; pay for the explicit groom/braid
-    ap.add_argument("--head-tris", type=int, default=9900)
-    ap.add_argument("--hand-tris", type=int, default=1150)
-    ap.add_argument("--kilt-tris", type=int, default=3000)
+    # r6 (iter 13): per-region budgets that really survive (face 260 -> ~3000 tris); paid by hands/kilt + body rest
+    ap.add_argument("--body-tris", type=int, default=15600)
+    ap.add_argument("--head-tris", type=int, default=3000)      # face + ears + jaw + nape (below the hair mass)
+    ap.add_argument("--scalp-tris", type=int, default=450)      # under the groom
+    ap.add_argument("--neck-tris", type=int, default=2100)      # neck, clavicles, upper chest
+    ap.add_argument("--hand-tris", type=int, default=1000)
+    ap.add_argument("--kilt-tris", type=int, default=2600)
     ap.add_argument("--hair-tris", type=int, default=700)      # bake support + tail; head support is dropped after baking
     ap.add_argument("--save-blend", action="store_true")
+    ap.add_argument("--mouth-finish", action="store_true")     # r6: r12's oral backstop/normal patch (off)
     ap.add_argument("--no-cards", action="store_true")     # C2 r3: skip the alpha hair cards (A/B)
     return ap.parse_args(argv)
 

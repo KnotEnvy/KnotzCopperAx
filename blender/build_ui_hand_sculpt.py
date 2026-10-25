@@ -1,4 +1,6 @@
-"""Select-screen giant skeletal hand, C2 r11: SCULPTED (SDF bones -> hi-poly -> decimated game mesh -> baked maps).
+"""C2 r16: continuous bone palm, tapered asymmetric digits, cortical grain and foramina.
+
+Select-screen giant skeletal hand, C2 r11: SCULPTED (SDF bones -> hi-poly -> decimated game mesh -> baked maps).
 
 Every earlier hand was either fused clay (smooth-union SDF, C1 r5-r8) or loose numpy parts (C1 r9 - C2 r10: "a ring of
 separate pale posts around a pile of loose pebbles", "polished grey marble"). This one is built like the enemy skeletons
@@ -75,7 +77,7 @@ from lib import sdf
 from lib.sdf import V, norm, Sculpt, Ellipsoid, RoundBox, RoundCone, Chain, Displace, Prim, Union, Diff, Offset, Inter
 
 OUT_GLB = os.path.join(ROOT, "public", "assets", "models", "ui_skeletal_hand.glb")
-OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r15", "tex")
+OUT_TEX = os.path.join(ROOT, "progress", "tmp", "hands_r16", "tex")
 REPORT = os.path.join(HERE, "out", "ui_hand_sculpt_report.json")
 
 TOP = 1.216            # palm top surface under the hero's feet (select3d: PALM_Y / HAND_SCALE - HAND_DROP / HAND_SCALE)
@@ -110,7 +112,7 @@ class Bone(Prim):
     pref = palmar reference direction (orthogonalised to the axis)."""
 
     def __init__(self, a, b, rA, rS, rB, pref=(0, 1, 0), lat=(1.0, 1.0, 1.0), palm=1.0, bow=0.0, fa=0.32, fb=0.32,
-                 capA=1.0, capB=1.0, twist=0.0):
+                 capA=1.0, capB=1.0, twist=0.0, taper=0.0):
         self.a, self.b = V(a), V(b)
         d = self.b - self.a
         self.L = float(np.linalg.norm(d))
@@ -125,6 +127,7 @@ class Bone(Prim):
         self.lat = tuple(float(x) for x in lat)
         self.palm, self.bow, self.fa, self.fb = float(palm), float(bow), float(fa), float(fb)
         self.capA, self.capB = float(capA), float(capB)
+        self.taper = float(taper)
         R = max(rA, rS, rB) * max(max(self.lat), 1.0) * max(capA, capB, 1.0) + abs(bow) * self.L + 0.01
         self.lo = np.minimum(self.a, self.b) - R
         self.hi = np.maximum(self.a, self.b) + R
@@ -133,7 +136,8 @@ class Bone(Prim):
     def frame_at(self, t):
         """centre, radius, lateral scale at parameter t (for placing cracks / chips / tubercles on the surface)."""
         wA, wB = 1 - sst(0, self.fa, t), sst(1 - self.fb, 1, t)
-        r = self.rS + (self.rA - self.rS) * wA + (self.rB - self.rS) * wB
+        shaft = self.rS * (1 + self.taper * (1 - 2 * t))
+        r = shaft + (self.rA - shaft) * wA + (self.rB - shaft) * wB
         la = self.lat[1] + (self.lat[0] - self.lat[1]) * wA + (self.lat[2] - self.lat[1]) * wB
         c = self.a + self.e0 * (t * self.L) - self.e1 * (self.bow * self.L * math.sin(math.pi * t))
         return c, r, la
@@ -155,7 +159,8 @@ class Bone(Prim):
         tc = np.clip(t, 0.0, 1.0)
         wA = 1 - sst(0, self.fa, tc)
         wB = sst(1 - self.fb, 1, tc)
-        r = self.rS + (self.rA - self.rS) * wA + (self.rB - self.rS) * wB
+        shaft = self.rS * (1 + self.taper * (1 - 2 * tc))
+        r = shaft + (self.rA - shaft) * wA + (self.rB - shaft) * wB
         la = self.lat[1] + (self.lat[0] - self.lat[1]) * wA + (self.lat[2] - self.lat[1]) * wB
         if self.bow:
             v = v + self.bow * self.L * np.sin(math.pi * tc)
@@ -395,13 +400,13 @@ def phalanx(name, J0, J1, rA, rS, rB, pref, prev_rB=None, kind="p", lat=(1.08, 1
     else:
         b = J1
         rBe = rB * 0.90
-    sh = Bone(a, b, rA, rS, rBe, pref=pref, lat=lat, palm=palm, bow=bow, fa=0.26, fb=0.30 if kind != "tip" else 0.45,
-              capA=0.55, capB=0.75)
+    sh = Bone(a, b, rA, rS, rBe, pref=pref, lat=lat, palm=palm, bow=bow, fa=0.42, fb=0.19 if kind != "tip" else 0.28,
+              capA=0.72, capB=0.75, taper=0.23)
     parts = [sh]
     head = None
     if kind == "p":
         hr = (rB * lat[2], rB * 0.88, rB * 0.80)
-        hd = Ellipsoid(J1, hr, M)
+        hd = Ellipsoid(J1 + e2 * (0.17 * rB) - e1 * (0.08 * rB), hr, M)
         # shallow trochlear groove across the PALMAR face only (two condyles underneath; the dorsal knuckle stays smooth)
         groove = RoundCone(J1 + e0 * (0.70 * rB) + e1 * (0.55 * rB), J1 - e0 * (0.10 * rB) + e1 * (1.05 * rB),
                            0.11 * rB, 0.15 * rB)
@@ -416,13 +421,13 @@ def phalanx(name, J0, J1, rA, rS, rB, pref, prev_rB=None, kind="p", lat=(1.08, 1
     # low palmar tubercles either side of the base (they make the base read as the concave receiving end)
     for s in (-1, 1):
         parts.append(Ellipsoid(a + e0 * (0.10 * rA) + e2 * (s * 0.55 * rA * lat[0]) + e1 * (0.42 * rA),
-                               (0.30 * rA, 0.30 * rA, 0.45 * rA), M))
+                               ((0.27 if s < 0 else 0.19) * rA, 0.22 * rA, 0.39 * rA), M))
     pr = Union(*parts, k=0.010 * (rS / 0.06) ** 0.5)
     pr = Displace(pr, 0.0018, 8.0, octaves=3, seed=seed)
     if prev_rB:
         # fine crease where this base meets the previous head (reads as articulation at 2x, never as a gap at 1x)
         cr = CreaseRing(J0 + e0 * (0.40 * prev_rB - 0.30 * rA), e0, e1, e2, 0.90 * rA, lat[0], palm, 0.0055)
-        pr = Diff(pr, cr, k=0.002)
+        pr = Diff(pr, Inter(cr, Ellipsoid(J0 + e1 * rA, (2*rA, rA, 2*rA))), k=0.002)
     pr.bone = sh
     BONES.append((name, a - e0 * (0.3 * rA), J1, 0.5 * (rA + rS)))
     if big:
@@ -474,9 +479,9 @@ FINGERS = {
 }
 LEN = (0.39, 0.32, 0.25)        # proximal / middle / distal phalanx (joint centre to joint centre), x finger scale
 #        base   shaft  head        C2 r15: rounded condyle heads clearly wider than the waisted shafts, tapering bone to bone
-R_PH = ((0.106, 0.069, 0.099),   # proximal phalanx
-        (0.090, 0.058, 0.080),   # middle phalanx
-        (0.074, 0.045, 0.035))   # distal phalanx (last = tuft radius)
+R_PH = ((0.105, 0.062, 0.079),   # proximal phalanx
+        (0.083, 0.051, 0.065),   # middle phalanx
+        (0.065, 0.039, 0.028))   # distal phalanx (last = tuft radius)
 THUMB = dict(knuckle=V(0.540, YD - 0.020, 0.470), lens=(0.36, 0.27), leans=(14, 58), twist=-10.0)
 
 
@@ -523,6 +528,22 @@ def mc_curve(name, pts, rA, rS, rh, seed, lat=(1.22, 1.22, 1.10), palm=0.92):
     return pr, Head(J1, hr, M)
 
 
+class PalmPlate(Prim):
+    """Solid bone web, broad at the finger roots and narrowed toward the wrist."""
+    def __init__(self):
+        self.lo = V(-0.64, TOP - 0.28, -0.59)
+        self.hi = V(0.60, TOP + 0.04, 0.74)
+
+    def d(self, X, Y, Z):
+        width = 0.56 - 0.29 * sst(0.17, 0.73, Z)
+        rho = np.sqrt(((X - HERO[0]) / width)**2 + ((Z - 0.08) / 0.62)**2)
+        top = TOP - 0.008 + 0.014 * sst(0.62, 1.0, rho) - 0.14 * sst(0.26, 0.70, Z)
+        # Rounded rim, solid thickness. Surface never falls into the floor-coloured web.
+        side = (rho - 0.96) * 0.48
+        vertical = np.maximum(Y - top + 0.022, top - 0.075 - Y)
+        return np.sqrt(np.maximum(side, 0)**2 + np.maximum(vertical, 0)**2) + np.minimum(np.maximum(side, vertical), 0) - 0.022
+
+
 def build_sculpt():
     JOINTS.clear(); TIPS.clear(); BIG.clear(); BONES.clear(); KNUCK.clear()
     S = Sculpt(materials=("bone",), default_mat="bone")
@@ -545,25 +566,20 @@ def build_sculpt():
         curves[nm] = pr.bone
         JOINTS.append((base, 0.06 * sw))
 
-    # --- packed barrow earth / dried tissue between neighbouring shafts, ~2.5 cm under their tops: one solid palm
-    #     with dark seams (never holes onto the floor). Painted 'dirt'.
+    # C2 r16: a continuous ossified palmar plate, not recessed dark earth. The centre
+    # supports boots at the existing TOP contract; the gently rising perimeter is a cupped lip.
+    # Metacarpals remain visible as fanning relief where they emerge from this bone web.
+    S.add(PalmPlate(), k=0.012)
+
+    # Shallow fanning grooves articulate the fused metacarpals without reopening holes.
     names = list(FINGERS)
-    for A_, B_ in zip(names[:-1], names[1:]):
-        ca, cb = curves[A_], curves[B_]
-        ell = []
-        for t in np.linspace(0.10, 0.92, 9):
-            pa, pb = ca.frame_at(t)[0], cb.frame_at(t)[0]
-            tg = norm(ca._seg_at(t)[1] + cb._seg_at(t)[1])
-            lt = norm((pb - pa) - tg * float(np.dot(pb - pa, tg)))
-            nn = norm(np.cross(lt, tg))
-            if nn[1] < 0:
-                nn = -nn
-            hw = 0.5 * float(np.linalg.norm(pb - pa))
-            c = 0.5 * (pa + pb) - nn * 0.040      # C2 r15 fast2: ~5 cm under the tops -> each metacarpal reads as its own bone
-            ell.append(Ellipsoid(c, (hw * 1.12, 0.030, 0.075), frame_M(tg, nn, lt)))
-        web = Displace(Union(*ell, k=0.035), 0.0055, 16.0, octaves=3, seed=40 + len(A_))
-        S.add(web, k=0.016)                            # filleted into the shafts: no slivers / pockets
-        S.paint(Offset(web, 0.004), "dirt", soft=0.01)
+    for an, bn in zip(names[:-1], names[1:]):
+        pts = []
+        for t in np.linspace(0.12, 0.90, 18):
+            q = (curves[an].frame_at(t)[0] + curves[bn].frame_at(t)[0]) * 0.5
+            q[1] = TOP - 0.008 - 0.14 * sst(0.26, 0.70, q[2]) + 0.004
+            pts.append(q)
+        S.sub(Chain(pts, [0.012 * math.sin(math.pi * (j+1)/19)**0.5 for j in range(18)]), k=0.003)
 
     # --- fingers: CONTINUOUS digits (3 phalanges, each base overlapping the previous head: tight crease, no gap), rising
     #     from the knuckle ring and hooking IN toward the hero
@@ -657,6 +673,8 @@ def build_sculpt():
     # --- real cracks + chips on the big bones (fine hairline cracks / pores are node-side in the normal bake)
     crng = np.random.default_rng(5)
     for nm, b in BIG:
+        if nm.startswith("mc_"):  # buried cracks inside the solid plate create enclosed mesh islands
+            continue
         n_cr = 2 if nm in ("radius", "ulna") else 1
         for _ in range(n_cr):
             t0_, t1_ = crng.uniform(0.28, 0.45), crng.uniform(0.55, 0.78)
@@ -682,6 +700,15 @@ def build_sculpt():
             tan = norm(np.cross(n, b.e0))
             M = np.stack([tan, np.cross(n, tan), n], axis=1)
             S.sub(Ellipsoid(p + n * (rc * 0.10), (rc, rc * 0.75, rc * 0.20), M), k=0.003)
+    # Sparse nutrient foramina and long shallow cortical furrows, readable at select scale.
+    for bi, (nm, b) in enumerate(BIG):
+        if nm.startswith("mc_"):
+            continue
+        for j, (tt, ang) in enumerate(((0.34, -0.65), (0.60, 1.6), (0.74, -2.3))):
+            p, n = b.surface(tt, ang + 0.19 * bi)
+            tangent = norm(np.cross(n, b.e0))
+            M = np.stack([tangent, b.e0, n], axis=1)
+            S.sub(Ellipsoid(p + n * 0.005, (0.011 + j*0.002, 0.025 + j*0.004, 0.012), M), k=0.003)
     return S
 
 
@@ -838,11 +865,12 @@ def p_handbone(c, pal):
     n3 = c.noise(26.0, 2, 203)
     base, hi, grime = pal["base"], pal["hi"], pal["grime"]
     rgb = SH.mix(base, pal["base2"], SH.smooth01(n1, -0.35, 0.45))
-    rgb = rgb * (0.90 + 0.10 * n2 + 0.05 * n3)[:, None]
+    rgb = rgb * (0.88 + 0.28 * n2 + 0.16 * n3)[:, None]
     # C2 r14: per-BONE tint + value (board r13: "uniform matte grey, no tint variation"): every bone gets its own aged
     # ivory - warmer yellow, greyer, or browner - and a +-9 % value step, so the digits read as separate bones of one hand
     if BONES:
         best = np.full(c.n, 1e9); bid = np.zeros(c.n, np.int32)
+        grainP = np.zeros_like(P)
         for k, (_, a, b, _r) in enumerate(BONES):
             a, b = V(a), V(b)
             ab = b - a
@@ -850,6 +878,11 @@ def p_handbone(c, pal):
             dd = np.linalg.norm(P - (a[None] + tt[:, None] * ab[None]), axis=1)
             m = dd < best
             best[m] = dd[m]; bid[m] = k
+            axis = norm(ab) if np.linalg.norm(ab) > 0.001 else UP
+            side = norm(np.cross(axis, V(0.31, 0.12, 0.94)))
+            other = np.cross(axis, side)
+            grainP[m] = np.stack([(P[m]-a) @ side * 68, (P[m]-a) @ other * 68,
+                                   (P[m]-a) @ axis * 7], axis=1)
         brng = np.random.default_rng(1414)
         warm, grey, brown = pal["tint_warm"], pal["tint_grey"], pal["tint_brown"]
         tints = []
@@ -858,6 +891,11 @@ def p_handbone(c, pal):
             tints.append((warm * w[0] + grey * w[1] + brown * w[2]) * brng.uniform(0.91, 1.09))
         tints = np.array(tints)
         rgb = rgb * tints[bid]
+        grain = sdf.fbm(grainP[:,0], grainP[:,1], grainP[:,2], 2, 1.0, seed=1616)
+        streak = sst(-0.20, 0.42, grain)
+        rgb *= (0.64 + 0.62 * streak)[:,None]
+        pores = sst(0.20, 0.52, c.noise(46.0, 2, 1620))
+        rgb = SH.mix(rgb, grime * 0.55, pores * 0.80)
     # porosity: fine dark pores + a soft mottle (aged bone is never a flat colour)
     por = SH.smooth01(c.noise(110.0, 1, 212), 0.58, 0.80)
     rgb = rgb * (1 - 0.22 * por)[:, None] * (0.95 + 0.08 * SH.smooth01(c.noise(40.0, 2, 213), -0.4, 0.4))[:, None]
@@ -868,7 +906,7 @@ def p_handbone(c, pal):
     joint = 1 - SH.smooth01(jd, 0.75, 1.9)
     rgb = SH.mix(rgb, pal["stain"], np.clip(joint * (0.55 + 0.35 * SH.smooth01(n2, -0.3, 0.5)), 0, 0.85))
     # broad patina patches
-    rgb = SH.mix(rgb, pal["stain"] * 1.15, 0.45 * SH.smooth01(c.noise(5.0, 3, 204), 0.15, 0.55))
+    rgb = SH.mix(rgb, pal["stain"] * 1.15, 0.62 * SH.smooth01(c.noise(7.0, 3, 204), -0.08, 0.40))
     # cavities: packed grime; worn convex highs: paler ivory
     rgb = SH.mix(rgb, grime, np.clip(SH.smooth01(c.cav, 0.03, 0.45) * 0.95, 0, 0.95))
     rgb = SH.mix(rgb, hi, np.clip(0.55 * c.ridge * (0.6 + 0.4 * SH.smooth01(n2, -0.2, 0.4)), 0, 0.6))
@@ -907,7 +945,7 @@ def p_handbone(c, pal):
     earth = SH.mix(earth, pal["moss"] * 0.8, 0.35 * SH.smooth01(c.noise(7.0, 2, 211), 0.2, 0.6))
     rgb = SH.mix(rgb, earth, 0.92 * dirt)
     rough = np.clip(0.84 - 0.16 * c.ridge + 0.08 * moss + 0.04 * n2 + 0.2 * dirt, 0.55, 0.97)
-    return SH.out(c.n, np.clip(rgb, 0, 1), rough)
+    return SH.out(c.n, np.clip(rgb * 0.84, 0, 1), rough)  # r16: keep both-READY bone/hero value below 0.6
 
 
 def add_micro(m):
@@ -936,17 +974,20 @@ def add_micro(m):
     nt.links.new(crk.outputs["Result"], inv.inputs[1])
     cm = N.new("ShaderNodeMath"); cm.operation = "MULTIPLY"
     nt.links.new(inv.outputs[0], cm.inputs[0]); nt.links.new(gmr.outputs["Result"], cm.inputs[1])   # crack mask 0..1
-    pore = N.new("ShaderNodeTexNoise"); pore.inputs["Scale"].default_value = 140.0; pore.inputs["Detail"].default_value = 2.0
+    pore = N.new("ShaderNodeTexNoise"); pore.inputs["Scale"].default_value = 78.0; pore.inputs["Detail"].default_value = 2.0
     nt.links.new(tc.outputs["Object"], pore.inputs["Vector"])
     grain = N.new("ShaderNodeTexNoise"); grain.inputs["Scale"].default_value = 38.0; grain.inputs["Detail"].default_value = 4.0
-    nt.links.new(tc.outputs["Object"], grain.inputs["Vector"])
+    stretch = N.new("ShaderNodeVectorMath"); stretch.operation = "MULTIPLY"
+    stretch.inputs[1].default_value = (1.0, 0.13, 1.0)
+    nt.links.new(tc.outputs["Object"], stretch.inputs[0])
+    nt.links.new(stretch.outputs[0], grain.inputs["Vector"])
     hgt = N.new("ShaderNodeMath"); hgt.operation = "MULTIPLY_ADD"
     nt.links.new(pore.outputs["Fac"], hgt.inputs[0]); hgt.inputs[1].default_value = 0.35
     nt.links.new(grain.outputs["Fac"], hgt.inputs[2])
     h2 = N.new("ShaderNodeMath"); h2.operation = "MULTIPLY_ADD"
     nt.links.new(cm.outputs[0], h2.inputs[0]); h2.inputs[1].default_value = -1.2
     nt.links.new(hgt.outputs[0], h2.inputs[2])
-    bump = N.new("ShaderNodeBump"); bump.inputs["Strength"].default_value = 0.9; bump.inputs["Distance"].default_value = 0.0035
+    bump = N.new("ShaderNodeBump"); bump.inputs["Strength"].default_value = 0.9; bump.inputs["Distance"].default_value = 0.006
     nt.links.new(h2.outputs[0], bump.inputs["Height"])
     for nm in ("P_normal", "P_look"):
         bs = N.get(nm)

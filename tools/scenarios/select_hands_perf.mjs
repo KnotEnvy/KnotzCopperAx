@@ -1,4 +1,4 @@
-// C2 wrap QA (perf): cost of the character-select 3D set (skeletal hands ≈ 50k tris each) — draw calls, tris, GPU ms via the
+// C2 wrap QA (perf): cost of the character-select 3D set (skeletal hands 34k tris each) — draw calls, tris, GPU ms via the
 // perfbench kit's timer-query sampler (clean-sample p25, converted to ≈1650 Ti ms with tools/perfbench.calib.json), with the
 // hands hidden as an A/B, JS per frame on the select screen, and the webfont status at __KCA.ready (font-timeout check).
 //   node tools/capture.mjs --url "/?mode=title&quality=high" --size 1920x1080 --scenario tools/scenarios/select_hands_perf.mjs --out <dir>
@@ -39,12 +39,13 @@ export default async (api) => {
   const hands = await E(() => {
     const set = window.__KCA.game.renderer.scene.getObjectByName('selectSet');
     const out = [], all = [];
-    set.traverse((o) => { if (!o.isMesh) return; const g = o.geometry; const tris = Math.round((g.index ? g.index.count : g.attributes.position.count) / 3); const row = { name: o.name || o.type, tris, visible: o.visible, skinned: !!o.isSkinnedMesh, mat: o.material && (o.material.name || o.material.type), castShadow: o.castShadow }; all.push(row); if (tris >= 40000 || /hand/i.test(o.name || '')) out.push(row); });
+    set.traverse((o) => { if (!o.isMesh) return; const g = o.geometry; const tris = Math.round((g.index ? g.index.count : g.attributes.position.count) / 3); const row = { name: o.name || o.type, tris, visible: o.visible, skinned: !!o.isSkinnedMesh, mat: o.material && (o.material.name || o.material.type), castShadow: o.castShadow }; all.push(row); if (o.parent === set && o.children.some((c) => c.isMesh)) out.push(row); });
     all.sort((a, b) => b.tris - a.tris);
     return { hands: out, top: all.slice(0, 12), meshes: all.length, totalTris: all.reduce((s, r) => s + (r.visible ? r.tris : 0), 0) };
   });
   api.log('census ' + JSON.stringify({ calls: census.calls, tris: census.triangles, passPx: census.passPixels1080, casters: census.casters, lights: census.lights, pointLights: census.pointLights, programs: census.programs, skinned: census.skinned, bones: census.bones, texVisMB: census.texVisMB, rtMB: census.rtMB }));
   api.log('hands ' + JSON.stringify(hands));
+  if (hands.hands.length !== 3) throw new Error('Expected three skeletal hand meshes for the GPU A/B');
   // JS per frame (manual clock, 1 s of select-screen time)
   await E(() => window.__PB.slicesOn());
   await E(() => window.__PB.takeSlices());
@@ -62,9 +63,16 @@ export default async (api) => {
   const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.max(0, Math.floor(p * (s.length - 1) + 0.5)))] : null; };
   const sample = async (hide) => {
     const r = await E(async (hide) => {
-      const set = window.__KCA.game.renderer.scene.getObjectByName('selectSet'); const hid = [];
-      if (hide) set.traverse((o) => { if (o.isMesh && o.visible && o.geometry && ((o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3 >= 40000)) { o.visible = false; hid.push(o); } });
-      try { return await window.__PB.gpuSample({ frames: 2 }); } finally { for (const o of hid) o.visible = true; }
+      const set = window.__KCA.game.renderer.scene.getObjectByName('selectSet'); const hid = new Map();
+      // Hands carry their barrow heap as a child. The old >=40k selector missed the 34k hands entirely.
+      // Mask only hand geometry; retain heap children and restore each shared geometry once.
+      if (hide) set.traverse((o) => {
+        if (o.isMesh && o.visible && o.parent === set && o.children.some((c) => c.isMesh) && !hid.has(o.geometry)) {
+          hid.set(o.geometry, { ...o.geometry.drawRange }); o.geometry.setDrawRange(0, 0);
+        }
+      });
+      try { return await window.__PB.gpuSample({ frames: 2 }); }
+      finally { for (const [geometry, range] of hid) geometry.setDrawRange(range.start, range.count); }
     }, hide);
     return r;
   };

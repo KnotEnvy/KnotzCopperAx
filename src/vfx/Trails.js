@@ -18,8 +18,15 @@ const MAX_TRAILS = 12, MAX_RAW = 14, SUB = 5, MAX_PTS = (MAX_RAW - 1) * SUB + 1;
  *  `span` = max ribbon width (m) at the head (next to the blade); the ribbon tapers to a point (`taper` exponent)
  *  toward the tail, so a swing reads as a crescent swoosh, never a filled fan. */
 export const TRAIL_STYLES = {
-  greatsword: { base: 0.42, tip: 1.03, span: 0.55, taper: 1.25, persist: 0.12, alpha: 1.0, width: 1, minSpeed: 3.5, fullSpeed: 10 },
-  sabre: { base: 0.5, tip: 1.02, span: 0.36, taper: 1.4, persist: 0.11, alpha: 0.9, width: 1, minSpeed: 4, fullSpeed: 11, maskScale: 1.35 },
+  greatsword: { base: 0.42, tip: 1.03, span: 0.55, taper: 1.6, persist: 0.12, alpha: 1.0, width: 1, minSpeed: 3.5, fullSpeed: 10, soft: 1 },   // C2 r9 (hero-weapons): soft = feathered both edges (board r8: hard-edged tan card)
+  // C2 r10 (hero-weapons): Seraphine's sabres use the soft crescent ribbon too (board r9: hard-edged salmon/tan cards) and a per-hand
+  // tint: right = Dawn gold, left = Dusk violet. Shorter persist so the crescent is gone ~4 frames after the swing.
+  // C2 r11 (hero-weapons; board r10: Dusk's trail "a hard-edged opaque violet card with a straight leading edge"): line = 1 makes the
+  // sabre ribbon a CORE LINE -- alpha concentrated just inside the tip path, falling off across the width, the head fading in from 0
+  // (no straight cut along the blade chord); narrower span; maskLow pulls the self-mask capsule down over the hips / sash; Dusk's
+  // tint lighter and less saturated (an additive glow, not a solid violet). Both sabres share it (Dusk now matches Dawn).
+  sabre: { base: 0.5, tip: 1.02, span: 0.2, taper: 1.5, persist: 0.085, alpha: 0.8, width: 1, minSpeed: 4, fullSpeed: 11, maskScale: 1.35, maskLow: -0.3, soft: 1, line: 1,
+    handColor: { R: ['#fff0c4', '#ffb83a'], L: ['#f2ecff', '#a487f2'] } },
   // C2 r4 (hero-weapons, additive): copper head -> storm-blue tail (board r3: "copper/storm tint"); the ribbon spans the bit
   copperax: { base: 0.6, tip: 1.06, span: 0.45, taper: 1.3, persist: 0.12, alpha: 1.0, width: 1, minSpeed: 3.5, fullSpeed: 10, color: ['#ffd2a0', '#4aa8ff'] },
   club: { base: 0.45, tip: 1.0, span: 0.26, taper: 1.6, persist: 0.1, alpha: 0.4, minSpeed: 4, fullSpeed: 10 },
@@ -52,13 +59,20 @@ varying vec4 vBody;
 varying vec3 vView;
 #include <fog_pars_fragment>
 void main() {
-  float v = vT.y, u = vT.x;
+  // C2 r9 (hero-weapons): a style with soft encodes +2 on the along coordinate (all its vertices); the ribbon then fades
+  // out on BOTH edges and at its head instead of reading as a flat hard-edged card. Other styles are untouched.
+  float soft = step(1.5, vT.x);
+  // C2 r11 (hero-weapons): line styles encode a further +2 (soft is implied): a core line instead of a band
+  float line = step(3.5, vT.x);
+  float v = vT.y, u = vT.x - 2.0 * soft - 2.0 * line;
   // Crescent profile: feathered inner edge, luminous band toward the tip edge, a thin hot leading line; along
   // the ribbon a soft onset at the blade (no hard straight wall) and a fast falloff behind the head.
-  float edge = smoothstep(0.0, 0.55, v) * (1.0 - smoothstep(0.93, 1.0, v));
-  float body = pow(smoothstep(0.02, 0.95, v), 1.6);
-  float onset = mix(0.35, 1.0, smoothstep(0.0, 0.07, u));
-  float a = vColor.a * edge * body * onset * (1.0 - u * 0.45);
+  float edge = mix(smoothstep(0.0, 0.55, v) * (1.0 - smoothstep(0.93, 1.0, v)), smoothstep(0.0, 0.6, v) * (1.0 - smoothstep(0.58, 1.0, v)), soft);
+  float body = mix(pow(smoothstep(0.02, 0.95, v), 1.6), 1.0, soft);
+  float onset = mix(mix(0.35, 1.0, smoothstep(0.0, 0.07, u)), mix(0.45, 1.0, smoothstep(0.0, 0.12, u)), soft);
+  edge = mix(edge, pow(smoothstep(0.0, 0.9, v), 2.2) * (1.0 - smoothstep(0.9, 1.0, v)), line);
+  onset = mix(onset, smoothstep(0.0, 0.1, u), line);
+  float a = vColor.a * edge * body * onset * (1.0 - u * 0.45) * mix(1.0, 0.8, soft);
   // Owner head/torso capsule mask (projected space).
   if (vT.z > 0.0) {
     vec2 p = vView.xy / max(0.05, -vView.z);
@@ -209,6 +223,7 @@ export class TrailSystem {
     const len = ext[bi][0], axis = new THREE.Vector3(); axis.setComponent(ext[bi][1], bi % 2 === 0 ? 1 : -1);
     if (len < 0.2) return null;
     const style = this.styleFor(actor, o);
+    if (style.handColor && style.handColor[hand] && !(o.color || (actor.def && actor.def.trail && actor.def.trail.color))) { style.col0 = style.handColor[hand][0]; style.col1 = style.handColor[hand][1]; }
     // C2 r2 (hero-weapons): when the GLB carries a blade_tip / head_tip node, the ribbon tip follows it (a curved sabre's
     // point sits ~10 cm off the straight grip axis); the base stays on the measured axis.
     const tipNode = src.getObjectByName('blade_tip') || src.getObjectByName('head_tip');
@@ -336,16 +351,20 @@ export class TrailSystem {
       const cam = this.game.camera;
       const bc = this._bodyCapsule(t, cam); // [ax, ay, bx, by, r] projected, r = 0 → no mask
       const span = st.span ?? 0.35, taper = st.taper ?? 1.4;
+      // C2 r9 (hero-weapons): a soft style's ribbon is never wider than ~1.1x its own arc length, so the short
+      // post-contact follow-through reads as a thin sliver instead of a square card.
+      let spanK = 1;
+      if (st.soft) { let L = 0; for (let i = 0; i < np - 1; i++) L += P[i].t.distanceTo(P[i + 1].t); spanK = Math.min(1, Math.max(0.2, 1.1 * L / span)); }
       for (let i = 0; i < np; i++) {
         const q = P[i];
         const u = Math.min(1, q.age / persist);
         const velK = Math.min(1, Math.max(0, (q.sp - st.minSpeed) / (st.fullSpeed - st.minSpeed)));
-        const al = Math.min(1, st.alpha * 1.05 * (1 - u) ** 1.7 * velK * (i === 0 ? 0.6 : 1));
+        const al = Math.min(1, st.alpha * 1.05 * (1 - u) ** (st.soft ? 2.4 : 1.7) * velK * (i === 0 ? 0.6 : 1));
         // Tapered ribbon: the outer edge follows the tip path; the inner edge sits `w` in from the tip toward the
         // blade (widest at the head, a point at the tail). When the swing plane turns edge-on to the camera the
         // inner direction bends toward the camera-facing side vector so the ribbon keeps a readable width.
         _d.subVectors(q.b, q.t); const bl = _d.length(); if (bl > 1e-5) _d.multiplyScalar(1 / bl); else _d.set(0, -1, 0);
-        const w = Math.min(bl, span) * (1 - u) ** taper;
+        const w = Math.min(bl, span * spanK) * (1 - u) ** taper;
         if (cam) {
           _vd.subVectors(q.t, cam.position).normalize();
           const qa = P[Math.max(0, i - 1)].t, qb = P[Math.min(np - 1, i + 1)].t;
@@ -366,7 +385,7 @@ export class TrailSystem {
           const p = e ? q.t : _b;
           pos[v * 3] = p.x; pos[v * 3 + 1] = p.y; pos[v * 3 + 2] = p.z;
           col[v * 4] = cr; col[v * 4 + 1] = cg; col[v * 4 + 2] = cb; col[v * 4 + 3] = al;
-          uv[v * 3] = u; uv[v * 3 + 1] = e; uv[v * 3 + 2] = bc[4];
+          uv[v * 3] = u + (st.soft ? 2 : 0) + (st.line ? 2 : 0); uv[v * 3 + 1] = e; uv[v * 3 + 2] = bc[4];
           bod[v * 4] = bc[0]; bod[v * 4 + 1] = bc[1]; bod[v * 4 + 2] = bc[2]; bod[v * 4 + 3] = bc[3];
           v++;
         }
@@ -399,7 +418,7 @@ export class TrailSystem {
     t._hipN.getWorldPosition(_h0); t._headN.getWorldPosition(_h1);
     const L = _h0.distanceTo(_h1);
     if (L < 0.05) return out;
-    _h0.y += L * 0.1; _h1.y += L * 0.36; // torso starts above the belt; include the crown of the head
+    _h0.y += L * (t.style.maskLow ?? 0.1); _h1.y += L * 0.36; // torso starts above the belt; include the crown of the head (C2 r11: sabre maskLow -0.3 covers the hips / sash)
     // per-character: slim/fast wielders (twin sabres sweep past the face) get a wider guard via style.maskScale
     const r = Math.max(0.2, L * 0.36) * (t.style.maskScale ?? 1);
     cam.updateMatrixWorld();

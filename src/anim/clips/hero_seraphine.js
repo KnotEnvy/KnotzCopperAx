@@ -51,6 +51,20 @@ const run = gait({
   },
 });
 
+// Seraphine owns both hover and READY presentation; confirmation must retain the body line.
+const SELECT_PRESENTATION = {
+  // C2 r10 (Seraphine iter 17): hip over the support foot, counter-rotated shoulders and bent off arm; weight over the
+  // right (back) leg with that hip up, the left knee relaxed forward/in on a raised heel, shoulders counter-tilted,
+  // head turned; Dawn lowered clear of the torso, Dusk held at the hip. The static presentation clears the body,
+  // so disable the gameplay blade guard, which otherwise rotates the low sabre up beside her face.
+  frames: 120, loop: true, plant: 1, guard: 0, breathe: 0.8, tags: ['idle'],
+  keys: [
+    { f: 0, pose: { ...torso({ pelvis: -24, yaw: 29, pitch: -3, roll: 31, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.045, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.58, 0.53], dir(34, -58), [0.92, 0.19, 0.35]), wpnL: WL([0.12, -0.25, -0.36], dir(-90, -38), [0.92, 0.19, 0.35]) },
+    { f: 60, pose: { ...torso({ pelvis: -24, yaw: 30, pitch: -2, roll: 30, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.049, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.57, 0.53], dir(35, -57), [0.92, 0.19, 0.35]), wpnL: WL([0.13, -0.26, -0.36], dir(-90, -39), [0.92, 0.19, 0.35]) },
+    { f: 120, pose: { ...torso({ pelvis: -24, yaw: 29, pitch: -3, roll: 31, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.045, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.58, 0.53], dir(34, -58), [0.92, 0.19, 0.35]), wpnL: WL([0.12, -0.25, -0.36], dir(-90, -38), [0.92, 0.19, 0.35]) },
+  ],
+};
+
 export default {
   rig: 'humanoid', character: 'seraphine', priority: 10,
   clips: {
@@ -451,14 +465,8 @@ export default {
     // select_stand (C2 r2, hero-weapons; src/ui/select3d.js plays it when it exists, else idle): the select camera is
     // ~20 deg off her forward axis (char-space dir ≈ [0.92, 0.19, 0.35]); Dawn raised on the right, Dusk low on the left,
     // both flats to the camera so the gold / violet PAIR reads.
-    select_stand: {
-      frames: 120, loop: true, plant: 1, breathe: 0.8, tags: ['idle'],
-      keys: [
-        { f: 0, pose: torso({ pelvis: -18, yaw: 10, pitch: 1, roll: -5, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.045, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
-        { f: 60, pose: torso({ pelvis: -18, yaw: 11, pitch: 1, roll: -4, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.05, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.0, 0.42], dir(25, 63), [0.92, 0.19, 0.35]), wpnL: WL([0.33, -0.47, -0.44], dir(-45, -35), [0.92, 0.19, 0.35]) },
-        { f: 120, pose: torso({ pelvis: -18, yaw: 10, pitch: 1, roll: -5, pelvisRoll: 5, look: 0.6 }), hips: [0.01, -0.045, 0.035], ...feet([0.17, 0.025, 0.045, -7, 8], [-0.12, 0, 0.025, 0, 24]), wpn: W([0.3, 0.02, 0.42], dir(24, 64), [0.92, 0.19, 0.35]), wpnL: WL([0.32, -0.46, -0.44], dir(-45, -34), [0.92, 0.19, 0.35]) },
-      ],
-    },
+    select_stand: SELECT_PRESENTATION,
+    select_ready: SELECT_PRESENTATION,
     // magic: blades crossed low, then flung up into a burning V (castPeak)
     magic_cast: {
       frames: 50,

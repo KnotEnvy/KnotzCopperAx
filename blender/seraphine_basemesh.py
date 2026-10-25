@@ -72,19 +72,42 @@ PARAMS = dict(
     eye_r_mul=1.0,              # eyeball radius vs the scaled base socket sphere
     canthus_lift=0.0020,        # outer corners up (almond)
     cheek_out=0.0050,           # zygomatic push (outward + forward)
-    chin_fwd=0.0035, chin_down=0.0030,
-    jaw_in=0.0040,              # gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
+    chin_fwd=0.0015, chin_down=0.0030,
+    jaw_in=0.0032,              # r6: 4 -> 3.2 mm (board r12 "weak jaw"); gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
     nose_w=0.93,                # alae narrower
     lip_lower_fwd=-0.0010, lip_upper_fwd=0.0007,
     lip_corner=0.0015, philtrum_soft=0.0007,
-    neck_slim=0.90,             # neck xy about its axis below the jaw
+    neck_slim=0.86,             # neck xy about its axis below the jaw (r7: .90 -> .86, board r13 "wide columnar neck")
     skull_w=1.0,
     brow_soft=0.0020,           # brow ridge pushed back (soft natural brows; C2 r3: 2 mm, board r9 "heavy brow")
     lid_drop=0.0028,            # C2 r3: upper lid margin lowered over the iris (board r9: exposed round irises)
-    sulcus_fill=0.0018,         # r4: firmer chin transition / lighter lower vermilion
+    sulcus_fill=0.0090,         # r8: broad mentolabial fill, combined with the final lip_chin_blend field
     nostril_soft=0.0012,       # soften the continuous alar rim while retaining the downward nostril cavities
     lip_close=0.0022,           # morphological closing radius (m) in a box round the mouth: the base mesh's deep
                                 # lip slit baked as a black line (fast build #1); the slit is filled to ~1.6 mm
+    # ---- C2 r6 (iter 13, board r12: "flat pasted lips, recessed chin, weak jaw, skewed")
+    mouth_seal=True,            # the enclosed oral bag behind the closed lips becomes solid (no cavity in the LO mesh)
+    sym=True,                   # mirror-symmetric SDF lattice + field (x -> -x averaged): no skew at yaw 0
+    upper_evert=0.0010,         # upper vermilion rolled forward (m); r7: 0.8 mm at the border -> 1.0 mm mid-vermilion
+    upper_h=0.0065,             # height of the vermilion border (white roll) above the lip line
+    lower_full=0.0010,          # r7: 1.8 -> 1.0 mm, narrower (board r13 "swollen lower-lip blob"); lower lip fullness (m, forward + down)
+    mouth_w=0.95,               # mouth width about the lip centre
+    pog_fwd=0.0010, pog_down=0.0012,  # pogonion (front of the chin) projection
+    chin_w=1.06,                # chin pad width
+    cheek_hollow=0.0,           # buccal hollow depth (m); fast4: 2 mm printed dark cheek blotches in-game -> off
+    # ---- C2 r7 (iter 14, board r13: "upper lip a dark smear, lower lip a swollen blob with no Cupid's bow, abrupt
+    # shelf under the lower lip, protruding mouth over a weak chin")
+    upper_mid=0.0045,             # height of the upper_evert centre above the lip line (None = upper_h, the r13 border)
+    bow=0.0011,                    # Cupid's bow: border peaks at the philtral columns raised/forward (m)
+    tubercle=0.0,               # central upper-lip tubercle forward (m)
+    line_fwd=0.0025,               # the closed lip junction (and both lip edges round it) forward (m): r13's line sat
+                                # 3 mm behind the lower lip and 5 mm behind the upper -> the upper vermilion faced down
+    lower_w=0.60,               # lower_full width as a fraction of the mouth half-width
+    sulcus_r=0.022,             # radius of the sulcus fill
+    sulcus_z=-0.020,            # height of the sulcus fill centre below the lip line
+    modiolus=0.0006,               # soft mound lateral to each commissure (m, forward): rounds the corner creases
+    lip_chin_blend=0.0024,       # r8: reduce lower-lip shelf, spread the mentolabial transition
+    corner_soft=0.0012,            # gaussian smoothing (m) of the SDF in small spheres round the commissures
 )
 
 
@@ -214,9 +237,60 @@ def fit(params):
         W = move(W, lip + np.array([sx*.023,.001,0]), .009, (0,p["lip_corner"],.0006), axes=(1,.9,.7))
     W = move(W, lip + np.array([0,.002,.012]), .010, (0,-p["philtrum_soft"],0), axes=(.6,1,1))
     if p.get("sulcus_fill", 0.0):       # C2 r3: fill the mentolabial crease (baked as a dark under-lip slit)
-        W = move(W, lip + np.array([0, 0.004, -0.012]), 0.009, (0, -p["sulcus_fill"], 0), axes=(0.8, 1, 1))
+        W = move(W, lip + np.array([0, 0.004, p.get("sulcus_z", -0.012)]), p.get("sulcus_r", 0.009),
+                 (0, -p["sulcus_fill"], 0), axes=(0.8, 1, 1))
+    if p.get("mouth_w", 1.0) != 1.0:
+        W = scale_about(W, lip, 0.026, (p["mouth_w"], 1, 1), axes=(0.75, 1.4, 1.6))
+    mw = float(Lb["mouth_half_w"] * k)
+    if p.get("line_fwd", 0.0):
+        W = move(W, lip + np.array([0, 0.0, 0.0008]), 0.0050, (0, -p["line_fwd"], 0),
+                 axes=(0.0050 / (0.92 * mw), 0.45, 1.0))
+    if p.get("upper_evert", 0.0):       # roll the upper vermilion forward: peak a little above the lip line
+        uc = lip + np.array([0, -0.002, p["upper_h"] if p.get("upper_mid") is None else p["upper_mid"]])
+        W = move(W, uc, 0.0032, (0, -p["upper_evert"], 0.2 * p["upper_evert"]),
+                 axes=(0.0032 / (0.85 * mw), 0.5, 1.0))
+    if p.get("lower_full", 0.0):
+        lc = lip + np.array([0, -0.001, -0.0042])
+        W = move(W, lc, 0.0058, (0, -p["lower_full"], -0.3 * p["lower_full"]),
+                 axes=(0.0058 / (p.get("lower_w", 0.80) * mw), 0.55, 1.0))
+    if p.get("bow", 0.0):               # r7: Cupid's bow -- border peaks over the philtral columns, a dip between
+        bw = p["bow"]
+        for sx in (1, -1):
+            W = move(W, lip + np.array([sx * 0.0050, -0.0015, p["upper_h"] - 0.0002]), 0.0036,
+                     (0, -0.55 * bw, 0.65 * bw), axes=(1.0, 0.7, 1.0))
+            # philtral column: a faint ridge from the bow peak up to the nose
+            for t in (0.3, 0.6):
+                W = move(W, lip + np.array([sx * (0.0050 - 0.0012 * t), -0.0015, p["upper_h"] + 0.010 * t]), 0.0030,
+                         (0, -0.25 * bw, 0), axes=(1.4, 0.7, 0.8))
+        W = move(W, lip + np.array([0, -0.0012, p["upper_h"] + 0.0004]), 0.0024, (0, 0.30 * bw, -0.25 * bw),
+                 axes=(1.0, 0.7, 1.0))
+    if p.get("tubercle", 0.0):          # r7: the central tubercle (the upper lip's fullest point, just above the line)
+        tb = p["tubercle"]
+        W = move(W, lip + np.array([0, -0.0015, 0.0020]), 0.0050, (0, -tb, -0.25 * tb), axes=(0.75, 0.6, 1.3))
+    if p.get("modiolus", 0.0):          # r7: soft mound lateral to each corner (no angular crease ends)
+        for sx in (1, -1):
+            W = move(W, lip + np.array([sx * (mw + 0.0035), 0.002, -0.0005]), 0.0060, (0, -p["modiolus"], 0),
+                     axes=(0.9, 1.0, 0.8))
+    if p.get("pog_fwd", 0.0) or p.get("pog_down", 0.0):
+        pc = lip + np.array([0, 0.006, -0.028])
+        W = move(W, pc, 0.017, (0, -p["pog_fwd"], -p["pog_down"]), axes=(0.75, 0.8, 1.0))
+    if p.get("cheek_hollow", 0.0):      # buccal hollow under the cheekbone (reference: lean, defined cheeks)
+        for sx in (1, -1):
+            bc = np.array([sx * 0.041, lip[1] + 0.024, lip[2] + 0.014])
+            W = move(W, bc, 0.017, (-sx * p["cheek_hollow"], 0.4 * p["cheek_hollow"], 0), axes=(1.0, 0.8, 1.1))
+    if p.get("chin_w", 1.0) != 1.0:
+        W = scale_about(W, lip + np.array([0, 0.008, -0.026]), 0.018, (p["chin_w"], 1, 1), axes=(0.7, 0.8, 1.0))
     if p["skull_w"] != 1.0:
         W = scale_about(W, np.array([0, eyeR[1] + 0.06, eyeR[2] + 0.04]), 0.13, (p["skull_w"], 1, 1))
+    if p.get("lip_chin_blend", 0.0):
+        # Broad continuous depth correction after the local sculpt deformations.
+        # The lower lip falls into a plane, rather than overhanging a separate chin pad.
+        dz=W[:,2]-lip[2]
+        lateral=np.exp(-(W[:,0]/.024)**4)
+        front=1-smooth((W[:,1]+.060)/.020)
+        roll=p["lip_chin_blend"]*np.exp(-((dz+.007)/.005)**2)
+        plane=.0012*np.exp(-((dz+.017)/.010)**2)
+        W[:,1]+=(roll-plane)*lateral*front
     # neck slimming: xy about the neck axis, full below the chin bottom, fading over 2.5 cm up to the jaw
     zc = chin[2]
     ax = np.array([0.0, chin[1] + 0.075, 0.0])
@@ -392,6 +466,11 @@ def main():
         lo = W.min(0) - 0.012; hi = W.max(0) + 0.012
         lo[2] = max(lo[2], 1.47)                       # the base neck below the weld cut is never sampled
         shape = tuple(int(math.ceil((hi[a] - lo[a]) / sdf_h)) + 1 for a in range(3))
+        if lm["params"].get("sym"):                   # r6: lattice symmetric about x = 0 (G[::-1] is the mirror)
+            xh = max(abs(lo[0]), abs(hi[0]))
+            nx = int(math.ceil(2 * xh / sdf_h)) + 1
+            lo[0] = -(nx - 1) * sdf_h / 2
+            shape = (nx,) + shape[1:]
         print(f"sdf grid h={sdf_h*1000:.2f}mm shape {shape} ({np.prod(shape)/1e6:.1f} M cells) lo {lo.round(3)} hi {hi.round(3)}")
         t0 = time.time()
         G = sdf_grid(W, T, N, lo, sdf_h, shape)
@@ -407,6 +486,20 @@ def main():
             xyz = np.meshgrid(*[lo[a] + np.arange(b0[a], b1[a]) * sdf_h for a in range(3)], indexing="ij")
             w = smooth(1 - np.sqrt(sum(((xyz[a] - nc[a]) / nr[a]) ** 2 for a in range(3))))
             G[sl] = sub + w * (ndimage.gaussian_filter(sub, ns / sdf_h) - sub)
+        cs = float(lm["params"].get("corner_soft", 0.0))
+        if cs > 0:          # r7: commissures -- small gaussian blend of the field round each mouth corner
+            from scipy import ndimage
+            for sx in (1, -1):
+                cc = np.array(lm["lip_line"]) + np.array([sx * lm["mouth_half_w"] * lm["params"].get("mouth_w", 1.0),
+                                                          0.003, 0.0])
+                nr = np.array([0.006, 0.007, 0.006])
+                b0 = np.maximum(0, ((cc - nr * 1.6 - lo) / sdf_h).astype(int))
+                b1 = np.minimum(shape, ((cc + nr * 1.6 - lo) / sdf_h).astype(int) + 1)
+                sl = tuple(slice(a, b) for a, b in zip(b0, b1))
+                sub = G[sl]
+                xyz = np.meshgrid(*[lo[a] + np.arange(b0[a], b1[a]) * sdf_h for a in range(3)], indexing="ij")
+                w = smooth(1 - np.sqrt(sum(((xyz[a] - cc[a]) / nr[a]) ** 2 for a in range(3))))
+                G[sl] = sub + w * (ndimage.gaussian_filter(sub, cs / sdf_h) - sub)
         lc = float(lm["params"].get("lip_close", 0.0))
         if lc > 0:          # closing (grey dilation - r) only round the mouth: fills slits narrower than ~2r
             from scipy import ndimage
@@ -425,6 +518,24 @@ def main():
             print(f"  lip closing r={rc*sdf_h*1000:.1f}mm box {sub.shape}: {(fill > 0).sum()} cells filled, "
                   f"max {fill.max()*1000:.2f} mm")
             G[b0[0]:b1[0], b0[1]:b1[1], b0[2]:b1[2]] = sub - fill
+            if lm["params"].get("mouth_seal"):
+                # r6 (iter 13): the base head's oral bag (~360k cells of 'outside' behind the lips) is now enclosed by
+                # a ~1.6 mm lip membrane that the 3 mm game mesh cannot resolve -> it re-opened as dark pockets and
+                # inward cavity triangles at the mouth corners (board r12 "white/dark flecks at the corners"). Every
+                # enclosed outside pocket touching the mouth box becomes solid.
+                from scipy import ndimage
+                outside = G >= 0
+                lab, n = ndimage.label(outside)
+                if n > 1:
+                    sizes = ndimage.sum(outside, lab, range(1, n + 1))
+                    big = 1 + int(np.argmax(sizes))
+                    ids = np.unique(lab[b0[0]:b1[0], b0[1]:b1[1] + int(0.03 / sdf_h), b0[2]:b1[2]])
+                    ids = [i for i in ids if i not in (0, big)]
+                    bag = np.isin(lab, ids)
+                    G[bag] = -np.abs(G[bag])
+                    print(f"  mouth seal: {len(ids)} enclosed pockets, {int(bag.sum())} cells -> solid")
+        if lm["params"].get("sym"):                   # r6: exact mirror symmetry (no jaw/chin skew at yaw 0)
+            G = 0.5 * (G + G[::-1, :, :])
         np.savez_compressed(os.path.join(out, "head_sdf.npz"), G=np.clip(G, -0.04, 0.04).astype(np.float32), x0=lo, h=sdf_h,
                             landmarks=json.dumps(lm))
         print(f"sdf {time.time()-t0:.1f}s -> head_sdf.npz")

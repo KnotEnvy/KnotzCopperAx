@@ -115,7 +115,8 @@ const FRAG = /* glsl */`{
     kdk *= smoothstep(kRimNear.x, kRimNear.y, length(vViewPosition));
     outgoingLight *= 1.0 - kEdgeDark * kdk;
   }
-  outgoingLight += kRimColor * kcd * kRimK * (kcf * kRimParams.x + kedge * kRimEdge.x);
+  // C2 r10 (hero-weapons): the axe's lit silhouette rim read as an even peach outline round the whole bit (board r9): damped on the axe only.
+  outgoingLight += kRimColor * kcd * kRimK * (kcf * kRimParams.x + kedge * kRimEdge.x) * (1.0 - 0.7 * kWeaponGlint.w);
   outgoingLight = max(outgoingLight, diffuseColor.rgb * kRimParams.z);
   // C2 r5 (hero-weapons, per-material opt-in: material.userData.kcaMetalTint, uniform kMetalTint = 0 elsewhere): HUE-LOCKED
   // METAL. A real metal's reflection is F0-tinted at every angle, but Schlick's F90 = 1, the violet sky env and the blue
@@ -146,7 +147,8 @@ const FRAG = /* glsl */`{
     float kmr = pow(max(kml / kmal, 1e-4), 1.0 + kMetalTint.w);
     float kmlock = max(kmr * kmal, kmal * kMetalTint.y);
     // Broad copper flats retain a red body grade; only the finite reflection gets a bright peak.
-    if (kWeaponShape.x > 0.0) kmlock = min(kmlock, kmal * mix(2.2, 0.75, kWeaponGlint.w));
+    // C2 r11: the axe's body ceiling is its own knob (kWeaponShape.x, x albedo luminance; r10 0.75); swords keep 2.2.
+    if (kWeaponShape.x > 0.0) kmlock = min(kmlock, kmal * mix(2.2, kWeaponShape.x, kWeaponGlint.w));
     vec3 kmt = diffuseColor.rgb * (kmlock / kmal);
     kmt = mix(kmt, vec3(kmlock), kMetalTint.z * smoothstep(0.35, 1.1, kmlock));
     outgoingLight = mix(kmc, kmt, kMet * kMetalTint.x) + kme;
@@ -167,27 +169,81 @@ const FRAG = /* glsl */`{
   // along component moves the reflection; across component selects the lit bevel.
   // A Gaussian footprint, roughness and N.L/N.V gates remove the transverse bar and
   // fade the hotspot away when the blade turns out of the light. No clock or pose edits.
-  if (kWeaponGlint.x > 0.0 && kMet > 0.0) {
+  if (kWeaponGlint.x > 0.0 && kMet > 0.0 && kWeaponGlint.w < 0.5) {
     float kwAxe = kWeaponGlint.w;
     float kwT = clamp((vKWeaponPos.y - kWeaponGlint.z) / (kWeaponGlint.y - kWeaponGlint.z), 0.0, 1.0);
-    float kwAcross = mix(vKWeaponPos.x, vKWeaponPos.z, kwAxe);
+    // Axe: BOTH bits carry a streak along their cutting edge (across = |z|, the edge sits at 0.30 m); the bit on the key
+    // side is the brighter one. Sword: one signed edge as before.
+    float kwAcross = mix(vKWeaponPos.x, abs(vKWeaponPos.z), kwAxe);
     float kwH = mix(vKWeaponHalf.x, vKWeaponHalf.z, kwAxe);
     float kwCurve = -kWeaponShape.y * pow(clamp((vKWeaponPos.y - 0.036) / 0.9, 0.0, 1.0), 2.0);
     float kwTaper = 1.0 - smoothstep(0.72, 1.0, kwT);
-    float kwEdge = kwCurve + kWeaponShape.x * kwTaper * (kwH / sqrt(kwH * kwH + 0.012));
-    float kwCentre = mix(kWeaponGlint.z, kWeaponGlint.y, 0.53 + 0.40 * vKWeaponHalf.y + kWeaponShape.w);
-    float kwFacing = smoothstep(0.16, 0.55, kndv) * mix(1.0, smoothstep(0.82, 0.96, vKWeaponHalf.w), kwAxe) * smoothstep(0.12, 0.68, dot(normal, kKeyDir));
-    float kwAlign = smoothstep(0.58, 0.95, dot(normal, kH));
-    float kwLength = mix(0.075, 0.17, kwAlign) * (kWeaponGlint.y - kWeaponGlint.z);
-    float kwWidth = mix(0.014, 0.032, kRgh) * mix(1.0, 1.8, kwAxe);
+    float kwEdge = mix(kwCurve + kWeaponShape.x * kwTaper * (kwH / sqrt(kwH * kwH + 0.012)), 0.265, kwAxe);
+    float kwCentre = mix(kWeaponGlint.z, kWeaponGlint.y, mix(0.53 + 0.40 * vKWeaponHalf.y + kWeaponShape.w, clamp(0.55 + 1.1 * vKWeaponHalf.y, 0.12, 0.95), kwAxe));
+    // Axe flat-to-camera gate is wide (the head turns through ~50 deg during the heavy); sword gate unchanged.
+    float kwFlatGate = mix(1.0, smoothstep(0.38, 0.70, vKWeaponHalf.w), kwAxe);
+    float kwFacing = smoothstep(0.16, 0.55, kndv) * kwFlatGate * smoothstep(0.12, 0.68, dot(normal, kKeyDir));
+    float kwAlign = mix(smoothstep(0.58, 0.95, dot(normal, kH)), smoothstep(0.40, 0.88, dot(normal, kH)), kwAxe);
+    float kwLength = mix(mix(0.075, 0.17, kwAlign), mix(0.40, 0.55, kwAlign), kwAxe) * (kWeaponGlint.y - kWeaponGlint.z);
+    float kwWidth = mix(mix(0.014, 0.032, kRgh) * 1.0, 0.07, kwAxe);
     vec2 kwD = vec2((vKWeaponPos.y - kwCentre) / kwLength, (kwAcross - kwEdge) / kwWidth);
     float kwSpot = exp(-dot(kwD, kwD) * 1.4);
     float kwBlade = smoothstep(kWeaponGlint.z, kWeaponGlint.z + 0.035, vKWeaponPos.y);
     float kwPolish = 1.0 - smoothstep(0.22, 0.62, kRgh);
-    float kwHot = kwSpot * kwBlade * kwPolish * kwFacing * kwAlign * kMet * kWeaponGlint.x;
+    float kwKeySide = smoothstep(-0.2, 0.3, sign(vKWeaponPos.z) * vKWeaponHalf.z);
+    float kwSide = mix(1.0, mix(0.2, 1.0, kwKeySide), kwAxe);
+    float kwHot = kwSpot * kwBlade * kwPolish * kwFacing * kwAlign * kwSide * kMet * kWeaponGlint.x;
     vec3 kwChroma = diffuseColor.rgb / max(max(diffuseColor.r, diffuseColor.g), max(diffuseColor.b, 0.001));
     vec3 kwTint = mix(vec3(1.0), kwChroma, kWeaponShape.z);
-    outgoingLight += kwTint * (1.5 * (1.0 - exp(-kwHot * 3.0)));
+    // C2 r10 (hero-weapons): each bit FACE gets a light-to-dark gradient (darker toward the socket, lighter toward the edge, leaning to the
+    // key side) with a faint hammered breakup, so the big red faces are not one flat maroon. Axe + metal texels only (mix 0 elsewhere).
+    float kwZ = clamp(abs(vKWeaponPos.z) / 0.30, 0.0, 1.0);
+    float kwGrad = mix(0.4, 1.2, smoothstep(0.15, 1.0, kwZ)) * mix(0.72, 1.15, kwKeySide);
+    float kwHam = 1.0 + 0.07 * sin(vKWeaponPos.y * 71.0 + vKWeaponPos.z * 43.0) * sin(vKWeaponPos.z * 89.0 - vKWeaponPos.y * 53.0);
+    outgoingLight *= mix(1.0, kwGrad * kwHam, kwAxe * kMet);
+    outgoingLight += kwTint * (mix(1.5, 1.8, kwAxe) * (1.0 - exp(-kwHot * 3.0)));
+    // C2 r10 (board r9: the greatsword went flat dark grey in hitstun frames): a small constant response on the honed bevel texels
+    // (roughness < ~.2) so the bevel line survives the poses where the key streak is gated off. Swords only (axe: 0).
+    // C2 r11 (board r10: Grudgebrand's clean follow-through "an even pale grey-white along the whole length"): r10's re-bake made the
+    // flat's honed facets glossy too (rough < .2), so this roughness-only gate lifted the WHOLE flat. Gate it to the edge bevel itself
+    // (outer quarter of the across reflection scale, about the sabre curve), so the fuller / shadow half keep their dark value.
+    float kwBevelK = smoothstep(0.72, 0.95, abs(vKWeaponPos.x - kwCurve) / max(kWeaponShape.x, 0.01));
+    outgoingLight += kwTint * 0.15 * (1.0 - kwAxe) * (1.0 - smoothstep(0.16, 0.30, kRgh)) * kwBevelK * kwBlade * kMet * smoothstep(-0.2, 0.5, kndv);
+  } else if (kWeaponGlint.x > 0.0 && kWeaponGlint.w > 0.5) {
+    // C2 r11 (hero-weapons, the Copper Ax only; board r10 "peach-painted panels with a pale perimeter"). Measured cause
+    // (tools/scenarios/weapon_ax_terms.mjs): the r9/r10 axe "streak" was a 7 cm x 40-55 %-of-head Gaussian that covered most
+    // of the key-side bit with a red-heavy tint (1, .25, .14) x 1.8: red clipped and AgX + the grade turned it pale
+    // salmon (median ax pixel x2.7 brighter with it on); with it off the body was a dark maroon (ceiling .75 x albedo).
+    // Now: (1) VALUE STRUCTURE of each face -- dark toward the socket and the horn tips, lit toward the cutting edge, the
+    // bit away from the key in shadow (the cutting-edge band follows it: a bright line only on the key-side edge);
+    // (2) a COMPACT hotspot (Gaussian ~9 x 3 cm) whose position follows the real key/view half vector: along the haft
+    // with half.y and ACROSS the face (socket -> edge) with the bit's half.z, so it slides over the copper as the head
+    // turns; orange skirt, warm yellow-white core (not a red tint pushed into clipping). Knobs (per material, retarget.js):
+    // kWeaponShape = (body ceiling, hotspot amplitude, hotspot width m, value-structure depth).
+    float kwAz = abs(vKWeaponPos.z);
+    // the two bits only (not the haft below the head, the eye block, its brass collars or the top spike)
+    float kwBits = smoothstep(kWeaponGlint.z - 0.02, kWeaponGlint.z + 0.02, vKWeaponPos.y) * smoothstep(0.035, 0.06, kwAz);
+    float kwKeyBit = smoothstep(-0.2, 0.3, sign(vKWeaponPos.z) * vKWeaponHalf.z);
+    float kwDepth = kWeaponShape.w;
+    float kwFace = mix(1.0, mix(0.50, 1.50, smoothstep(0.10, 0.31, kwAz)), kwDepth)
+      * mix(1.0, mix(0.62, 1.15, kwKeyBit), kwDepth)
+      * (1.0 - 0.32 * kwDepth * smoothstep(0.13, 0.30, abs(vKWeaponPos.y - 0.56)));
+    float kwHam = 1.0 + 0.07 * sin(vKWeaponPos.y * 71.0 + vKWeaponPos.z * 43.0) * sin(vKWeaponPos.z * 89.0 - vKWeaponPos.y * 53.0);
+    // the engraved runes are the only non-metal texels of the head: recessed verdigris inlay, a step under the copper
+    // (the r10 teal out-contrasted the metal at 1x) -- they keep the face's value structure, at half value
+    outgoingLight *= mix(1.0, kwFace * mix(1.0, kwHam, kMet) * mix(0.5, 1.0, kMet), kwBits);
+    float kwSz = sign(vKWeaponPos.z) * vKWeaponHalf.z;
+    vec2 kwC = vec2(0.56 + 0.20 * clamp(vKWeaponHalf.y * 2.2, -1.0, 1.0), mix(0.11, 0.30, smoothstep(-0.25, 0.55, kwSz)));
+    float kwW = max(kWeaponShape.z, 0.005);
+    vec2 kwD = vec2((vKWeaponPos.y - kwC.x) / (3.2 * kwW), (kwAz - kwC.y) / kwW);   // anisotropic: 3.2 x longer along the edge
+    float kwSpot = exp(-dot(kwD, kwD) * 1.4);
+    float kwPolish = 1.0 - smoothstep(0.22, 0.62, kRgh);
+    float kwFacing = smoothstep(0.16, 0.55, kndv) * smoothstep(0.30, 0.62, vKWeaponHalf.w) * smoothstep(0.05, 0.6, dot(normal, kKeyDir));
+    float kwAlign = smoothstep(0.30, 0.85, dot(normal, kH));
+    float kwHot = kwSpot * kwBits * kwPolish * kwFacing * kwAlign * mix(0.15, 1.0, kwKeyBit) * kMet * kWeaponGlint.x;
+    float kwCore = 1.0 - exp(-kwHot * 2.5);
+    vec3 kwHotTint = mix(vec3(1.0, 0.34, 0.06), vec3(1.0, 0.80, 0.30), smoothstep(0.35, 0.9, kwCore));
+    outgoingLight += kwHotTint * kWeaponShape.y * kwCore;
   }
   // C2 r7 contact fill: body-local warm lift plus a two-frame heavy rim, after the
   // actor shoulder. Per-material uniforms keep the existing program and texture detail.
@@ -307,17 +363,22 @@ export function lookForActors(world) {
 }
 
 // C2 r7: short render-clock fills, independent of simulation hitstop.
+// C2 r16 (vfx-hitfx): optional colour, a full-strength hold (frames) and a whole-body white rim with its own life,
+// so a hit can flash the struck BODY for 1-2 frames and settle back to albedo. Defaults = the r7 behaviour.
 const contactMaterials = new Set();
-export function contactFill(root, point, { radius = 1.05, strength = 1.8, life = .09, heavy = false } = {}) {
+export function contactFill(root, point, { radius = 1.05, strength = 1.8, life = .09, heavy = false, color = null, hold = 0, white = null, whiteLife = .028, delay = 0 } = {}) {
+  const w = white ?? (heavy ? .24 : 0);
   root?.traverse(o => {
     if (!o.isMesh) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       const u = m?.userData.kcaContact;
       if (!u) continue;
       u.point.value.set(point.x, point.y, point.z, radius);
-      u.fill.value.set(1.0, .34, .055, strength);
-      u.white.value = heavy ? .24 : 0;
-      u.age = 0; u.life = life; u.strength = strength; u.heavy = heavy;
+      if (color) u.fill.value.set(color[0], color[1], color[2], strength); else u.fill.value.set(1.0, .34, .055, strength);
+      u.white.value = w;
+      // delay (C2 r17 hit fx): the body flash starts after the impact core, so frame 0 keeps the burst's edge crisp
+      if (delay > 0) { u.fill.value.w = 0; u.white.value = 0; }
+      u.age = -delay; u.life = life + hold; u.hold = hold; u.strength = strength; u.w0 = w; u.wLife = whiteLife;
       contactMaterials.add(u);
     }
   });
@@ -328,7 +389,9 @@ export function updateContactFills(dt, clear = false) {
     if (clear || u.age >= u.life) {
       u.point.value.w = 0; u.fill.value.w = 0; u.white.value = 0; contactMaterials.delete(u); continue;
     }
-    u.fill.value.w = u.strength * (1 - u.age / u.life);
-    u.white.value = u.heavy && u.age < .028 ? .24 * (1 - u.age / .028) : 0;
+    if (u.age < 0) { u.fill.value.w = 0; u.white.value = 0; continue; }
+    const h = u.hold || 0, k = u.age <= h ? 1 : 1 - (u.age - h) / Math.max(1e-3, u.life - h);
+    u.fill.value.w = u.strength * k;
+    u.white.value = u.w0 > 0 && u.age < h + u.wLife ? u.w0 * (u.age <= h ? 1 : 1 - (u.age - h) / u.wLife) : 0;
   }
 }

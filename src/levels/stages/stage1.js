@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import * as M from '../../render/materials.js';
 import { createFireKit } from '../../render/fire.js';
+import { emitHutFire, finishHutFuel } from './stage1/roofFire.js';
 import { preloadFireLibrary, FirePool } from '../../vfx/fireLib.js';
 import { createAmbient } from '../../render/particles.js';
 import { createShafts } from '../../render/shafts.js';
@@ -72,7 +73,7 @@ export default {
       rock: villageKit.material,
     };
     await preloadFireLibrary();
-    const villageFire = new FirePool({ capacity: 128, name: 's1AuthoredFire' });
+    const villageFire = new FirePool({ capacity: 256, name: 's1AuthoredFire' });
     group.add(villageFire.mesh);
     const fx = createFireKit({ quality: q });
     // Centre-anchored flipbooks: keep the painted flame roots on the Blender rim.
@@ -93,16 +94,24 @@ export default {
     for (const h of HUTS) {
       const r = buildHut({ ...h, y: terrainH(h.x, h.z) - 0.04, mats, kit: villageKit });
       group.add(r.group);
-      for (const f of r.flames) fx.flame(f.p.toArray(), { height: f.h, width: f.w ?? f.h * .6, intensity: f.I, seed: f.seed, speed: f.speed, roof: true, layers: false, heat: false, soot: false });
       // One coherent narrowing plume per roof, in the existing authored-fire draw.
+      // r12: smoke is emitted BEFORE the flames (one instanced draw, emission order = blend
+      // order) so fire reads over its own smoke.
+      // r12: denser, darker column on the hard-burning huts (same card area, no second plume).
       for (const s of r.smoke) villageFire.emit({ clip: 'smoke', pos: [s.p.x, s.p.y + 2.1, s.p.z],
-        size: [2.0, 5.0], life: 4.5, loop: true, phase: h.x*.13, core: 0, alpha: .68,
-        tint: '#8c8189', rot: -.09, soft: .3, floor: s.p.y-.3 });
+        size: [2.4, 5.0], life: 4.5, loop: true, phase: h.x*.13, core: 0, alpha: h.burning >= .7 ? 1 : .76,
+        tint: h.burning >= .7 ? '#5e555e' : '#8c8189', rot: -.09, soft: .3, floor: s.p.y-.3 });
       // A separate low-density wisp lives behind each opening, not only above it.
       // All puffs remain in the shared fire draw and occlude against real rafters.
       for (const s of r.smoke) villageFire.emit({clip:'smoke',pos:[s.p.x,s.p.y-.12,s.p.z-.65],
         size:[1.65,1.6],life:5.3,loop:true,phase:h.seed*.137,core:0,alpha:.22,
         tint:'#a38c70',rot:.12,soft:.12,floor:s.p.y-1.0});
+      // r14: smoke volume - a fire-lit warm underside under each plume (value step from lit belly to dark top).
+      // Only on the fully burning huts (perf: S1 combat).
+      if (h.burning >= 1) for (const s of r.smoke) villageFire.emit({clip:'smoke',pos:[s.p.x+.12,s.p.y+1.05,s.p.z+.06],
+        size:[1.9,1.9],life:3.7,loop:true,phase:h.x*.29+.4,core:0,alpha:.46,keepTint:true,
+        tint:'#a85a38',rot:.05,soft:.25,floor:s.p.y-.3});
+      emitHutFire(villageFire, r);
       for (const g of r.glows) fx.glow(g.p.toArray(), { size: g.s, color: g.c, intensity: g.I });
       for (const s of r.sparks) fx.sparks(s.p.toArray(), { count: s.rate, radius: 1.6, rise: 2.6 });
       // Broad, faint light-on-air scatter in front of the hut, behind all actors.
@@ -112,6 +121,7 @@ export default {
       });
       lightSpots.push(...r.lights);
     }
+    const roofFuel = finishHutFuel(villageFire); if (roofFuel) group.add(roofFuel);
     buildPalisade(ctx, mats, fx, lightSpots);
 
     // ---- dead trees (mid-ground frame the belt; far ones stand on the hills behind the palisade)
