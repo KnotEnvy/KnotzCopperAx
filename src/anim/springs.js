@@ -62,7 +62,8 @@ export class SpringChains {
         const f = n > 1 ? j / (n - 1) : 0;
         return {
           node: e.b.node, off, tipRest, X: new THREE.Vector3(), V: new THREE.Vector3(), Pa: new THREE.Vector3(), init: false,
-          k: F.k * stiff * (1 - 0.35 * f), c: F.c, limit: (F.limit * (0.75 + 0.25 * f)) * Math.PI / 180, minD: {},
+          // Optional per-character family limit (degrees); old limits remain the default.
+          k: F.k * stiff * (1 - 0.35 * f), c: F.c, limit: ((this.gains[F.fam + 'Limit'] ?? F.limit) * (0.75 + 0.25 * f)) * Math.PI / 180, minD: {},
         };
       });
       this.chains.push({ F, bones, gain: this.gains[F.fam] ?? 1 });

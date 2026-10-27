@@ -14,8 +14,8 @@ report blender/out/seraphine_report.json.
 Design (docs/DESIGN.md 2): 1.76 m lithe blade-dancer. Overlapping scale-leather cuirass (real scale rows in the bake
 source: ScaleField), leather neckline + armhole rims, a LEFT pauldron of three teal lames with bronze rims, a cross
 strap, a crimson sash with a knot on the left hip and two long trailing tails (kilt_L spring chain), a slung belt,
-split tassets, dark leather leggings, knee-high boots with teal greaves + knee cops, bracers, a gold circlet with a
-garnet, ember war paint across the eyes. Hair: swept back into a long thick auburn 3-strand braid (hair_1..5 spring
+split tassets, dark leather leggings, knee-high boots with teal greaves + knee cops, bracers, a gold circlet with one small
+sun-disc, dry-brushed rust war paint across the cheekbones. Hair: swept back into a long thick auburn 3-strand braid (hair_1..5 spring
 chain) with bronze cuffs, plus loose locks framing the face.
 """
 import os
@@ -55,8 +55,8 @@ SERA = dict(
     upperarm=0.292, forearm=0.255, hand=0.182,
     arm_down=40.0, arm_fwd=6.0, elbow_bend=10.0,
 )
-STYLE = dict(muscle=0.78, defin=0.5, fat=0.0, chest=0.85, lats=0.74, traps=0.58, waist=0.8, delts=0.80, arm=0.67,
-             forearm=0.76, neck=0.6,
+STYLE = dict(muscle=0.78, defin=0.5, fat=0.0, chest=0.85, lats=0.74, traps=0.58, waist=0.8, delts=0.67, arm=0.55,
+             forearm=0.67, neck=0.6,
              brow=0.95, jaw=0.94, scowl=0.9, cheek=1.12, chin=1.0, nose_bump=0.4, squint=1.15, nose_len=0.84,
              nose_w=0.92, lip=1.12, mouth_w=1.02, eye=1.06, skull_w=0.97, skull_h=1.0, ear=0.92, fem=1.0)
 MATERIALS = ["skin", "eye", "nail", "brow", "hair", "leather", "leather_dark", "scale", "armor", "bronze", "cloth",
@@ -401,8 +401,8 @@ def face_paint(S, L, H, hi):
         n2 = sdf.fbm(X, Y, Z, 2, 90.0, seed=23)
         # r8: tapered brush ends and fibre-scale edge erosion, rather than a rectangular tape mask.
         taper = 1 - shaders.smooth01(np.abs(u), .043, .065)
-        brush = np.sin(Z*5400 + X*450 + 2*n2)
-        half_h = (0.0053 + 0.00085*n + 0.00045*brush) * taper
+        brush = np.sin(Z*3300 + X*520 + 2*n2)
+        half_h = (0.0050 + 0.0014*n + 0.0009*brush) * taper
         d = np.maximum(np.abs(w) - half_h, np.abs(u) - (0.064 + 0.0015*n2))
         return np.maximum(d * s, Y - (ey + 0.040 * s))          # front of the face only (wraps onto the cheeks)
     c0 = V(0, ey, zc)
@@ -972,9 +972,10 @@ def design_hair_cards(S_body, S_under, src, seed=17):
 
     # r8: scalp geometry and fibre UVs share a continuous hairline-to-plait fan.
     # The previous tiered under-mass remains a hidden bake support for the tail only.
-    from seraphine_scalp_flow import scalp_flow, edge_wisps, layered_locks, temple_locks
+    from seraphine_scalp_flow import scalp_flow, edge_wisps, layered_locks, temple_locks, crown_sweep
     cards = scalp_flow(S_body.dist, src["hc"], s=src["s"])
     cards.extend(layered_locks(cards[:2], s=src["s"]))
+    cards.extend(crown_sweep(S_body.dist, src['hc'], s=src['s']))
     cards.extend(temple_locks(S_body.dist, src["hc"], s=src["s"]))
     cards.extend(edge_wisps(cards[:2], src["tendrils"], S_body.dist, S_body.grad, s=src["s"]))
     cards.extend(HCARDS.braid_geometry(src["braid"], src["ties"]))
@@ -1058,7 +1059,7 @@ def hair_attrs(ob, meta, uv=False):
 PAL = dict(
     skin=shaders.srgb(226, 152, 112), skin_warm=shaders.srgb(222, 112, 92), skin_cool=shaders.srgb(150, 110, 100),
     lips=shaders.srgb(150, 62, 60), scar=shaders.srgb(230, 170, 150), skin_rough=0.58,
-    tattoo=shaders.srgb(178, 50, 34),
+    tattoo=shaders.srgb(156, 47, 27),
     iris=shaders.srgb(150, 94, 38), sclera=shaders.srgb(232, 226, 218),   # C2 r2: amber-brown iris (reference), not green
     hair=shaders.srgb(130, 40, 10), hair_tip=shaders.srgb(188, 86, 30), hair_hi=shaders.srgb(240, 160, 90),
     card=shaders.srgb(126, 40, 9), card_hi=shaders.srgb(232, 138, 66), card_dark=shaders.srgb(52, 14, 4),   # C2 r3 hair cards
@@ -1147,11 +1148,24 @@ def p_hair(c, pal):
 
 
 
+def p_eye(c, pal):
+    """Amber iris with a compact painted catchlight that survives the stage mip."""
+    rgb, rough, metal, emit = shaders.p_eye(c, pal)
+    centres = np.asarray(c.x['eyes'])
+    nearest = np.argmin(np.linalg.norm(c.P[:, None] - centres[None], axis=2), axis=1)
+    D = c.P - centres[nearest]
+    D /= np.maximum(np.linalg.norm(D, axis=1, keepdims=True), 1e-9)
+    key = norm(V(-.24, -1, .30))
+    sparkle = np.exp(-np.sum((D-key)**2, axis=1)/.012)
+    rgb = shaders.mix(rgb, shaders.srgb(255, 246, 220), .94*sparkle)
+    return rgb, rough, metal, emit
+
+
 def p_skin(c, pal):
     """lib p_skin + a dark lash line (clear eyes at gameplay distance) and a dry-brushed war-paint stripe."""
     # Local face palette: broad cheek/jaw curvature must not paint a bruised patch.
-    face = shaders.smooth01(c.P[:,2], 1.50, 1.56) * (1-shaders.smooth01(c.P[:,1], .005, .045))
-    c = shaders.Ctx(c.P,c.N,c.cf*(1-.78*face),c.cb*(1-.88*face),c.paints,c.attrs,c.L,c.x)
+    face = shaders.smooth01(c.P[:,2], 1.34, 1.49) * (1-shaders.smooth01(c.P[:,1], .005, .045))
+    c = shaders.Ctx(c.P,c.N,c.cf*(1-.96*face),c.cb*(1-.97*face),c.paints,c.attrs,c.L,c.x)
     rgb, rough, metal, emit = shaders.p_skin(c, pal)
     # r7 (board r13 "harsh throat shadow fusing jaw to chest"): a warm albedo lift on the down-facing skin under the
     # jaw (stylized fill), so the key-light shadow there reads as a soft form shadow, not a dark band
@@ -1168,8 +1182,7 @@ def p_skin(c, pal):
         c.paints["tattoo"] = saved
         streak = 0.5 + 0.5 * np.sin(c.P[:, 2] * 2600.0 + 3.0 * c.noise(180.0, 2, 31) + 500.0 * c.P[:, 0])
         worn = shaders.smooth01(c.noise(140.0, 2, 33), -0.35, 0.45)
-        m = np.clip(0.85 + 0.15 * streak, 0, 1) * (0.85 + 0.15 * worn)
-        rgb = shaders.mix(rgb0, rgb, m)
+        rgb = shaders.mix(rgb0, pal["tattoo"], np.clip(tat*(.84+.16*streak)*(.84+.16*worn),0,1))
         rough = rough + 0.12 * tat
     bp = c.paint("browpaint")
     if bp.any():     # r2: fine hair strokes over the lib's 7 mm zebra stripes
@@ -1230,7 +1243,7 @@ def p_scalp(c, pal):
 
 
 PAINTERS = {"skin": p_skin, "scale": p_scale, "armor": p_armor, "gem": p_gem, "mane": p_hair, "hair": p_scalp,
-            "leather_dark": p_leather_dark}
+            "leather_dark": p_leather_dark, "eye": p_eye}
 
 
 # ============================================================================ previews
@@ -1607,6 +1620,94 @@ def drop_islands(ob, h, min_verts=64):
     return n_isl
 
 
+def dancer_points(P):
+    """r18 fitted silhouette, applied to the finished surface AND all rest joints.
+
+    Keeping the sculpt/bake in its original frame preserves costume registration.
+    The monotone height map lengthens legs 4 cm, shortens the torso slightly and
+    enlarges the head 4%; boots stay flat and hand sockets move with the fists.
+    """
+    P = np.asarray(P, float)
+    Q = P.copy(); z = P[:, 2]
+    leg = (shaders.smooth01(z, .10, .23)*(1-shaders.smooth01(z, .86, 1.02)) *
+           (1-shaders.smooth01(np.abs(P[:,0]), .25, .38)))
+    axis = np.tanh(P[:, 0]/.025)*(.096 + (.088-.096)*np.clip((z-.49)/.415, 0, 1))
+    Q[:, 0] = axis+(P[:, 0]-axis)*(1-.12*leg)
+    Q[:, 1] *= 1-.10*leg
+    shoulder = shaders.smooth01(z, 1.12, 1.40)*(1-shaders.smooth01(z, 1.50, 1.56))
+    Q[:, 0] *= 1-.055*shoulder
+    head = shaders.smooth01(z, 1.51, 1.57)
+    Q[:, 0] *= 1+.04*head
+    Q[:, 1] = .015+(Q[:, 1]-.015)*(1+.04*head)
+    Q[:, 2] = np.interp(z, [0,.08,.49,.905,1.03,1.438,1.552,1.80],
+                            [0,.08,.513,.945,1.067,1.458,1.572,1.830])
+    return Q
+
+
+def face_normal_wrap(ob, skin_mask):
+    """Authored heroine normals: soften the side plane and downward nose base.
+
+    GPU term isolation shows clean albedo and continuous welded normals. The
+    broad dark cheek came from the sculpt's steep side plane. A local normal
+    wrap retains its contour while giving a gentle transition into the key.
+    """
+    P = meshutil.get_verts(ob)
+    N = np.empty((len(P),3));ob.data.vertices.foreach_get('normal',N.ravel())
+    # Work in exported Y-up coordinates so the reviewed CPU-splice and release
+    # evaluate exactly the same spatial mask.
+    G = np.c_[P[:,0],P[:,2],-P[:,1]]
+    GN = np.c_[N[:,0],N[:,2],-N[:,1]]
+    sm = shaders.smooth01
+    mask = (sm(G[:,1],1.54,1.58)*(1-sm(G[:,1],1.72,1.75))*sm(G[:,2],-.008,.028)*
+            (1-sm(np.abs(G[:,0]),.070,.087)))
+    w = .32*mask
+    for x in (-.0316,.0316):
+        w *= 1-.85*np.exp(-np.sum(((G-[x,1.668,.050])/[.022,.018,.025])**2,axis=1))
+    nose = np.exp(-np.sum(((G-[0,1.638,.079])/[.024,.023,.029])**2,axis=1))*sm(-GN[:,1],0,.65)
+    w = np.maximum(w,.56*nose)
+    collar = (sm(G[:,1],1.39,1.44)*(1-sm(G[:,1],1.55,1.59))*sm(G[:,2],-.005,.025)*
+              (1-sm(np.abs(G[:,0]),.10,.15)))
+    w = np.maximum(w,.17*collar)*skin_mask
+    GN = GN*(1-w[:,None])+np.array([0,0,1])*w[:,None]
+    GN /= np.maximum(np.linalg.norm(GN,axis=1,keepdims=True),1e-12)
+    NN = np.c_[GN[:,0],-GN[:,2],GN[:,1]]
+    ob.data.normals_split_custom_set_from_vertices(NN.tolist())
+    ob.data.update()
+    pipeline.log(f'authored face/collar normal wrap: {int((w>.01).sum())} vertices')
+
+
+def dancer_fit(arm, meshes, sculpt=None):
+    import seraphine_hair_cards as HC
+    for ob in meshes:
+        P = meshutil.get_verts(ob)
+        skin_mask = None
+        if ob.name.endswith('_mesh') and sculpt is not None:
+            _, materials, _ = sculpt.eval_points(P)
+            skin_mask = (materials == sculpt.materials.index('skin')).astype(float)
+        ob.data.vertices.foreach_set('co', dancer_points(P).astype(np.float32).ravel())
+        if ob.name in HC._NORMALS:
+            # Inverse-transpose of the local deformation Jacobian.
+            eps = 1e-5
+            J = np.stack([(dancer_points(P+np.eye(3)[i]*eps)-dancer_points(P-np.eye(3)[i]*eps))/(2*eps)
+                          for i in range(3)], axis=2)
+            N = np.linalg.solve(np.swapaxes(J,1,2), HC._NORMALS[ob.name][...,None])[...,0]
+            N /= np.maximum(np.linalg.norm(N,axis=1,keepdims=True),1e-9)
+            HC._NORMALS[ob.name] = N.astype(np.float32)
+            HC.reapply_normals(ob)
+        ob.data.update()
+        if skin_mask is not None:
+            face_normal_wrap(ob, skin_mask)
+    meshutil.select_only([arm]); bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode='EDIT')
+    for bone in arm.data.edit_bones:
+        roll = bone.roll
+        points = dancer_points(np.array([bone.head[:], bone.tail[:]]))
+        bone.head, bone.tail = points[0], points[1]
+        bone.roll = roll
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+
+
 def build(args):
     T0 = time.time()
     fast = args.fast
@@ -1657,7 +1758,7 @@ def build(args):
 
     def in_head(P):
         return np.all((P >= hb0) & (P <= hb1), axis=1)
-    h_lo = 0.0030          # r5: 3.6 -> 3.0 mm; r6 (iter 13): fast builds too, so fast previews show the real face
+    h_lo = 0.0022          # r5: 3.6 -> 3.0 mm; r6 (iter 13): fast builds too, so fast previews show the real face
     # r6 (iter 13): the old [(head, 9900)] region was followed by ONE whole-mesh decimate (759k -> 14.9k tris) that
     # cut the head back to ~650 tris (the face ~260: wedge jaw, pasted mouth band, skewed chin). Every region now
     # gets its own budget and the regions sum to the body target, so the closing decimate is a no-op.
@@ -1718,6 +1819,7 @@ def build(args):
         for o in los:
             pipeline.strip_for_export(o)
         body = meshutil.join(los, ASSET + "_mesh")
+        dancer_fit(arm, [body], S)
         skin.debug_dominant(body)
         qa = skin.stretch_report(body, arm)
         pipeline.log("stretch QA: " + json.dumps(qa))
@@ -1782,7 +1884,7 @@ def build(args):
     # ---------------------------------------------------------------- paint
     t = time.time()
     extra = dict(eyes=info["head"]["eyes"], eye_r=info["head"]["eye_r"], z_knee=L["knee_L"][2],
-                 z_chest=L["chest"][2], hair_band_z=H(0, 0, 0.07)[2], iris_deg=43.0, pupil_deg=13.5, lid_shadow=0.80,
+                 z_chest=L["chest"][2], hair_band_z=H(0, 0, 0.07)[2], iris_deg=37.0, pupil_deg=12.0, lid_shadow=0.30,
                  n_lock=n_lock)
     for o, Sx in ((body_hi, S), (head_hi, S), (hands_hi["L"], Sh["L"]), (hands_hi["R"], Sh["R"]), (kilt_hi, Sk)):
         shaders.assign_bake_materials(o, Sx.materials, kinds=KINDS)
@@ -1802,7 +1904,7 @@ def build(args):
     maps = B.run(passes=[("albedo", "EMIT", spp["albedo"]), ("prm", "EMIT", spp["prm"]),
                          ("ao", "EMIT", spp["ao"]), ("normal", "NORMAL", spp["normal"])])
     pipeline.log(f"bake total {time.time()-t:.1f}s")
-    face_normal_relief(maps["normal"], body_lo, info["head"]["lm"])
+    face_normal_relief(maps["normal"], body_lo, info["head"]["lm"], maps["ao"], S)
     tex = composite_maps(maps, res)
     report["textures"] = {k: [res, res] for k in tex}
     # The strand-material foundation now supplies scalp coverage. Drop the hidden
@@ -1852,8 +1954,11 @@ def build(args):
         cards_ob.data.materials.append(cmat)
         report["tris_total"] += meshutil.tri_count(cards_ob)
         objs.append(cards_ob)
-    if report["tris_total"] > 30000:
-        raise RuntimeError(f"Seraphine exceeds 30000 triangle budget: {report['tris_total']}")
+    dancer_fit(arm, [body] + ([cards_ob] if cards_ob is not None else []), S)
+    report['proportions'] = 'r18: legs +40mm, shoulders -5.5%, thighs/greaves -12%, head +4%; fitted rest joints'
+    report['stretch_qa'] = skin.stretch_report(body, arm)
+    if report["tris_total"] > 75000:
+        raise RuntimeError(f"Seraphine exceeds 75000 triangle budget: {report['tris_total']}")
     if cards_ob is not None:
         report["hair_stretch_qa"] = skin.stretch_report(cards_ob, arm)
     pipeline.export_glb(out, objs, scene_name=ASSET)
@@ -1906,7 +2011,7 @@ def build(args):
         build_weapon_dawn_dusk.build(args)
 
 
-def face_normal_relief(normal_map, body_lo, lm):
+def face_normal_relief(normal_map, body_lo, lm, ao_map=None, sculpt=None):
     """Local tangent-normal strength, rasterised from landmark masks through the actual UVs.
 
     A no-normal live probe isolates the 'nose ring' to the baked high/low normal
@@ -1938,9 +2043,14 @@ def face_normal_relief(normal_map, body_lo, lm):
     me.loops.foreach_get("vertex_index", lv)
     H, W = normal_map.shape[:2]
     M = np.zeros((H, W), np.float32)
+    AOM = np.zeros_like(M)
+    ao_strength = np.zeros(len(P))
+    if ao_map is not None and sculpt is not None:
+        _, material, _ = sculpt.eval_points(P)
+        ao_strength = .80*(material == sculpt.materials.index('skin'))*shaders.smooth01(P[:,2], 1.34, 1.50)
     for face in me.polygons:
         li = list(face.loop_indices)
-        if len(li) != 3 or max(strength[lv[li]]) < .001:
+        if len(li) != 3 or max(np.maximum(strength[lv[li]],ao_strength[lv[li]])) < .001:
             continue
         q = uv[li] * [W, H]
         lo = np.maximum(np.floor(q.min(0)).astype(int), 0)
@@ -1959,10 +2069,18 @@ def face_normal_relief(normal_map, body_lo, lm):
         value = np.where((u >= 0) & (v >= 0) & (w >= 0), a*u+b*v+c*w, 0)
         tile = M[lo[1]:hi[1]+1, lo[0]:hi[0]+1]
         np.maximum(tile, value, out=tile)
+        a,b,c = ao_strength[lv[li]]
+        value = np.where((u>=0)&(v>=0)&(w>=0), a*u+b*v+c*w, 0)
+        tile = AOM[lo[1]:hi[1]+1,lo[0]:hi[0]+1]
+        np.maximum(tile,value,out=tile)
     N = normal_map[..., :3] * 2 - 1
     N[..., :2] *= (1 - M[..., None])
     N /= np.maximum(np.linalg.norm(N, axis=2, keepdims=True), 1e-9)
     normal_map[..., :3] = (N + 1) * .5
+    if ao_map is not None:
+        # Skin uses live form lighting. Deep nostril/mouth and collar cavities in
+        # the selected-to-active bake used to add a second, fixed brown shadow.
+        ao_map[..., :2] += (1-ao_map[..., :2])*AOM[...,None]
     pipeline.log(f"face normal relief: {np.count_nonzero(M > .01)} texels, max {M.max():.2f}")
 
 
@@ -2004,13 +2122,13 @@ def parse():
     ap.add_argument("--stage", default="all")
     ap.add_argument("--device", default="AUTO")
     ap.add_argument("--skin", default="sdf")
-    # r6 (iter 13): per-region budgets that really survive (face 260 -> ~3000 tris); paid by hands/kilt + body rest
-    ap.add_argument("--body-tris", type=int, default=15600)
-    ap.add_argument("--head-tris", type=int, default=3000)      # face + ears + jaw + nape (below the hair mass)
-    ap.add_argument("--scalp-tris", type=int, default=450)      # under the groom
-    ap.add_argument("--neck-tris", type=int, default=2100)      # neck, clavicles, upper chest
-    ap.add_argument("--hand-tris", type=int, default=1000)
-    ap.add_argument("--kilt-tris", type=int, default=2600)
+    # r18 owner75k cap: spend extra density on face, hands and smooth deformed joints
+    ap.add_argument("--body-tris", type=int, default=30000)
+    ap.add_argument("--head-tris", type=int, default=9000)      # face + ears + jaw + nape (below the hair mass)
+    ap.add_argument("--scalp-tris", type=int, default=900)      # under the groom
+    ap.add_argument("--neck-tris", type=int, default=3600)      # neck, clavicles, upper chest
+    ap.add_argument("--hand-tris", type=int, default=1600)
+    ap.add_argument("--kilt-tris", type=int, default=3600)
     ap.add_argument("--hair-tris", type=int, default=700)      # bake support + tail; head support is dropped after baking
     ap.add_argument("--save-blend", action="store_true")
     ap.add_argument("--mouth-finish", action="store_true")     # r6: r12's oral backstop/normal patch (off)

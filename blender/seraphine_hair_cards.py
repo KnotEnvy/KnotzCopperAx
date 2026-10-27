@@ -27,7 +27,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TEX_DIR = os.path.join(ROOT, "public", "assets", "textures")
-ATLAS_RES = 1024
+ATLAS_RES = 2048
 STRIPS = 8
 STRIP_W = ATLAS_RES // STRIPS
 # strip kinds (index -> (n_strands, backing_end, backing_fade, edge_fade_px, tip_split))
@@ -226,7 +226,7 @@ def _strip_clumps(rng, H=ATLAS_RES, W=STRIP_W, pal=None):
         w_s = np.clip(s_acc, 0, 1)
         col_k = (s_col / np.maximum(s_acc, 1e-6)[..., None]) * w_s[..., None] + bcol[None, None, :] * (1 - w_s)[..., None]
         col_k = col_k * (0.86 + 0.14 * prof)[..., None]                          # group roundness (soft)
-        h_k = 0.9 * prof + 0.25 * w_s
+        h_k = 0.18 * prof + 0.11 * w_s
         take = a_k > alpha + 1e-6
         # layering: later groups sit on top only where they are more opaque (soft union of outlines)
         rgb = np.where(take[..., None], col_k, rgb)
@@ -286,7 +286,7 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
             # One warm copper crest and a soft recess per large lock. Fine
             # fibres remain inside that value group instead of replacing it.
             crest=np.clip(1-np.abs(np.linspace(-1,1,W)),0,1)[None,:]
-            c=c*(.76+.33*crest)[...,None]
+            c=c*(.90+.16*crest)[...,None]
             warm=(pal or {}).get("hair_hi",_srgb(236,150,78))
             c=c+(warm-c)*(.045*crest**4)[...,None]
             h=h+.16*crest
@@ -333,7 +333,7 @@ def make_atlas(out_dir=TEX_DIR, res=ATLAS_RES, seed=3, pal=None, prefix="seraphi
     # r6: the per-card lateral occlusion (0.66 at every card edge) and root occlusion drew a dark line wherever two
     # locks overlap (board r12: "deep black seams above the ear and across the back"); keep only a hint
     occ = (0.88 + 0.12 * np.clip(v / 0.15, 0, 1)) * (0.86 + 0.14 * edge) * (0.92 + 0.08 * cov)
-    rough = 0.93 + 0.035 * (1 - cov) + 0.03 * np.sin(np.arange(res)[None, :] * 0.37 + v * 9.0)
+    rough = 0.82 + 0.045 * (1 - cov) + 0.025 * np.sin(np.arange(res)[None, :] * 0.37 + v * 9.0)
     metal = np.zeros_like(occ)
     rough = np.where(gold_patch, 0.47 + 0.04 * np.sin(np.arange(res)[None, :] * 0.61 + v * 23.0), rough)
     occ = np.where(gold_patch, 1.0, occ)
@@ -650,7 +650,7 @@ def braid_geometry(strands, ties):
     for ci, strand in enumerate(strands):
         raw = np.asarray(strand["path"])
         arc = np.r_[0, np.cumsum(np.linalg.norm(np.diff(raw,axis=0),axis=1))]
-        n = max(12, int(math.ceil(arc[-1] / (.0085 if strand["tag"]=="french" else .011)))+1)
+        n = max(12, int(math.ceil(arc[-1] / .0048))+1)
         # Match longitudinal sampling to the real curved strand, not the plait axis.
         P = _resample(raw, n)
         R = np.interp(np.linspace(0,arc[-1],n), arc, strand["R"])
@@ -660,7 +660,7 @@ def braid_geometry(strands, ties):
             R *= np.interp(np.linspace(0,1,n), [0,.12,1], [.18,1,1])
         V,NN,UV,Q = [],[],[],[]
         u0,u1 = strip_uv(ci % 4, False)
-        sides=8 if strand["tag"]=="french" else 6
+        sides=12
         for j in range(n):
             for k in range(sides+1):
                 a=2*math.pi*k/sides
@@ -908,7 +908,11 @@ def build_card_object(name, cards, arm=None, n_across=3, cup=CARD_CUP):
         def fixed_head(P):
             return np.maximum((~moving).astype(float), np.clip((P[:,2] - tie_z) / .025, 0, 1))
         skin.skin(ob, arm, method="sdf", allowed=bones, power=3.0, overrides=[(fixed_head, "head")])
-    return ob, dict(tris=meshutil.tri_count(ob), cards=len(cards), verts=len(V), inward_triangles=inward,
+    by_kind = {}
+    for i, card in enumerate(cards):
+        count = int(np.count_nonzero(ID[triangles[:,0]] == i))
+        by_kind[card['kind']] = by_kind.get(card['kind'], 0) + count
+    return ob, dict(tris=meshutil.tri_count(ob), cards=len(cards), verts=len(V), inward_triangles=inward, by_kind=by_kind,
                     medallion=bool(any(c.get("kind") == "medallion" for c in cards)))
 
 

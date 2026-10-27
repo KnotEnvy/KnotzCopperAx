@@ -16,11 +16,15 @@ const GUARD = { pose: G_TORSO, hips: G_HIPS, ...ST, wpn: G_WPN, grip: 1 };
 const g = (f, extra = {}) => ({ f, ...GUARD, ...extra });
 
 // ----------------------------------------------------------------------------------------------- locomotion
+// Locomotion carry is separate from GUARD so combat poses and hit frames stay unchanged.
+const CARRY = W([0.42, -0.32, 0.24], dir(-55, 22), [0, 0.2, 1]);
 const walk = gait({
   P: 0.6, v: 3.2, duty: 0.5, cx: 0.4, lift: 0.13, heel: 0.12, bob: 0.028, hipsY: -0.09, hipsX: 0.03, twist: 5, lean: -8,
   upper: (ph) => {
     const b = Math.sin(ph * Math.PI * 4);                        // two steps per cycle
-    return { wpn: W([0.44, -0.33 + b * 0.02, 0.1], dir(-10, 34 + b * 3), [0, 0.2, 1]), grip: 1 };
+    const s = Math.sin(ph * Math.PI * 2);
+    return { pose: torso({ pelvis: -5 * s, yaw: 13 * s, pitch: -8 + b * 2, roll: 4 * s, pelvisRoll: -2 * s, look: 0.9 }),
+      wpn: W([0.42 + s * 0.085, -0.32 + b * 0.075, 0.24 + s * 0.055], dir(-55 + s * 9, 22 + b * 6), [0, 0.2, 1]), grip: 1 };
   },
 });
 const run = gait({
@@ -29,9 +33,11 @@ const run = gait({
   upper: (ph) => {
     const s = Math.sin(ph * Math.PI * 2);
     return {
-      // one-handed trailing carry: blade back and low, off arm pumping
-      wpn: W([-0.05 - s * 0.12, -0.5, 0.42], dir(172, -28 + s * 4), [0, 0.3, 1]), grip: 0,
-      pose: arm('L', { upper: [0.55 * s, -0.85, -0.3], fore: [0.9 * s + 0.35, 0.45, -0.25] }),
+      // Raised outside carry stays in the idle/walk hemisphere throughout a crossfade.
+      // The old 172deg/-28deg trailing carry interpolated down through the front leg.
+      // Left arm counter-swings; the right elbow yields to every stride.
+      wpn: W([0.34 + s * 0.055, -0.27 + Math.cos(ph * Math.PI * 4) * 0.035, 0.36], dir(-58 + s * 4, 28 + s * 3), [0, 0.2, 1]), grip: 0,
+      pose: arm('L', { upper: [0.72 * s, -0.76, -0.42], fore: [0.6 + 0.65 * s, 0.14 + 0.3 * s, -0.34] }),
     };
   },
 });
@@ -44,10 +50,10 @@ export default {
     idle: {
       frames: 150, loop: true, plant: 1, breathe: 1, tags: ['idle'],
       keys: [
-        g(0),
-        g(50, { pose: torso({ pelvis: -15, yaw: 7, pitch: -7.5, look: 0.9 }), hips: [0.01, -0.085, 0], wpn: W([0.46, -0.31, 0.1], dir(-12, 36), [0, 0.2, 1]) }),
-        g(100, { pose: torso({ pelvis: -13, yaw: 5, pitch: -5.5, look: 0.9, hy: 4 }), hips: [-0.005, -0.07, 0], wpn: W([0.45, -0.29, 0.11], dir(-13, 39), [0, 0.2, 1]) }),
-        g(150),
+        g(0, { wpn: CARRY, pose: torso({ pelvis: -12, yaw: 4, pitch: -5, roll: -1, look: 0.9 }) }),
+        g(50, { pose: torso({ pelvis: -17, yaw: 9, pitch: -8, roll: 3, look: 0.9 }), hips: [0.022, -0.072, 0.022], wpn: W([0.43, -0.30, 0.24], dir(-53, 24), [0, 0.2, 1]) }),
+        g(100, { pose: torso({ pelvis: -11, yaw: 3, pitch: -5, roll: -3, look: 0.9, hy: 4 }), hips: [-0.018, -0.095, -0.020], wpn: W([0.41, -0.33, 0.25], dir(-57, 20), [0, 0.2, 1]) }),
+        g(150, { wpn: CARRY }),
       ],
     },
     walk: { duration: 0.6, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },

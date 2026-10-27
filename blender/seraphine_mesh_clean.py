@@ -40,6 +40,9 @@ def clean(src, dst):
     _, inv = np.unique(np.round(P, 6), axis=0, return_inverse=True)
     T = inv.ravel()[I]
     keep = np.ones(len(T), bool)
+    area = np.linalg.norm(np.cross(P[I[:,1]]-P[I[:,0]], P[I[:,2]]-P[I[:,0]]), axis=1)
+    degenerate = int((area < 1e-12).sum())
+    keep &= area >= 1e-12
     fins = 0
     for _ in range(4):                       # dangling triangles: a welded vertex used by this triangle only
         use = np.bincount(T[keep].ravel(), minlength=T.max() + 1)
@@ -70,7 +73,7 @@ def clean(src, dst):
             idx = kidx[tri_lab == c]
             keep[idx] = False
             bubbles += len(idx)
-    if fins == 0 and bubbles == 0:
+    if fins == 0 and bubbles == 0 and degenerate == 0:
         if src != dst:
             pathlib.Path(dst).write_bytes(raw)
         return {'fins': 0, 'bubbleTriangles': 0}
@@ -80,7 +83,7 @@ def clean(src, dst):
     a['count'] = len(out)
     a['byteOffset'] = 0
     replacements = {a['bufferView']: out.tobytes()}
-    mesh.setdefault('extras', {})['kcaMeshCleaned'] = {'fins': fins, 'bubbleTriangles': bubbles}
+    mesh.setdefault('extras', {})['kcaMeshCleaned'] = {'fins': fins, 'bubbleTriangles': bubbles, 'zeroAreaTriangles': degenerate}
     packed = bytearray()
     for i, v in enumerate(doc['bufferViews']):
         block = replacements.get(i, binary[v.get('byteOffset', 0):v.get('byteOffset', 0) + v['byteLength']])
@@ -95,7 +98,7 @@ def clean(src, dst):
     chunks = struct.pack('<II', len(jb), 0x4e4f534a) + jb + struct.pack('<II', len(packed), 0x004e4942) + packed
     pathlib.Path(dst).write_bytes(b'glTF' + struct.pack('<II', 2, 12 + len(chunks)) + chunks)
     total = sum(doc['accessors'][p['indices']]['count'] // 3 for m in doc['meshes'] for p in m['primitives'])
-    return {'fins': fins, 'bubbleTriangles': bubbles, 'bodyTriangles': int(len(newidx)), 'totalTriangles': int(total)}
+    return {'fins': fins, 'bubbleTriangles': bubbles, 'zeroAreaTriangles': degenerate, 'bodyTriangles': int(len(newidx)), 'totalTriangles': int(total)}
 
 
 if __name__ == '__main__':

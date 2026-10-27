@@ -24,6 +24,9 @@ if HERE not in sys.path:
 import importlib
 import numpy as np
 import bpy
+import struct
+import brann_groom
+importlib.reload(brann_groom)
 
 from lib import sdf, rig, anatomy, meshutil, preview, gear, hair, pipeline, shaders, skin
 for _m in (sdf, rig, anatomy, meshutil, preview, gear, hair, pipeline, shaders, skin):
@@ -46,9 +49,9 @@ BRANN = dict(
     upperarm=0.335, forearm=0.29, hand=0.215,
     arm_down=40.0, arm_fwd=6.0, elbow_bend=10.0,
 )
-STYLE = dict(muscle=1.30, defin=1.0, fat=0.0, chest=1.06, lats=1.2, traps=1.12, waist=0.93, delts=1.22, arm=1.12,
+STYLE = dict(muscle=1.30, defin=0.36, fat=0.0, chest=1.06, lats=1.2, traps=1.12, waist=0.93, delts=1.22, arm=1.12,
              forearm=1.14, neck=1.2,
-             brow=1.2, jaw=1.04, scowl=1.05, cheek=1.05, chin=1.1, nose_bump=1.0, squint=1.6, nose_len=0.72,
+             brow=1.2, jaw=1.04, scowl=1.05, cheek=1.05, chin=1.1, nose_bump=1.0, squint=1.6, nose_len=0.83,
              nose_w=1.12, lip=1.3, mouth_w=1.18, eye=1.0)
 MATERIALS = ["skin", "eye", "nail", "brow", "hair", "leather", "leather_dark", "fur", "bronze", "iron", "cloth", "sole"]
 WRIST_CUT_T = 0.90     # body forearm is cut here (inside the bracer); hands start at HAND_CUT_T
@@ -78,7 +81,7 @@ def body_sculpt(L, gear_on=True, parts=("torso", "arms", "legs", "head")):
         hi = anatomy.head(S, L, STYLE)
         info["head"] = hi
     if "torso" in parts and "arms" in parts:
-        anatomy.torso_details(S, L, STYLE)
+        torso_details_soft(S, L)
     for s, ai in info["arms"].items():
         anatomy.arm_details(S, L, s, STYLE, ai)
     if "head" in parts:
@@ -111,12 +114,15 @@ def body_sculpt(L, gear_on=True, parts=("torso", "arms", "legs", "head")):
     return S, info
 
 
+def torso_details_soft(S, L):
+    # Keep the sternum and abdominal planes, omit the deeply carved serratus slits.
+    T = anatomy.Frame(L)
+    anatomy.groove(S, [T(0,-.2,1.52),T(0,-.2,1.40)], .009, .0009)
+    anatomy.groove(S, [T(0,-.2,1.35),T(0,-.2,1.10)], .005, .0005)
+
+
 def scars_and_paint(S, L, H, hi=None):
     # --- paint zones used by the skin shader (soft masks at hi-poly vertices)
-    S.paint(Union(Ellipsoid(H(0, -0.07, -0.118), H.r(0.05, 0.05, 0.032)),
-                  Ellipsoid(H(0.047, -0.045, -0.095), H.r(0.02, 0.05, 0.04)),
-                  Ellipsoid(H(-0.047, -0.045, -0.095), H.r(0.02, 0.05, 0.04)),
-                  Ellipsoid(H(0, -0.095, -0.09), H.r(0.028, 0.02, 0.01)), k=0.01), "stubble", soft=0.012)
     hi = hi or {}
     dzm, lp, mw = hi.get("mouth_dz", 0.0), hi.get("lip", 1.0), hi.get("mouth_w", 1.0)
     S.paint(Union(Ellipsoid(H(0, -0.099, -0.0995 + dzm), H.r(0.022 * mw, 0.009, 0.0042 * lp)),
@@ -140,7 +146,7 @@ def scars_and_paint(S, L, H, hi=None):
     S.paint(Chain(list(P), 0.003), "scar", soft=0.003)
 
 
-def scar_cut(S, raw, d, r=0.0016, depth=0.00035, paint_r=0.0022):
+def scar_cut(S, raw, d, r=0.0016, depth=0.00035, paint_r=0.0017):
     """Healed cut: ray-traced onto the surface (robust in the brow/cheek folds), a shallow groove + pale paint."""
     P = anatomy.surface_hit(S, raw, d)
     P, _ = anatomy.resample(P, step=0.003)
@@ -153,15 +159,48 @@ def scar_cut(S, raw, d, r=0.0016, depth=0.00035, paint_r=0.0022):
 def harness(S, snap, L):
     """X-harness: two straps crossing on sternum and between the shoulder blades, bronze medallion."""
     T = anatomy.Frame(L)
+    # Ray-cast onto the bare torso. Gradient projection against an already layered
+    # strap can jump through the chest and put the second strap on the back.
+    ref = Sculpt(materials=MATERIALS, default_mat="skin")
+    ref.ops = list(snap.ops)
+    def torso_surface(points):
+        P=np.array(points,float);out=P.copy()
+        for mask,d in ((P[:,1]<-.045,V(0,1,0)),(P[:,1]>.045,V(0,-1,0)),(np.abs(P[:,1])<=.045,V(0,0,-1))):
+            if not mask.any():continue
+            seed=P[mask].copy()
+            if d[2]:seed[:,2]=1.93
+            else:seed[:,1]=-.36 if d[1]>0 else .36
+            out[mask]=anatomy.surface_hit(ref,seed,d,max_dist=.65)
+        return out
     for sx in (1, -1):
         pts = [T(sx * 0.125, -0.3, 1.075), T(sx * 0.07, -0.3, 1.23), T(0, -0.3, 1.365), T(-sx * 0.075, -0.3, 1.47),
                T(-sx * 0.125, -0.12, 1.585), T(-sx * 0.14, 0.0, 1.66), T(-sx * 0.13, 0.1, 1.6),
                T(-sx * 0.075, 0.3, 1.47), T(0, 0.3, 1.37), T(sx * 0.07, 0.3, 1.23), T(sx * 0.125, 0.3, 1.075)]
-        gear.strap(S, snap, pts, width=0.054, thick=0.0085, mat="leather_dark")
-    gear.medallion(S, T(0, -0.3, 1.368), r=0.044)
-    gear.medallion(S, T(0, 0.3, 1.37), r=0.034)
+        raw,_=anatomy.resample(pts,step=.010)
+        strap_path=torso_surface(raw)
+        tube=Chain(list(strap_path),.027)
+        lo=strap_path.min(axis=0)-.08;hi=strap_path.max(axis=0)+.08
+        S.add(Bounded(Inter(Offset(snap,.011),tube,k=.0025),lo,hi),.001,mat="leather_dark")
+        # Waxed-thread stitches along both thick leather edges.
+        P, _ = anatomy.resample(strap_path, step=0.014)
+        N = ref.grad(P)
+        for i in range(1, len(P)-1, 2):
+            tangent = norm(P[i+1]-P[i-1])
+            lateral = norm(np.cross(tangent, N[i]))
+            for sign in (-1, 1):
+                c = P[i]+lateral*sign*0.020+N[i]*0.0118
+                if abs(float(S.dist(c[None])[0])) > 0.014:
+                    continue
+                # Thread is a baked paint/roughness detail on the thick strap, avoiding
+                # hundreds of disconnected subpixel meshes and their wasteful UV gutters.
+                S.paint(Capsule(c-tangent*0.0022, c+tangent*0.0022, 0.0020), "stitch", soft=0.0010)
+    for y,z,r in ((-.3,1.368,.044),(.3,1.37,.034)):
+        p=torso_surface([T(0,y,z)])[0];n=ref.grad(p[None])[0]
+        gear.medallion(S,p+n*.012,r=r)
     for sx in (1, -1):
-        gear.studs_on(S, [T(sx * 0.1, -0.3, 1.18), T(-sx * 0.11, -0.3, 1.51), T(-sx * 0.1, 0.3, 1.52)], 0.0052, lift=0.007)
+        P=torso_surface([T(sx*.1,-.3,1.18),T(-sx*.11,-.3,1.51),T(-sx*.1,.3,1.52)])
+        N=ref.grad(P)
+        for p,n in zip(P,N):S.add(Sphere(p+n*.013,.0052),.001,mat="bronze")
 
 
 def hand_sculpt(L, side):
@@ -180,8 +219,12 @@ def hand_sculpt(L, side):
 
 def kilt_parts(L):
     S, info = gear.kilt_sculpt(L, MATERIALS, flap_mat="leather_dark", strip_mats=("cloth",),
-                               **{k: KILT_P[k] for k in ("top_z", "hem_z", "r_top",
+                               n_strips=16, thick=0.0052, **{k: KILT_P[k] for k in ("top_z", "hem_z", "r_top",
                                                                                           "r_hem", "squash")})
+    # Continuous inner tartan underskirt closes alternating strip gaps in a stride.
+    from lib.sdf import Shell
+    under = RoundCone(V(0, 0.012, 1.105), V(0, 0.022, 0.58), 0.180, 0.329, squash=(0.84, 1.0))
+    S.add(Bounded(Inter(Shell(under, 0.005), HalfSpace(V(0,0,0.655), V(0,0,-1)), HalfSpace(V(0,0,1.05), V(0,0,1)), k=0.002), V(-.32,-.32,.65), V(.32,.32,1.055)), 0.0, mat="cloth")
     # wolf-pelt band over the kilt top, hanging from under the belt
     ring = surface_ring(S, V(0, 0.016, 0), 0.996, 0.24, n=72)
     gear.fur_band(S, ring, n=46, rows=3, length=(0.05, 0.075), width=(0.024, 0.032), droop=0.58, seed=7,
@@ -334,8 +377,9 @@ def preview_main(args):
                 mesh_sculpt(Sh, "hand_" + s, 0.0012, w - 0.16, w + 0.16)
             Sk, kinfo = kilt_parts(L)
             mesh_sculpt(Sk, "kilt", 0.003)
-            _, S_lo, _, _, _ = mane_sculpts(S, L, info["head"]["H"])
-            clay_single(mesh_sculpt(S_lo, "mane", 0.003, clay=False), "hair")
+            clay_single(brann_groom.mane(info["head"]["H"]), "hair")
+            for ob in brann_groom.pauldrons(L, S).values():
+                clay_single(ob, "fur")
         views = [dict(target=(0, 0, 1.0), ortho=2.25, yaw=y, dist=6) for y in (0, 35, 90, 180)]
         preview.render_views(os.path.join(out, args.preview + ".png"), views, res=(620, 1000))
         if args.preview == "full":
@@ -371,7 +415,7 @@ def preview_main(args):
 # are the bright metal accents, wolf fur a neutral grey-brown.
 PAL = dict(
     skin=shaders.srgb(178, 96, 54), skin_warm=shaders.srgb(188, 78, 50), skin_cool=shaders.srgb(112, 70, 54),
-    lips=shaders.srgb(128, 58, 48), scar=shaders.srgb(188, 118, 96), skin_rough=0.62,
+    lips=shaders.srgb(128, 58, 48), scar=shaders.srgb(215, 161, 130), skin_rough=0.62,
     iris=shaders.srgb(92, 132, 150), sclera=shaders.srgb(226, 216, 204),
     hair=shaders.srgb(13, 15, 22), hair_tip=shaders.srgb(24, 24, 32), hair_hi=shaders.srgb(58, 70, 96),
     hair_sheen=0.15, hair_rough=0.8, hair_hi_amt=0.08,        # engine rim light turned a glossier mane into a white cap
@@ -391,7 +435,7 @@ HEAD_BOX = (V(-0.145, -0.155, 1.672), V(0.145, 0.16, 2.01))
 HAIR_CHAIN = 3
 FACE_DENSITY = 3.0          # texel density of the face chart relative to the body
 KILT_CHAIN = 3
-KILT_P = dict(top_z=1.055, hem_z=0.64, r_top=0.178, r_hem=0.272, squash=0.84)
+KILT_P = dict(top_z=1.055, hem_z=0.64, r_top=0.198, r_hem=0.322, squash=0.84)
 LEG_GAP_TOP = 0.89          # legs are cut apart below this (hidden by the kilt); the crotch above goes to hips
 
 
@@ -520,8 +564,13 @@ def skin_all(args, arm, L, H, S, body_lo, hands_lo, kilt_lo, mane_lo):
             W[:, names.index(t)] = 0.0
         W = kilt_angular_blend(P, names, W)
         W, _ = skin.top_k(W, 4)
-        return skin.skirt_weights(P, names, W, top, KILT_P["hem_z"], share=0.55, seam=0.12)
-    skin.skin(kilt_lo, arm, method="sdf", allowed=kilt_bones, power=3.0, post=kilt_post,
+        # Side panels must follow the outer thigh enough to cover a wide stride;
+        # the central tartan stays shared smoothly across both legs.
+        share = 0.26 + 0.52*np.clip(np.abs(P[:,0])/.20,0,1)**1.5
+        return skin.skirt_weights(P, names, W, top, KILT_P["hem_z"], share=share, power=.8, seam=0.23)
+    # The cloth deliberately shares adjacent skirt chains and BOTH thighs at the centre.
+    # Humanoid adjacency pruning would discard the other thigh and tear this smooth blend.
+    skin.skin(kilt_lo, arm, method="sdf", allowed=kilt_bones, power=3.0, post=kilt_post, restrict=False,
               overrides=[(lambda P: np.clip((P[:, 2] - (top - 0.07)) / 0.05, 0, 1), "hips")])
     hair_bones = ["head", "neck", "chest"] + [b.name for b in arm.data.bones if b.name.startswith("hair_")]
     along = np.empty(len(mane_lo.data.vertices), np.float32)
@@ -532,6 +581,11 @@ def skin_all(args, arm, L, H, S, body_lo, hands_lo, kilt_lo, mane_lo):
 
 
 def build(args):
+    global OUT_MODELS, OUT_TEX
+    if args.out:
+        OUT_MODELS = os.path.abspath(args.out)
+        OUT_TEX = os.path.join(OUT_MODELS, "textures")
+    os.makedirs(OUT_TEX, exist_ok=True)
     T0 = time.time()
     fast = args.fast
     res = 1024 if fast else 2048
@@ -548,7 +602,9 @@ def build(args):
     H = info["head"]["H"]
     Sk, kinfo = kilt_parts(L)
     Sh = {s: hand_sculpt(L, s)[0] for s in ("L", "R")}
-    Sm_hi, Sm_lo, mane_meta, paths, kinds = mane_sculpts(S, L, H)
+    paths, kinds = [], []
+    mane_lo = brann_groom.mane(H)
+    pelts = brann_groom.pauldrons(L, S)
     pipeline.log(f"sculpts ready {time.time()-t:.1f}s ({len(S.ops)} body ops)")
 
     # ---------------------------------------------------------------- rig
@@ -569,8 +625,12 @@ def build(args):
             w = L["wrist_" + s]
             hands_hi[s] = pipeline.sculpt_mesh(Sh[s], "hand_hi_" + s, h_hand, w - 0.17, w + 0.17)
         kilt_hi = pipeline.sculpt_mesh(Sk, "kilt_hi", h_kilt)
-        mane_hi = pipeline.sculpt_mesh(Sm_hi, "mane_hi", h_mane)
-        mane_attrs(mane_hi, mane_meta, uv=True)
+        mane_hi = mane_lo.copy(); mane_hi.data = mane_lo.data.copy(); mane_hi.name = "mane_hi"
+        bpy.context.collection.objects.link(mane_hi)
+    pelts_hi = {}
+    for side, ob in pelts.items():
+        hi = ob.copy(); hi.data = ob.data.copy(); hi.name = "pauldron_hi_" + side
+        bpy.context.collection.objects.link(hi); pelts_hi[side] = hi
     pipeline.log(f"HI meshes {time.time()-t:.1f}s")
 
     # ---------------------------------------------------------------- LO game meshes
@@ -579,18 +639,18 @@ def build(args):
 
     def in_head(P):
         return np.all((P >= hb0) & (P <= hb1), axis=1)
-    body_lo = pipeline.lowpoly(S, "body_lo", 0.0048 if not fast else 0.006, args.body_tris,
-                               regions=[(in_head, args.head_tris)])
+    body_lo = pipeline.lowpoly(S, "body_lo", 0.0034 if not fast else 0.0048, args.body_tris,
+                               regions=[(in_head, args.head_tris),
+                                        (lambda P: ~in_head(P), args.body_tris-args.head_tris)], smooth=1)
     hands_lo = {}
     for s in ("L", "R"):
         w = L["wrist_" + s]
         hands_lo[s] = pipeline.lowpoly(Sh[s], "hand_lo_" + s, 0.0018, args.hand_tris, w - 0.17, w + 0.17,
                                        symmetry=False)
     kilt_lo = pipeline.lowpoly(Sk, "kilt_lo", 0.0028, args.kilt_tris)
-    mane_lo = pipeline.lowpoly(Sm_lo, "mane_lo", 0.003, args.mane_tris)
-    mane_attrs(mane_lo, mane_meta)
-    los = [body_lo, hands_lo["L"], hands_lo["R"], kilt_lo, mane_lo]
-    his = [body_hi, head_hi, hands_hi["L"], hands_hi["R"], kilt_hi, mane_hi]
+
+    los = [body_lo, hands_lo["L"], hands_lo["R"], kilt_lo, mane_lo] + list(pelts.values())
+    his = [body_hi, head_hi, hands_hi["L"], hands_hi["R"], kilt_hi, mane_hi] + list(pelts_hi.values())
     for o in los:
         report["parts"][o.name] = meshutil.tri_count(o)
     report["tris_total"] = int(sum(report["parts"].values()))
@@ -599,10 +659,13 @@ def build(args):
     # ---------------------------------------------------------------- skin (before UV: charts follow bones)
     t = time.time()
     body_W = skin_all(args, arm, L, H, S, body_lo, hands_lo, kilt_lo, mane_lo)
+    brann_groom.bind_pelts(pelts, arm, L)
     pipeline.log(f"skinning {time.time()-t:.1f}s")
     if args.stage == "skin":
+        report["stretch_by_part"] = {}
         for o in los:
             skin.debug_dominant(o)
+            report["stretch_by_part"][o.name] = skin.stretch_report(o, arm)
             Pq = meshutil.get_verts(o, world=True)
             Eq = pipeline.edges_of(o)
             cr = (Pq[Eq[:, 0], 0] * Pq[Eq[:, 1], 0] < 0) & (Pq[Eq[:, 0], 2] < LEG_GAP_TOP)
@@ -612,11 +675,9 @@ def build(args):
                              f"{np.percentile(zz, [0, 25, 50, 75, 100]).round(3).tolist()}")
         for o in los:
             pipeline.strip_for_export(o)
-        body = meshutil.join(los, "hero_brann_mesh")
-        skin.debug_dominant(body)
-        qa = skin.stretch_report(body, arm)
-        pipeline.log("stretch QA: " + json.dumps(qa))
-        pipeline.export_glb(args.out or os.path.join(ROOT, "progress", "tmp", "brann_skin_test.glb"), [arm, body],
+        pipeline.write_json(os.path.join(ROOT,"progress","tmp","brann_r18","skin-parts.json"),report)
+        pipeline.log("stretch QA by part: " + json.dumps(report["stretch_by_part"]))
+        pipeline.export_glb(os.path.join(ROOT, "progress", "tmp", "brann_r18", "skin-test.glb"), [arm]+los,
                             scene_name="hero_brann")
         return
 
@@ -653,11 +714,21 @@ def build(args):
         pipeline.normalize_density(o, allf, 1.3)
     allf = np.ones(len(kilt_lo.data.polygons), bool)
     pipeline.smart_project_faces(kilt_lo, allf, angle=70.0)
-    pipeline.normalize_density(kilt_lo, allf, 0.85)
-    allf = np.ones(len(mane_lo.data.polygons), bool)
-    pipeline.smart_project_faces(mane_lo, allf, angle=78.0)
-    pipeline.normalize_density(mane_lo, allf, 0.72)
-    fill = pipeline.pack_atlas_shape(los, margin_px=6 if not fast else 4, res=res)
+    pipeline.normalize_density(kilt_lo, allf, 1.10)
+    # Reserve one repeated longitudinal strip for the mane and one for wolf fur.
+    # Hundreds of individually packed tuft charts wasted almost 90% of the atlas.
+    # Keep the skin/gear/tartan pack large, preserving close-up face and cloth detail.
+    surface_los=[body_lo,hands_lo["L"],hands_lo["R"],kilt_lo]
+    fill = pipeline.pack_atlas_shape(surface_los, margin_px=6 if not fast else 3, res=res)
+    for o in surface_los:
+        uv=o.data.uv_layers.active
+        A=np.empty((len(o.data.loops),2),np.float32);uv.data.foreach_get("uv",A.ravel())
+        A[:,0]=.012+A[:,0]*.800;A[:,1]=.012+A[:,1]*.976
+        uv.data.foreach_set("uv",A.ravel())
+    brann_groom.shared_strip_uv(mane_lo,(.845,.025,.985,.620))
+    for o in pelts.values():brann_groom.shared_strip_uv(o,(.845,.650,.985,.975))
+    report["groom_shared_uv"]={"mane":[.845,.025,.985,.620],"pelt":[.845,.650,.985,.975]}
+    fill *= .800*.976
     report["uv_fill"] = fill
     pipeline.log(f"UV atlas {time.time()-t:.1f}s")
 
@@ -667,9 +738,13 @@ def build(args):
                  z_chest=L["chest"][2], hair_band_z=H(0, 0, 0.07)[2])
     for o, Sx in ((body_hi, S), (head_hi, S), (hands_hi["L"], Sh["L"]), (hands_hi["R"], Sh["R"]), (kilt_hi, Sk)):
         shaders.assign_bake_materials(o, Sx.materials)
-        shaders.paint_mesh(o, Sx.materials, L, PAL, extra)
-    shaders.assign_bake_materials(mane_hi, ["mane"])
-    shaders.paint_mesh(mane_hi, ["mane"], L, PAL, extra)
+        shaders.paint_mesh(o, Sx.materials, L, PAL, extra,
+                           painters={"leather_dark":paint_harness})
+    shaders.assign_bake_materials(mane_hi, ["mane"], kinds={"mane":"mane_clean"})
+    shaders.paint_mesh(mane_hi, ["mane"], L, PAL, extra, painters={"mane":brann_groom.paint_shell})
+    for ob in pelts_hi.values():
+        shaders.assign_bake_materials(ob, ["brann_pelt"], kinds={"brann_pelt":"mane_clean"})
+        shaders.paint_mesh(ob, ["brann_pelt"], L, PAL, extra, painters={"brann_pelt":lambda c,p:brann_groom.paint_shell(c,p,fur=True)})
     pipeline.log(f"painting {time.time()-t:.1f}s")
 
     # ---------------------------------------------------------------- bake
@@ -678,7 +753,7 @@ def build(args):
             (hands_lo["L"], [hands_hi["L"]], 0.006, 0.014),
             (hands_lo["R"], [hands_hi["R"]], 0.006, 0.014),
             (kilt_lo, [kilt_hi], 0.005, 0.012),
-            (mane_lo, [mane_hi], 0.006, 0.016)]
+            (mane_lo, [mane_hi], 0.002, 0.008)] + [(pelts[side], [pelts_hi[side]], 0.002, 0.008) for side in ("L","R")]
     B = pipeline.Baker(res, jobs, shaders.set_pass, los, his)
     spp = dict(albedo=4, prm=2, ao=32 if fast else 64, normal=4 if fast else 8)
     maps = B.run(passes=[("albedo", "EMIT", spp["albedo"]), ("prm", "EMIT", spp["prm"]),
@@ -686,9 +761,15 @@ def build(args):
     pipeline.log(f"bake total {time.time()-t:.1f}s")
     tex = composite_maps(maps, res)
     report["textures"] = {k: [res, res] for k in tex}
+    report["parts_before_budget"] = dict(report["parts"])
+    report["game_budget"] = brann_groom.game_budget({o.name:o for o in los},arm,HEAD_BOX)
+    report["parts"] = {o.name:meshutil.tri_count(o) for o in los}
 
     # ---------------------------------------------------------------- final material, join, export
     mat = pipeline.final_material("M_hero_brann", tex["albedo"], tex["normal"], tex["orm"])
+    # A modest tangent normal gain keeps fine anatomy while avoiding pale bake spikes.
+    for node in mat.node_tree.nodes:
+        if node.type == "NORMAL_MAP": node.inputs["Strength"].default_value = 0.68
     for o in los:
         o.data.materials.clear()
         o.data.materials.append(mat)
@@ -696,7 +777,8 @@ def build(args):
     for o in his:
         bpy.data.objects.remove(o, do_unlink=True)
     bpy.context.view_layer.update()
-    body = meshutil.join(los, "hero_brann_mesh")
+    body, report["export_parts"] = brann_groom.join_character(los, arm, "hero_brann_mesh")
+    body.data.materials.append(mat)
     body.data.polygons.foreach_set("material_index", np.zeros(len(body.data.polygons), np.int32))
     meshutil.select_only([body])
     report["tris_total"] = meshutil.tri_count(body)
@@ -704,19 +786,29 @@ def build(args):
     report["stretch_qa"] = qa
     pipeline.log("stretch QA: " + ", ".join(f"{k}: bad {v['bad']} soft {v['soft']}" for k, v in qa.items()))
     out = os.path.join(OUT_MODELS, "hero_brann.glb")
+    body.data.validate(verbose=True)
     pipeline.export_glb(out, [arm, body], scene_name="hero_brann")
+    patch_rim_scale(out, 0.14)
     report["glb"] = out
     report["glb_mb"] = os.path.getsize(out) / 1e6
     report["seconds"] = time.time() - T0
-    pipeline.write_json(os.path.join(HERE, "out", "brann_report.json"), report)
+    pipeline.write_json(os.path.join(OUT_MODELS, "brann_report.json") if args.out else os.path.join(HERE, "out", "brann_report.json"), report)
     if args.save_blend:
-        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ROOT, "progress", "tmp", "brann_build.blend"))
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ROOT, "progress", "tmp", "brann_r18", "release.blend"))
     pipeline.log(f"DONE hero_brann in {report['seconds']:.0f}s -> {out} ({report['glb_mb']:.1f} MB, "
                  f"{report['tris_total']} tris)")
     if not args.no_weapon:
         import build_weapon_grudgebrand
         importlib.reload(build_weapon_grudgebrand)
         build_weapon_grudgebrand.build(args)
+
+
+def paint_harness(c, pal):
+    rgb, rough, metal, emission = shaders.p_leather_dark(c, pal)
+    stitch = np.clip(c.paint("stitch"),0,1)
+    rgb = shaders.mix(rgb, shaders.srgb(119,91,62), stitch*.9)
+    rough = rough*(1-stitch)+stitch*.9
+    return rgb, rough, metal, emission
 
 
 def composite_maps(maps, res):
@@ -738,6 +830,7 @@ def composite_maps(maps, res):
     rgb = pipeline.dilate(rgb, cov, 16)
     orm = pipeline.dilate(orm, cov, 16)
     n3 = pipeline.dilate(n3, cov, 16)
+    brann_groom.strand_tiles(rgb, orm, n3, PAL)
     # Blender images are bottom-up; keep as-is (UVs match Blender convention and the exporter flips nothing)
     tex = {}
     tex["albedo"] = pipeline.save_png(rgb, os.path.join(OUT_TEX, "brann_albedo.png"), "brann_albedo", "sRGB",
@@ -745,6 +838,19 @@ def composite_maps(maps, res):
     tex["orm"] = pipeline.save_png(orm, os.path.join(OUT_TEX, "brann_orm.png"), "brann_orm", "Non-Color")
     tex["normal"] = pipeline.save_png(n3, os.path.join(OUT_TEX, "brann_normal.png"), "brann_normal", "Non-Color")
     return tex
+
+
+def patch_rim_scale(path, scale):
+    raw = open(path, "rb").read()
+    n = struct.unpack_from("<I", raw, 12)[0]
+    obj = json.loads(raw[20:20+n])
+    for m in obj.get("materials", []):
+        m.setdefault("extras", {})["kcaRimScale"] = scale
+    js = json.dumps(obj, separators=(",", ":")).encode()
+    js += b" "*((-len(js))%4)
+    tail = raw[20+n:]
+    out = struct.pack("<III", 0x46546c67, 2, 20+len(js)+len(tail))+struct.pack("<II",len(js),0x4e4f534a)+js+tail
+    open(path,"wb").write(out)
 
 
 def parse():
@@ -759,10 +865,10 @@ def parse():
     ap.add_argument("--stage", default="all")
     ap.add_argument("--device", default="AUTO", help="AUTO|OPTIX|CUDA|CPU (bake)")
     ap.add_argument("--skin", default="sdf", help="sdf|heat (body weights; heat falls back to sdf)")
-    ap.add_argument("--body-tris", type=int, default=16400)
-    ap.add_argument("--head-tris", type=int, default=6600)
-    ap.add_argument("--hand-tris", type=int, default=1150)
-    ap.add_argument("--kilt-tris", type=int, default=3000)
+    ap.add_argument("--body-tris", type=int, default=34000)
+    ap.add_argument("--head-tris", type=int, default=12500)
+    ap.add_argument("--hand-tris", type=int, default=2400)
+    ap.add_argument("--kilt-tris", type=int, default=5200)
     ap.add_argument("--mane-tris", type=int, default=5600)
     ap.add_argument("--save-blend", action="store_true")
     return ap.parse_args(argv)

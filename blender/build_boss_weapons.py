@@ -185,76 +185,67 @@ def _haft(S, top_z, r0=0.06, r1=0.053, seed=5):
                         V(0.1 * math.cos(t), 0.1 * math.sin(t), HB_BUTT + 0.03), 0.014, 0.003), 0.004, mat="iron")
 
 
+def stone_hammer_sculpt(bro):
+    """C2 r18: quarried stone block, battered corners, cracks and riveted forged hoops.
+    Grip, haft length, hit-tip nodes and existing animation timing are unchanged.
+    """
+    S = Sculpt(materials=W.MATS + ["stone"], default_mat="wood")
+    hx,hy,hz = (0.365,0.215,0.250) if bro=="gor" else (0.345,0.235,0.265)
+    _haft(S, HB_HEAD, seed=7 if bro=="gor" else 9)
+    block=RoundBox(V(0,0,HB_HEAD),V(hx,hy,hz),r=.034 if bro=="gor" else .050)
+    S.add(Displace(block,.005,13,3,seed=181 if bro=="gor" else 182),0,mat="stone")
+    for sx in (-1,1):
+        for sy,dz in ((-1,-.16),(1,.15),(-1,.13)):
+            S.sub(Sphere(V(sx*(hx-.008),sy*(hy-.008),HB_HEAD+dz),.039),.006)
+        # A branching fracture on each striking face, including dark bevelled pockets.
+        pts=[V(sx*(hx+.002),-.16,HB_HEAD+.12),V(sx*(hx-.004),-.025,HB_HEAD+.05),
+             V(sx*(hx+.002),.025,HB_HEAD-.075),V(sx*(hx+.001),.15,HB_HEAD-.19)]
+        S.sub(Chain(pts,.008),.004)
+        S.sub(Capsule(pts[1],V(sx*(hx+.002),.12,HB_HEAD+.16),.006),.003)
+    for x in (-.17,.17):
+        outer=RoundBox(V(x,0,HB_HEAD),V(.033,hy+.019,hz+.019),r=.014)
+        inner=RoundBox(V(x,0,HB_HEAD),V(.060,hy-.007,hz-.007),r=.014)
+        S.add(Diff(outer,inner),.003,mat="iron")
+        for sy in (-1,1):
+            for dz in (-.17,0,.17):
+                S.add(Sphere(V(x,sy*(hy+.025),HB_HEAD+dz),.015),.002,mat="steel")
+        for sx in (-1,1):
+            S.add(Sphere(V(x,sx*.12,HB_HEAD+hz+.024),.014),.002,mat="steel")
+    for sy in (-1,1):
+        S.add(RoundBox(V(0,sy*.060,HB_HEAD-hz-.14),V(.025,.010,.17),r=.008),.003,mat="iron")
+        for z in (HB_HEAD-hz-.045,HB_HEAD-hz-.24):
+            S.add(Sphere(V(0,sy*.070,z),.012),.002,mat="steel")
+    S.add(RoundCone(V(0,0,HB_HEAD-hz-.055),V(0,0,HB_HEAD-hz+.035),.078,.088),.004,mat="iron")
+    S.add(RoundBox(V(0,0,1.405),V(.065,.065,.032),r=.012),.004,mat="iron")
+    # MOG's blunt iron studs contrast with GOR's flat rectangular stone block.
+    if bro=="mog":
+        for x in (-.17,.17):
+            for sy in (-1,1):
+                p=V(x,sy*(hy+.01),HB_HEAD+.08)
+                S.add(RoundCone(p,p+V(0,sy*.052,.010),.024,.007),.003,mat="iron")
+    return S,(hx+.025,hy+.075)
+
+
 def hammer_gor_sculpt():
-    """GOR 'Anvil-Maul': a forged iron block head with bevelled edges, thick striking plates with a raised rim on both
-    faces, two riveted bands, iron langets riveted down the haft, a four-sided top spike; dark oak haft."""
-    S = Sculpt(materials=W.MATS, default_mat="wood")
-    HX, HY, HZ = 0.3, 0.19, 0.21
-    _haft(S, HB_HEAD, seed=7)
-    blk = RoundBox(V(0, 0, HB_HEAD), V(HX - 0.04, HY, HZ), r=0.04)
-    S.add(Displace(blk, 0.004, 12.0, 2, seed=17), 0.0, mat="steel")
-    for sx in (1, -1):                                                            # striking plates + rim
-        S.add(RoundBox(V(sx * (HX - 0.03), 0, HB_HEAD), V(0.035, HY + 0.02, HZ + 0.02), r=0.03), 0.006, mat="steel")
-        S.sub(RoundBox(V(sx * (HX + 0.012), 0, HB_HEAD), V(0.02, HY - 0.03, HZ - 0.03), r=0.02), 0.006)
-        S.add(Displace(RoundBox(V(sx * (HX - 0.005), 0, HB_HEAD), V(0.012, HY - 0.03, HZ - 0.03), r=0.01), 0.003,
-                       20.0, 2, seed=19 + sx), 0.004, mat="steel")                   # battered face
-    for x in (-0.13, 0.13):                                                        # riveted bands
-        S.add(Inter(RoundBox(V(x, 0, HB_HEAD), V(0.03, HY + 0.018, HZ + 0.018), r=0.012),
-                    Diff(Slab(V(0, 0, 0), V(0, 0, 1), 9.0), RoundBox(V(x, 0, HB_HEAD), V(0.1, HY - 0.01, HZ - 0.01)))),
-              0.004, mat="iron")
-        for y in (HY + 0.02, -HY - 0.02):
-            for z in (HB_HEAD - 0.12, HB_HEAD, HB_HEAD + 0.12):
-                S.add(Sphere(V(x, y, z), 0.012), 0.002, mat="iron")
-    for sy in (1, -1):                                                             # langets down the haft
-        S.add(RoundBox(V(0, sy * 0.058, HB_HEAD - HZ - 0.17), V(0.022, 0.008, 0.19), r=0.006), 0.004, mat="iron")
-        for z in (HB_HEAD - HZ - 0.08, HB_HEAD - HZ - 0.3):
-            S.add(Sphere(V(0, sy * 0.066, z), 0.011), 0.002, mat="iron")
-    S.add(RoundCone(V(0, 0, HB_HEAD - HZ - 0.02), V(0, 0, HB_HEAD - HZ - 0.06), 0.085, 0.066), 0.006, mat="iron")
-    S.add(RoundBox(V(0, 0, HB_HEAD + HZ + 0.03), V(0.07, 0.07, 0.03), r=0.012), 0.008, mat="iron")
-    S.add(RoundCone(V(0, 0, HB_HEAD + HZ + 0.05), V(0, 0, HB_TOP), 0.055, 0.004), 0.008, mat="steel")
-    return S, (HX + 0.03, HY + 0.05)
+    return stone_hammer_sculpt("gor")
 
 
 def hammer_mog_sculpt():
-    """MOG 'Butcher Log': a knotted oak log head bound by two riveted iron hoops, iron end caps, iron spikes
-    driven through the top and both flats, an iron collar where the haft passes through."""
-    S = Sculpt(materials=W.MATS, default_mat="wood")
-    R, HX = 0.2, 0.3
-    _haft(S, HB_HEAD + R + 0.02, seed=9)
-    log = Capsule(V(-HX + 0.05, 0, HB_HEAD), V(HX - 0.05, 0, HB_HEAD), R)
-    S.add(Displace(Inter(log, Slab(V(0, 0, 0), V(1, 0, 0), HX)), 0.007, 9.0, 3, seed=29), 0.0, mat="wood")
-    for sx in (1, -1):                                                             # knots + iron end caps
-        S.add(Ellipsoid(V(sx * 0.1, -R + 0.02, HB_HEAD + 0.06), V(0.03, 0.03, 0.028)), 0.02, mat="wood")
-        cap = Inter(Capsule(V(-HX, 0, HB_HEAD), V(HX, 0, HB_HEAD), R + 0.012),
-                    Slab(V(sx * (HX - 0.02), 0, 0), V(1, 0, 0), 0.028))
-        S.add(cap, 0.004, mat="steel")
-        for a in range(8):
-            t = a / 8 * 2 * math.pi
-            S.add(Sphere(V(sx * (HX + 0.008), (R - 0.04) * math.cos(t), HB_HEAD + (R - 0.04) * math.sin(t)), 0.013),
-                  0.002, mat="iron")
-    for x in (-0.12, 0.12):                                                        # hoops
-        S.add(Inter(Capsule(V(-HX, 0, HB_HEAD), V(HX, 0, HB_HEAD), R + 0.016), Slab(V(x, 0, 0), V(1, 0, 0), 0.026)),
-              0.003, mat="iron")
-        for a in range(10):
-            t = a / 10 * 2 * math.pi
-            S.add(Sphere(V(x, (R + 0.018) * math.cos(t), HB_HEAD + (R + 0.018) * math.sin(t)), 0.01), 0.002,
-                  mat="iron")
-    for x, ang in ((-0.06, 90), (0.06, 90), (0.0, 30), (0.0, 150), (0.0, 210), (0.0, 330), (-0.21, 60), (0.21, 120),
-                   (-0.21, 240), (0.21, 300)):                                    # driven spikes
-        t = math.radians(ang)
-        d = V(0, math.cos(t), math.sin(t))
-        p = V(x, 0, HB_HEAD) + d * (R - 0.01)
-        S.add(RoundCone(p, p + d * 0.1, 0.024, 0.003), 0.006, mat="steel")
-        S.add(Torus(p + d * 0.012, 0.028, 0.006, basis(d)[:, [1, 2, 0]]), 0.002, mat="iron")
-    S.add(RoundCone(V(0, 0, HB_HEAD - R - 0.08), V(0, 0, HB_HEAD - R + 0.02), 0.07, 0.082), 0.006, mat="iron")
-    S.add(Torus(V(0, 0, HB_HEAD - R - 0.06), 0.07, 0.011), 0.003, mat="iron")
-    return S, (HX + 0.03, R + 0.12)
+    return stone_hammer_sculpt("mog")
 
 
-PAL_BRUTE = dict(W.PAL, steel=shaders.srgb(112, 112, 116), steel_rust=shaders.srgb(96, 56, 32), rust_amt=0.5,
-                 iron=shaders.srgb(80, 80, 82), iron_patina=shaders.srgb(96, 54, 30), iron_patina_amt=0.45,
-                 wood=shaders.srgb(66, 44, 28), leather=shaders.srgb(70, 48, 32), leather_worn=shaders.srgb(120, 90, 60),
-                 cloth=shaders.srgb(110, 90, 60))
+def p_brute_stone(c,pal):
+    import build_weapon_ogre_hammer as OH
+    rgb,rough,metal,emit=OH.p_stone(c,pal)
+    # A cold mineral surface with compact edge chips, distinct from the dark iron hoops.
+    return rgb,rough,metal,emit
+
+
+PAL_BRUTE = dict(W.PAL, steel=shaders.srgb(117,116,108), steel_rust=shaders.srgb(78,50,31),rust_amt=.35,
+                 iron=shaders.srgb(58,61,60),iron_patina=shaders.srgb(84,55,34),iron_patina_amt=.35,
+                 wood=shaders.srgb(68,44,26),leather=shaders.srgb(58,37,24),leather_worn=shaders.srgb(105,74,44),
+                 cloth=shaders.srgb(113,91,59),stone=shaders.srgb(112,116,105),stone_dark=shaders.srgb(43,49,45),
+                 stone_moss=shaders.srgb(79,86,57))
 
 
 # ---------------------------------------------------------------------------- Hollow Knight Captains' great-halberds
@@ -365,10 +356,10 @@ def main():
             import build_enemy_skeleton as BS
             meshutil.clear_scene()
             S, (ex, ey) = (hammer_gor_sculpt if b == "gor" else hammer_mog_sculpt)()
-            W.bake_weapon(S, "boss_brute_hammer_" + b, V(-ex, -ey, HB_BUTT - 0.06), V(ex, ey, HB_TOP + 0.02), 3000,
+            W.bake_weapon(S, "boss_brute_hammer_" + b, V(-ex, -ey, HB_BUTT - 0.06), V(ex, ey, HB_TOP + 0.02), 8000,
                           PAL_BRUTE, {"grip_main": V(0, 0, 0), "head_tip": V(ex - 0.02, 0, HB_HEAD),
                                       "blade_tip": V(0, 0, HB_TOP if b == "gor" else HB_HEAD + 0.32)},
-                          fast=a.fast, painters={"iron": BS.p_iron}, h_hi=0.0016 if a.fast else 0.001, h_lo=0.003,
+                          fast=a.fast, painters={"iron": BS.p_iron, "stone": p_brute_stone}, h_hi=0.0016 if a.fast else 0.001, h_lo=0.0022,
                           density=1.0)
     for c in ("patina", "oxide"):
         if "halberd_" + c in only:

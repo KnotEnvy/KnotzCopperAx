@@ -9,19 +9,13 @@ Options:
 Outputs public/assets/models/boss_brute_<gor|mog>.glb + public/assets/textures/boss_brute_<id>_*.png,
 report blender/out/boss/brutes_report.json.
 
-The body kit is the regular Ogre Brute sculpt (blender/build_enemy_ogre.py, IMPORTED, never edited): hunched hill
-giant, tusked underbite, fur collar, hide belly-wrap, war skirt, wrapped boots. What makes them BOSSES (critic r1:
-"pastel clay, tier tint floods the skin, nothing boss-specific"):
-  * bigger: exported x1.60 (GOR, 3.1 m) and x1.55 (MOG, 3.0 m) vs the regular brutes' 2.75 m;
-  * real, DARK, textured hides (albedo luma 25-35 %, not 45 %+): mottled, warty, scarred (pale scar tissue), grime;
-  * the brother colour lives ONLY in accents: GOR jade-green war-paint stripes + eye band, MOG blood-red soot mask,
-    chest bar and hand-print; no tint on skin / armour;
-  * unique silhouettes + armour:
-      GOR "the Anvil" -- grey-olive hide, HORNED iron great-helm (big sweeping bone horns, nasal, riveted band),
-          TWO hide-and-iron pauldrons, a riveted iron PECTORAL PLATE with a rim, a boss and 18 rivets;
-      MOG "the Butcher" -- umber hide, CRESTED iron half-helm (row of iron spikes, cheek guards, rivets),
-          one huge RIGHT pauldron wearing a trophy SKULL, a heavy iron CHAIN wound round the left forearm.
-  * dark forged iron (low rust) and old ivory (not bone-white) so metal reads under the stage-1 dusk grade.
+C2 r18 owner round: boss-only bare olive/red warty anatomy and a larger projected ogre face;
+open-faced horned/crested caps, crossed leather harness, bronze belt boss, spiked iron bracers,
+shaggy spring-skinned fur/torn-hide loincloth, wrapped shins and bare toes. GOR keeps twin
+pauldrons; MOG has a skull pauldron, chained forearm and pale brush-painted spirals/stripes.
+The ogre landmark rig, sockets and all attack timing are preserved. Boss-only forms live in
+build_boss_brute_forms.py; build_enemy_ogre.py is imported and never edited.
+
 Hammers: blender/build_boss_weapons.py --only hammer_gor,hammer_mog.
 """
 import os
@@ -30,6 +24,7 @@ import time
 import math
 import json
 import argparse
+import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -46,6 +41,7 @@ BM = BO.BM
 from lib.sdf import (V, norm, basis, Sculpt, Sphere, Ellipsoid, Capsule, Chain, HalfSpace, Inter, Union, Diff,
                      Bounded, Offset, RoundCone, RoundBox, Torus, Slab, Displace)
 from lib.charkit import trace_in
+import build_boss_brute_forms as BF
 
 ROOT = os.path.dirname(HERE)
 OUT_MODELS = os.path.join(ROOT, "public", "assets", "models")
@@ -54,13 +50,13 @@ DEV = os.path.join(ROOT, "progress", "shots", "bosses", "dev")
 GEAR_MATS = BO.GEAR_MATS
 
 BROS = {
-    "gor": dict(K=1.60, gear=["helm_horned", "pauldron_L", "pauldron_R", "chestplate"]),
-    "mog": dict(K=1.55, gear=["helm_crest", "pauldron_L", "trophy_R", "chain_L"]),
+    "gor": dict(K=1.60, gear=["helm_horned", "pauldron_L", "pauldron_R"]),
+    "mog": dict(K=1.55, gear=["helm_crest", "trophy_R", "chain_L"]),
 }
 GEAR_BONE = {"helm_horned": "head", "helm_crest": "head", "pauldron_L": "upperarm_L", "pauldron_R": "upperarm_R",
              "trophy_R": "upperarm_R", "chestplate": "chest", "chain_L": "forearm_L"}
-GEAR_TRIS = {"helm_horned": 1500, "helm_crest": 1500, "pauldron_L": 900, "pauldron_R": 900, "trophy_R": 1500,
-             "chestplate": 1000, "chain_L": 1100}
+GEAR_TRIS = {"helm_horned": 2400, "helm_crest": 2000, "pauldron_L": 1400, "pauldron_R": 1400, "trophy_R": 2400,
+             "chestplate": 1000, "chain_L": 1800}
 GEAR_SYM = {"helm_horned", "helm_crest", "chestplate"}
 
 
@@ -92,57 +88,47 @@ def boss_paint(S, L, H):
 
 # ============================================================================ gear
 def helm_horned(snapH, H):
-    """GOR: deep iron great-helm dome (down to the brow), riveted band, raised crest ridge, nasal, and two huge
-    bone horns that sweep out, up and forward (the silhouette you recognise from across the screen)."""
+    """GOR: open-faced iron cap, riveted upper band and compact sweeping bone horns."""
     S = Sculpt(materials=GEAR_MATS, default_mat="iron")
     s = H.s
     lo, hi = H(0, 0, 0) - 0.4, H(0, 0, 0) + 0.4
-    cut = HalfSpace(H(0, 0, 0.02), norm(V(0, 0.3, -1)))
+    cut = HalfSpace(H(0, 0, 0.052), norm(V(0, 0.12, -1)))
     dome = Inter(BM.shell(snapH, 0.018, 0.004), cut, k=0.004)
     S.add(Bounded(Displace(dome, 0.0012, 30.0, 2, seed=195), lo, hi), 0.0, mat="iron")
-    S.add(Bounded(Inter(BM.shell(snapH, 0.024, 0.008), Slab(H(0, 0, 0.034), norm(V(0, 0.3, -1)), 0.013 * s), k=0.002),
+    S.add(Bounded(Inter(BM.shell(snapH, 0.024, 0.008), Slab(H(0, 0, 0.056), norm(V(0, 0.3, -1)), 0.013 * s), k=0.002),
                   lo, hi), 0.002, mat="iron")                                        # brow band
     S.add(Bounded(Inter(BM.shell(snapH, 0.026, 0.01), Slab(H(0, 0, 0), V(1, 0, 0), 0.008 * s), cut, k=0.003), lo, hi),
           0.004, mat="iron")                                                          # crest ridge
     for i in range(18):
         a = (i + 0.5) / 18 * 2 * math.pi
-        p = trace_in(S, H(0, 0.0, 0.034), norm(V(math.sin(a), -math.cos(a), 0.3 * math.cos(a) * 0 + 0.1)), r=0.35)
+        p = trace_in(S, H(0, 0.0, 0.056), norm(V(math.sin(a), -math.cos(a), 0.3 * math.cos(a) * 0 + 0.1)), r=0.35)
         S.add(Sphere(p, 0.0065 * s), 0.001, mat="iron")
-    nas = trace_in(S, H(0, 0, 0.02), V(0, -1, 0), r=0.35)
-    S.add(RoundBox(nas + V(0, 0.002, -0.028 * s), V(0.011, 0.007, 0.04) * s, r=0.005), 0.004, mat="iron")
     for sx in (1, -1):
         b0 = trace_in(S, H(0, 0, 0.05), norm(V(sx * 0.95, -0.05, 0.3)), r=0.35)
         BM.horn(S, b0, [(sx * 0.07, -0.0, 0.02), (sx * 0.14, -0.015, 0.07), (sx * 0.18, -0.05, 0.14),
-                        (sx * 0.18, -0.1, 0.2), (sx * 0.15, -0.14, 0.235)], 0.036, s=s, mat="bone", collar="iron")
+                        (sx * 0.18, -0.1, 0.2), (sx * 0.15, -0.14, 0.235)], 0.052, s=s * 0.30, mat="bone", collar="iron")
     return S
 
 
 def helm_crest(snapH, H):
-    """MOG: low iron half-helm with cheek guards and a crest of seven iron spikes, front to back."""
+    """MOG: open-faced iron half-helm and a short seven-spike crest, front to back."""
     S = Sculpt(materials=GEAR_MATS, default_mat="iron")
     s = H.s
     lo, hi = H(0, 0, 0) - 0.4, H(0, 0, 0) + 0.4
-    cut = HalfSpace(H(0, 0, 0.035), norm(V(0, 0.45, -1)))
+    cut = HalfSpace(H(0, 0, 0.055), norm(V(0, 0.12, -1)))
     S.add(Bounded(Displace(Inter(BM.shell(snapH, 0.016, 0.004), cut, k=0.004), 0.0014, 26.0, 2, seed=295), lo, hi),
           0.0, mat="iron")
-    S.add(Bounded(Inter(BM.shell(snapH, 0.022, 0.007), Slab(H(0, 0, 0.045), norm(V(0, 0.45, -1)), 0.011 * s), k=0.002),
+    S.add(Bounded(Inter(BM.shell(snapH, 0.022, 0.007), Slab(H(0, 0, 0.060), norm(V(0, 0.45, -1)), 0.011 * s), k=0.002),
                   lo, hi), 0.002, mat="iron")
-    for sx in (1, -1):                                                              # cheek guards
-        cg = Inter(BM.shell(snapH, 0.02, 0.006), HalfSpace(H(sx * 0.07, 0, 0), V(-sx, 0, 0)),
-                   Ellipsoid(H(sx * 0.1, -0.02, -0.035), H.r(0.06, 0.07, 0.075)), k=0.004)
-        S.add(Bounded(cg, lo, hi), 0.004, mat="iron")
-        for dz in (0.0, -0.05):
-            p = trace_in(S, H(sx * 0.03, -0.02, dz - 0.01), norm(V(sx, -0.25, 0)), r=0.35)
-            S.add(Sphere(p, 0.007 * s), 0.001, mat="iron")
     for i in range(16):
         a = (i + 0.5) / 16 * 2 * math.pi
-        p = trace_in(S, H(0, 0.0, 0.045), norm(V(math.sin(a), -math.cos(a), 0.12)), r=0.35)
+        p = trace_in(S, H(0, 0.0, 0.060), norm(V(math.sin(a), -math.cos(a), 0.12)), r=0.35)
         S.add(Sphere(p, 0.006 * s), 0.001, mat="iron")
     for i in range(7):                                                              # spike crest
         t = -0.9 + i * (1.9 / 6)
         d = norm(V(0, -math.sin(t) * 0.9, math.cos(t)))
         p = trace_in(S, H(0, 0.01, 0.0), d, r=0.35)
-        ln = (0.1 + 0.05 * math.cos(t * 1.2)) * s
+        ln = (0.04 + 0.012 * math.cos(t * 1.2)) * s
         S.add(RoundCone(p - d * 0.005, p + norm(d + V(0, 0.25, 0)) * ln, 0.024 * s, 0.003), 0.006, mat="iron")
     return S
 
@@ -251,7 +237,7 @@ def chain_forearm(S_body, L, side="L"):
 
 def build_gear(S_body, L, H, names, h=0.004):
     t = time.time()
-    snapA = charkit.GridSDF(S_body, h=h, lo=V(-0.95, -0.5, 1.2), hi=V(0.95, 0.5, 2.05))
+    snapA = charkit.GridSDF(S_body, h=h, lo=V(-0.95, -0.5, 1.2), hi=V(0.95, 0.5, 2.36))
     pipeline.log(f"body grid SDF {time.time()-t:.1f}s")
     out = {}
     for nm in sorted(set(names)):
@@ -278,19 +264,19 @@ PAL.update(
     hide=S_(70, 50, 34), hide_worn=S_(112, 84, 58), hide_dark=S_(36, 26, 18), hide_dark_worn=S_(76, 56, 40),
     leather=S_(54, 36, 24), leather_worn=S_(100, 74, 50), leather_dark=S_(30, 22, 16), leather_dark_worn=S_(66, 50, 36),
     iron=S_(84, 84, 86), iron_patina=S_(98, 56, 32), iron_patina_amt=0.42,
-    bronze=S_(84, 84, 86), bronze_patina=S_(98, 56, 32), bronze_patina_amt=0.42,
+    bronze=S_(136, 95, 42), bronze_patina=S_(70, 77, 48), bronze_patina_amt=0.42,
     bone=S_(186, 168, 130), bone_dark=S_(82, 62, 40), horn=S_(54, 42, 32), horn_tip=S_(176, 160, 124),
     rope=S_(112, 92, 62), cloth=S_(112, 92, 62), scar=S_(168, 128, 112), brow=S_(20, 16, 12),
 )
 BRO_PAL = {
-    "gor": dict(skin=S_(84, 88, 66), skin_warm=S_(104, 90, 62), skin_cool=S_(58, 68, 66), lips=S_(58, 52, 44),
-                mottle=S_(58, 64, 46), mottle_hi=S_(122, 122, 96), scar=S_(150, 136, 118),
-                war_a=S_(40, 132, 76), war_a_amt=0.82, war_b_amt=0.0, band=S_(34, 116, 66), band_amt=0.85,
+    "gor": dict(skin=S_(111, 133, 66), skin_warm=S_(133, 129, 66), skin_cool=S_(65, 95, 62), lips=S_(58, 52, 44),
+                mottle=S_(59, 79, 38), mottle_hi=S_(144, 151, 82), scar=S_(150, 136, 118),
+                war_a=S_(40, 132, 76), war_a_amt=0.0, war_b_amt=0.0, band=S_(34, 116, 66), band_amt=0.0, swirl_amt=0.0,
                 fur=S_(64, 50, 38), fur_root=S_(24, 18, 14), fur_tip=S_(138, 118, 90), iris=S_(230, 190, 60),
                 scars="scarG"),
-    "mog": dict(skin=S_(116, 74, 54), skin_warm=S_(134, 76, 52), skin_cool=S_(76, 56, 54), lips=S_(66, 38, 30),
-                mottle=S_(86, 50, 36), mottle_hi=S_(150, 104, 80), scar=S_(176, 132, 110),
-                war_a_amt=0.0, war_b=S_(150, 22, 18), war_b_amt=0.86, band_amt=0.0,
+    "mog": dict(skin=S_(167, 65, 42), skin_warm=S_(184, 85, 52), skin_cool=S_(103, 42, 43), lips=S_(66, 38, 30),
+                mottle=S_(105, 38, 28), mottle_hi=S_(189, 102, 68), scar=S_(176, 132, 110),
+                war_a_amt=0.0, war_b=S_(150, 22, 18), war_b_amt=0.0, band_amt=0.0, swirl_amt=0.94, swirl=S_(188, 186, 164),
                 fur=S_(40, 34, 30), fur_root=S_(16, 13, 12), fur_tip=S_(104, 94, 84), iris=S_(240, 120, 30),
                 scars="scarM"),
 }
@@ -316,29 +302,37 @@ def p_brute_skin(c, pal):
         if w.any():
             worn = shaders.smooth01(c.noise(40.0, 2, 704), -0.4, 0.4)
             rgb = shaders.mix(rgb, pal["band"], np.clip(w * (0.7 + 0.3 * worn), 0, 1) * pal["band_amt"])
+    if pal.get("swirl_amt", 0):
+        w = np.clip(c.paint("swirl") * pal["swirl_amt"], 0, 1)
+        rgb = shaders.mix(rgb, pal["swirl"], w * (0.86 + 0.14 * shaders.smooth01(c.noise(55, 2, 1818), -.3, .4)))
+        rough = rough + .06 * w
     return rgb, np.clip(rough, 0.3, 0.92), metal, emit
 
 
-PAINTERS = dict(BO.PAINTERS, skin=p_brute_skin)
+def p_bronze(c, pal):
+    return BO.BS.p_iron(c, dict(pal, iron=pal["bronze"], iron_patina=pal["bronze_patina"]))
+
+
+PAINTERS = dict(BO.PAINTERS, skin=p_brute_skin, bronze=p_bronze)
 
 
 # ============================================================================ preview
 def preview_main(args):
     meshutil.clear_scene()
     BM.HORNS.clear()
-    L = BO.ogre_landmarks()
+    L = BF.boss_landmarks()
     t0 = time.time()
     os.makedirs(DEV, exist_ok=True)
     preview.setup_workbench("MATERIAL")
-    S, info = BO.body_sculpt(L)
+    S, info = BF.body_sculpt(L)
     H = info["head"]["H"]
     G = build_gear(S, L, H, [g for b in BROS.values() for g in b["gear"]])
     col = BO.MAT_COLORS
     base = [charkit.mesh_sculpt(S, "body", 0.005, colors=col),
-            charkit.mesh_sculpt(BO.war_skirt(info["kilt"]), "kilt", 0.004, colors=col)]
+            charkit.mesh_sculpt(BF.war_skirt(info["kilt"]), "kilt", 0.004, colors=col)]
     for s in ("L", "R"):
         w = L["wrist_" + s]
-        base.append(charkit.mesh_sculpt(BO.hand_sculpt(L, s), "hand_" + s, 0.0025, w - 0.28, w + 0.28, colors=col))
+        base.append(charkit.mesh_sculpt(BF.hand_sculpt(L, s), "hand_" + s, 0.0025, w - 0.58, w + 0.58, colors=col))
     for i, (b, cfg) in enumerate(BROS.items()):
         dx = V(i * 1.9, 0, 0)
         for g in cfg["gear"]:
@@ -363,17 +357,17 @@ def build(args):
     meshutil.clear_scene()
     BM.HORNS.clear()
     device = pipeline.setup_cycles(args.device)
-    L = BO.ogre_landmarks()
+    L = BF.boss_landmarks()
     bros = args.only.split(",")
     report = {"device": device, "q": q, "res": res, "parts": {}, "bros": {}}
     t = time.time()
-    S, info = BO.body_sculpt(L)
+    S, info = BF.body_sculpt(L)
     hi_ = info["head"]
     H = hi_["H"]
     boss_paint(S, L, H)
     KP = info["kilt"]
-    Sk = BO.war_skirt(KP)
-    Sh = {s: BO.hand_sculpt(L, s) for s in ("L", "R")}
+    Sk = BF.war_skirt(KP)
+    Sh = {s: BF.hand_sculpt(L, s) for s in ("L", "R")}
     G = build_gear(S, L, H, [g for b in bros for g in BROS[b]["gear"]])
     pipeline.log(f"sculpts ready {time.time()-t:.1f}s")
     L["kilt_chain_pts"] = charkit.kilt_chain_points(KP, BO.KILT_CHAIN)
@@ -381,14 +375,14 @@ def build(args):
 
     t = time.time()
     his = {}
-    hb0, hb1 = BO.HEAD_BOX
-    his["body"] = [pipeline.sculpt_mesh(S, "body_hi", h_body, drop_box=BO.HEAD_BOX),
-                   pipeline.sculpt_mesh(S, "head_hi", h_body * 0.55, hb0, hb1, keep_box=BO.HEAD_BOX)]
+    hb0, hb1 = BF.HEAD_BOX
+    his["body"] = [pipeline.sculpt_mesh(S, "body_hi", h_body, drop_box=BF.HEAD_BOX),
+                   pipeline.sculpt_mesh(S, "head_hi", h_body * 0.55, hb0, hb1, keep_box=BF.HEAD_BOX)]
     for o in his["body"]:
         charkit.drop_islands(o, h_body)
     for s in ("L", "R"):
         w = L["wrist_" + s]
-        his["hand_" + s] = [pipeline.sculpt_mesh(Sh[s], "hand_hi_" + s, h_hand, w - 0.28, w + 0.28)]
+        his["hand_" + s] = [pipeline.sculpt_mesh(Sh[s], "hand_hi_" + s, h_hand, w - 0.58, w + 0.58)]
     his["kilt"] = [pipeline.sculpt_mesh(Sk, "kilt_hi", h_kilt)]
     for nm, (Sg, bnd) in G.items():
         o = pipeline.sculpt_mesh(Sg, nm + "_hi", h_gear, *bnd)
@@ -406,15 +400,16 @@ def build(args):
                                    clean=lambda o: report.__setitem__("islands_dropped", charkit.drop_islands(o, h_lo)))
     for s in ("L", "R"):
         w = L["wrist_" + s]
-        los["hand_" + s] = pipeline.lowpoly(Sh[s], "hand_lo_" + s, 0.0022, 720, w - 0.28, w + 0.28, symmetry=False)
-    los["kilt"] = pipeline.lowpoly(Sk, "kilt_lo", 0.0035, 1100)
+        los["hand_" + s] = pipeline.lowpoly(Sh[s], "hand_lo_" + s, 0.0018, 5000, w - 0.58, w + 0.58, symmetry=False)
+    los["kilt"] = pipeline.lowpoly(Sk, "kilt_lo", 0.0025, 10000)
     for nm, (Sg, bnd) in G.items():
-        los[nm] = pipeline.lowpoly(Sg, nm + "_lo", 0.003 if nm != "chain_L" else 0.0022, GEAR_TRIS[nm], *bnd,
+        los[nm] = pipeline.lowpoly(Sg, nm + "_lo", 0.0025 if nm != "chain_L" else 0.0018, GEAR_TRIS[nm], *bnd,
                                    symmetry=nm in GEAR_SYM, clean=lambda o: charkit.drop_islands(o, 0.003, min_verts=30))
     for k, o in los.items():
         if k != "chain_L":
             charkit.drop_islands(o, 0.004, min_verts=24)
         o.data.validate()
+        report.setdefault("collapsed_faces_removed", {})[k] = BF.clean_degenerate(o)
     report["geom_qa"] = {k: charkit.geom_qa(o) for k, o in los.items()}
     for k, o in los.items():
         report["parts"][k] = meshutil.tri_count(o)
@@ -457,7 +452,7 @@ def build(args):
         pal = bro_pal(b)
         K = BROS[b]["K"]
         parts = common + BROS[b]["gear"]
-        report["uv_fill_" + b] = pipeline.pack_atlas_shape([los[k] for k in parts], margin_px=6, res=res)
+        report["uv_fill_" + b] = pipeline.pack_atlas_shape([los[k] for k in parts], margin_px=4, res=res)
         for k in parts:
             for o in his[k]:
                 shaders.paint_mesh(o, sculpt_of[k].materials, L, pal, dict(extra_p, part=k), painters=PAINTERS)
@@ -481,6 +476,7 @@ def build(args):
         body = meshutil.join(dups, prefix + "_mesh")
         body.data.polygons.foreach_set("material_index", np.zeros(len(body.data.polygons), np.int32))
         rep = {"tris": meshutil.tri_count(body), "K": K}
+        rep["far_weights_eased"] = BO.ease_far_weights(body, arm, r0=0.64 / K, r1=0.70 / K)
         qa = skin.stretch_report(body, arm)
         rep["stretch_qa"] = {k: dict(bad=q_["bad"], soft=q_["soft"]) for k, q_ in qa.items()}
         pipeline.log(f"[{b}] stretch QA: " + ", ".join(f"{k}: bad {q_['bad']} soft {q_['soft']}" for k, q_ in qa.items()))
@@ -494,6 +490,10 @@ def build(args):
         report["bros"][b] = rep
         pipeline.log(f"[{b}] DONE {out} ({rep['glb_mb']:.1f} MB, {rep['tris']} tris) {rep['seconds']:.0f}s")
         pipeline.write_json(os.path.join(HERE, "out", "boss", "brutes_report.json"), report)
+    polish = subprocess.run(["node", os.path.join(HERE, "repair_boss_brute_skin.mjs")] +
+                            [os.path.join(OUT_MODELS, f"boss_brute_{b}.glb") for b in bros],
+                            capture_output=True, text=True, check=True)
+    report["export_skin_polish"] = json.loads(polish.stdout)
     report["seconds"] = time.time() - T0
     pipeline.write_json(os.path.join(HERE, "out", "boss", "brutes_report.json"), report)
     pipeline.log(f"DONE brutes {bros} in {report['seconds']:.0f}s")
@@ -506,8 +506,8 @@ def parse():
     ap.add_argument("--q", default="med")
     ap.add_argument("--only", default="gor,mog")
     ap.add_argument("--device", default="AUTO")
-    ap.add_argument("--body-tris", type=int, default=10400)
-    ap.add_argument("--head-tris", type=int, default=1800)
+    ap.add_argument("--body-tris", type=int, default=34000)
+    ap.add_argument("--head-tris", type=int, default=10000)
     return ap.parse_args(argv)
 
 

@@ -68,32 +68,32 @@ def export_from_bundle():
 PARAMS = dict(
     scale=0.92,                 # base head 0.223 m chin-crown -> 0.205 m
     eye_target=(0.0304, -0.0451, 1.6472),   # where the (right, +x) eye centre lands (old SDF head eye position)
-    eye_scale=1.20,             # lids/aperture grow about the eye centre (C2 r3: 1.24 -> 1.20, less "startled")
+    eye_scale=1.32,             # r18: larger almond apertures; upper lid remains over the iris
     eye_r_mul=1.0,              # eyeball radius vs the scaled base socket sphere
-    canthus_lift=0.0020,        # outer corners up (almond)
-    cheek_out=0.0050,           # zygomatic push (outward + forward)
+    canthus_lift=0.0034,        # outer corners up (almond)
+    cheek_out=0.0062,           # zygomatic push (outward + forward)
     chin_fwd=0.0015, chin_down=0.0030,
-    jaw_in=0.0032,              # r6: 4 -> 3.2 mm (board r12 "weak jaw"); gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
-    nose_w=0.93,                # alae narrower
+    jaw_in=0.0080,              # r6: 4 -> 3.2 mm (board r12 "weak jaw"); gonial angle tucked in (taper; v3: narrower lower face; C2 r3: 4 mm, softer jaw)
+    nose_w=0.82,                # alae narrower
     lip_lower_fwd=-0.0010, lip_upper_fwd=0.0007,
     lip_corner=0.0015, philtrum_soft=0.0007,
     neck_slim=0.86,             # neck xy about its axis below the jaw (r7: .90 -> .86, board r13 "wide columnar neck")
     skull_w=1.0,
     brow_soft=0.0020,           # brow ridge pushed back (soft natural brows; C2 r3: 2 mm, board r9 "heavy brow")
-    lid_drop=0.0028,            # C2 r3: upper lid margin lowered over the iris (board r9: exposed round irises)
-    sulcus_fill=0.0090,         # r8: broad mentolabial fill, combined with the final lip_chin_blend field
-    nostril_soft=0.0012,       # soften the continuous alar rim while retaining the downward nostril cavities
+    lid_drop=0.0018,            # r18: upper lid lowered enough for a calm almond opening
+    sulcus_fill=0.0050,         # r8: broad mentolabial fill, combined with the final lip_chin_blend field
+    nostril_soft=0.0028,       # soften the continuous alar rim while retaining the downward nostril cavities
     lip_close=0.0022,           # morphological closing radius (m) in a box round the mouth: the base mesh's deep
                                 # lip slit baked as a black line (fast build #1); the slit is filled to ~1.6 mm
     # ---- C2 r6 (iter 13, board r12: "flat pasted lips, recessed chin, weak jaw, skewed")
     mouth_seal=True,            # the enclosed oral bag behind the closed lips becomes solid (no cavity in the LO mesh)
     sym=True,                   # mirror-symmetric SDF lattice + field (x -> -x averaged): no skew at yaw 0
-    upper_evert=0.0010,         # upper vermilion rolled forward (m); r7: 0.8 mm at the border -> 1.0 mm mid-vermilion
+    upper_evert=0.0018,         # upper vermilion rolled forward (m); r7: 0.8 mm at the border -> 1.0 mm mid-vermilion
     upper_h=0.0065,             # height of the vermilion border (white roll) above the lip line
-    lower_full=0.0010,          # r7: 1.8 -> 1.0 mm, narrower (board r13 "swollen lower-lip blob"); lower lip fullness (m, forward + down)
+    lower_full=0.0016,          # r7: 1.8 -> 1.0 mm, narrower (board r13 "swollen lower-lip blob"); lower lip fullness (m, forward + down)
     mouth_w=0.95,               # mouth width about the lip centre
     pog_fwd=0.0010, pog_down=0.0012,  # pogonion (front of the chin) projection
-    chin_w=1.06,                # chin pad width
+    chin_w=0.90,                # r18: compact chin pad
     cheek_hollow=0.0,           # buccal hollow depth (m); fast4: 2 mm printed dark cheek blotches in-game -> off
     # ---- C2 r7 (iter 14, board r13: "upper lip a dark smear, lower lip a swollen blob with no Cupid's bow, abrupt
     # shelf under the lower lip, protruding mouth over a weak chin")
@@ -107,7 +107,8 @@ PARAMS = dict(
     sulcus_z=-0.020,            # height of the sulcus fill centre below the lip line
     modiolus=0.0006,               # soft mound lateral to each commissure (m, forward): rounds the corner creases
     lip_chin_blend=0.0024,       # r8: reduce lower-lip shelf, spread the mentolabial transition
-    corner_soft=0.0012,            # gaussian smoothing (m) of the SDF in small spheres round the commissures
+    lower_taper=0.12, nostril_close=0.0032,
+    corner_soft=0.0022,            # gaussian smoothing (m) of the SDF in small spheres round the commissures
 )
 
 
@@ -291,6 +292,10 @@ def fit(params):
         roll=p["lip_chin_blend"]*np.exp(-((dz+.007)/.005)**2)
         plane=.0012*np.exp(-((dz+.017)/.010)**2)
         W[:,1]+=(roll-plane)*lateral*front
+    # r18: heart-shaped lower-face contour, preserving the high cheek width.
+    taper=p.get('lower_taper',0.0)*smooth((eyeR[2]-.014-W[:,2])/.080)
+    taper*=1-smooth((W[:,1]-.005)/.055)
+    W[:,0]*=1-taper
     # neck slimming: xy about the neck axis, full below the chin bottom, fading over 2.5 cm up to the jaw
     zc = chin[2]
     ax = np.array([0.0, chin[1] + 0.075, 0.0])
@@ -486,6 +491,22 @@ def main():
             xyz = np.meshgrid(*[lo[a] + np.arange(b0[a], b1[a]) * sdf_h for a in range(3)], indexing="ij")
             w = smooth(1 - np.sqrt(sum(((xyz[a] - nc[a]) / nr[a]) ** 2 for a in range(3))))
             G[sl] = sub + w * (ndimage.gaussian_filter(sub, ns / sdf_h) - sub)
+        # r18: shallow nostril openings. Fill narrow internal slots without
+        # pushing out open skin; otherwise downward holes render as a black U.
+        close=float(lm['params'].get('nostril_close',0.0))
+        if close>0:
+            from scipy import ndimage
+            nc=np.array(lm['nose_tip'])+np.array([0,.010,-.006])
+            nr=np.array([.027,.025,.017])
+            b0=np.maximum(0,((nc-nr*1.5-lo)/sdf_h).astype(int))
+            b1=np.minimum(shape,((nc+nr*1.5-lo)/sdf_h).astype(int)+1)
+            sl=tuple(slice(a,b) for a,b in zip(b0,b1));sub=G[sl]
+            rc=max(1,int(round(close/sdf_h)));ax=np.arange(-rc,rc+1)
+            fp=(ax[:,None,None]**2+ax[None,:,None]**2+ax[None,None,:]**2)<=rc*rc+.5
+            xyz=np.meshgrid(*[lo[a]+np.arange(b0[a],b1[a])*sdf_h for a in range(3)],indexing='ij')
+            weight=smooth(1-np.sqrt(sum(((xyz[a]-nc[a])/nr[a])**2 for a in range(3))))
+            short=sub+rc*sdf_h-ndimage.grey_dilation(sub,footprint=fp,mode='nearest')
+            G[sl]=sub-weight*np.maximum(short-.6*sdf_h,0)*.95
         cs = float(lm["params"].get("corner_soft", 0.0))
         if cs > 0:          # r7: commissures -- small gaussian blend of the field round each mouth corner
             from scipy import ndimage

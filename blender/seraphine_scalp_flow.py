@@ -8,7 +8,7 @@ import math
 import numpy as np
 
 
-def scalp_flow(skin_dist, hc, s=1.0, nu=34, nv=15):
+def scalp_flow(skin_dist, hc, s=1.0, nu=64, nv=28):
     from seraphine_hair_cards import _base_radius, _dir
     hc = np.asarray(hc, float)
     u = np.linspace(0, 1, nu + 1)
@@ -18,7 +18,7 @@ def scalp_flow(skin_dist, hc, s=1.0, nu=34, nv=15):
     # A low, curved temple continues in front of and above the ear, then behind it.
     # The previous straight 30 -> 15 degree boundary exposed a shaved triangular slab.
     el = np.interp(u, [0, .12, .24, .36, .44, .53, .59, .76, 1],
-                   [27, 19, -7, -30, -25, -24, -26, -29, -33])
+                   [23, 16, -6, -24, -23, -24, -26, -29, -33])
     target = np.interp(u, [0, .24, .44, .59, .76, 1], [57, 32, 4, -16, -29, -33])
     out = []
     for side in (1, -1):
@@ -36,9 +36,9 @@ def scalp_flow(skin_dist, hc, s=1.0, nu=34, nv=15):
         U,V = np.meshgrid(u,v,indexing='ij')
         group, _ = _clump_field(U, V)
         clump = .002*group*np.sin(np.pi*U)**.35
-        volume = .006 + .005*np.sin(np.pi*V)**.8
+        volume = .0035 + .003*np.sin(np.pi*V)**.8
         # The front centre has a fuller swept crest; all roots grow smoothly from the cap.
-        volume += .004*np.exp(-((U-.15)/.25)**2)*np.sin(np.pi*V)
+        volume += .002*np.exp(-((U-.15)/.25)**2)*np.sin(np.pi*V)
         root = np.clip(V/.12,0,1); root = root*root*(3-2*root)
         lift = (.002 + (volume+clump)*root)*s
         P = hc + D*(R+lift)[...,None]
@@ -93,17 +93,17 @@ def layered_locks(shells, s=1.0):
             i=np.minimum(x.astype(int),A.shape[0]-2); j=np.minimum(y.astype(int),A.shape[1]-2)
             a=(x-i)[...,None];b=(y-j)[...,None]
             return (A[i,j]*(1-a)*(1-b)+A[i+1,j]*a*(1-b)+A[i,j+1]*(1-a)*b+A[i+1,j+1]*a*b)
-        for k,(centre,width,start) in enumerate(((.025,.19,.008),(.12,.23,.018),(.235,.24,.01),(.38,.26,.025),(.55,.26,.012),(.74,.27,.018),(.92,.24,.012))):
-            t=np.linspace(0,1,13)[:,None]; x=np.linspace(-1,1,7)[None,:]
+        for k,(centre,width,start) in enumerate(((.30,.19,.020),(.42,.20,.014),(.55,.21,.010),(.69,.22,.018),(.83,.21,.012),(.96,.18,.006))):
+            t=np.linspace(0,1,33)[:,None]; x=np.linspace(-1,1,11)[None,:]
             vv=start+(1-start)*t
             # Ends are staggered around the braid, producing a gathered rather than cut junction.
             vv=vv+np.zeros_like(x)
             width_t=width*(.58+.42*np.sin(np.pi*t)**.65)*(1-.90*t**5)
-            uu=centre+(.025 if k%2 else -.025)*np.sin(np.pi*t)+x*width_t/2
+            uu=centre+(.045 if k%2 else -.030)*np.sin(np.pi*t)+x*width_t/2
             pos=sample(P,uu,vv); normal=sample(N,uu,vv)
             normal/=np.linalg.norm(normal,axis=2,keepdims=True)
-            rounded=np.clip(1-x*x,0,1)**1.25*np.sin(np.pi*t)**.7
-            pos+=normal*((-.0015+(.020,.026,.022,.028,.018,.022,.016)[k]*rounded)*s)[...,None]
+            rounded=np.clip(1-x*x,0,1)**1.65*np.sin(np.pi*t)**.7
+            pos+=normal*((-.0010+(.007,.008,.006,.008,.007,.005)[k]*rounded)*s)[...,None]
             # Follow the rounded lock's own surface; reusing the shell normal hid
             # all volume and left only the intersection line visible.
             a,b=np.gradient(pos,axis=0),np.gradient(pos,axis=1)
@@ -116,9 +116,9 @@ def layered_locks(shells, s=1.0):
             strip=k%4; uv=np.stack([np.broadcast_to((strip+.15+.70*(x+1)/2)/8,pos.shape[:2]),
                                     np.broadcast_to(1-(.10+.64*t),pos.shape[:2])],axis=2)
             q=[]
-            for j in range(12):
-                for i in range(6):
-                    a=j*7+i;q.append((a,a+1,a+8,a+7))
+            for j in range(32):
+                for i in range(10):
+                    a=j*11+i;q.append((a,a+1,a+12,a+11))
             out.append(dict(kind='swept_lock',verts=pos.reshape(-1,3),normal=lock_normal.reshape(-1,3),
                             uv=uv.reshape(-1,2),quads=np.array(q),tris=np.empty((0,3),np.int64)))
     return out
@@ -155,13 +155,48 @@ def edge_wisps(shells, tendrils, skin_dist, skin_grad, s=1.0):
         shape=shell['grid_shape']
         P=shell['verts'].reshape(*shape,3)
         N=shell['normal'].reshape(*shape,3)
-        for i in (round((shape[0]-1)*f) for f in (.16,.26)):
-            path=P[i,:8].copy()+N[i,:8]*.0008*s
-            widths=np.linspace(.011,.004,len(path))*s
-            out.append(dict(kind='hairline',path=path,normal=N[i,:8],width=widths,
+        for i in (round((shape[0]-1)*f) for f in (.015,.05,.09,.14,.19,.24,.28)):
+            path=P[i,:5].copy()+N[i,:5]*.0008*s
+            widths=np.linspace(.0035,.0012,len(path))*s
+            out.append(dict(kind='hairline',path=path,normal=N[i,:5],width=widths,
                             strip=6+(i%2),flip=False,cup=0))
     # Old independent cheek tendrils made the isolated red temple decal. The new
     # wisps share the lower hairline and sweep back with it, rather than lying on skin.
+    return out
+
+
+def crown_sweep(skin_dist, hc, s=1.0):
+    """Three unequal diagonal forelocks establish one off-centre flowing sweep.
+
+    They replace the mirror-paired front ribs; their sides bury into the backing
+    and their tapered ends turn into the rear fan instead of ending on a shelf.
+    """
+    from seraphine_hair_cards import _base_radius, _dir
+    hc=np.asarray(hc,float);out=[]
+    for k,(a0,e0,width) in enumerate(((-36,21,.034),(-10,25,.037),(17,21,.031))):
+        t=np.linspace(0,1,41);x=np.linspace(-1,1,11)
+        az=np.interp(t,[0,.24,.50,.78,1],[a0,a0+22,66+k*9,122+k*7,172])
+        el=np.interp(t,[0,.24,.50,.78,1],[e0,60+k*3,63-k*3,26-k*4,-20-k*3])
+        D=np.array([_dir(math.radians(a),math.radians(e)) for a,e in zip(az,el)])
+        R=_base_radius(skin_dist,hc,D)
+        C=hc+D*(R+(.003+.004*np.sin(np.pi*t))*s)[:,None]
+        tangent=np.gradient(C,axis=0);tangent/=np.linalg.norm(tangent,axis=1,keepdims=True)
+        side=np.cross(tangent,D);side/=np.linalg.norm(side,axis=1,keepdims=True)
+        w=width*(.55+.45*np.sin(np.pi*t)**.6)*(1-.95*t**5)*s
+        P=C[:,None,:]+side[:,None,:]*x[None,:,None]*w[:,None,None]/2
+        arch=(1-x*x)[None,:]**1.4*np.sin(np.pi*t)[:,None]**.7
+        P+=D[:,None,:]*(.0065*arch*s)[...,None]
+        N=np.cross(np.gradient(P,axis=0),np.gradient(P,axis=1))
+        N*=np.where(np.sum(N*D[:,None,:],axis=2)>0,1,-1)[...,None]
+        N/=np.maximum(np.linalg.norm(N,axis=2,keepdims=True),1e-12)
+        uv=np.stack([np.broadcast_to((k+.12+.76*(x+1)/2)/8,P.shape[:2]),
+                     np.broadcast_to(1-(.018+.70*t[:,None]),P.shape[:2])],axis=2)
+        q=[]
+        for j in range(40):
+            for i in range(10):
+                a=j*11+i;q.append((a,a+1,a+12,a+11))
+        out.append(dict(kind='crown_sweep',verts=P.reshape(-1,3),normal=N.reshape(-1,3),uv=uv.reshape(-1,2),
+                        quads=np.array(q),tris=np.empty((0,3),np.int64)))
     return out
 
 
@@ -169,15 +204,15 @@ def temple_locks(skin_dist, hc, s=1.0):
     from seraphine_hair_cards import _base_radius, _dir
     hc=np.asarray(hc,float); out=[]
     for side in (1,-1):
-        t=np.linspace(0,1,15); x=np.linspace(-1,1,5)
+        t=np.linspace(0,1,33); x=np.linspace(-1,1,9)
         az=np.interp(t,[0,.25,.55,.80,1],[38,47,58,70,91])
-        el=np.interp(t,[0,.25,.55,.80,1],[12,-2,-19,-31,-39])
+        el=np.interp(t,[0,.25,.55,.80,1],[10,-2,-12,-19,-24])
         D=np.array([_dir(math.radians(side*a),math.radians(e)) for a,e in zip(az,el)])
         R=np.minimum(_base_radius(skin_dist,hc,D),.108*s)
-        C=hc+D*(R+(.004+.009*np.sin(np.pi*t))*s)[:,None]
+        C=hc+D*(R+(.004+.009*np.sin(np.pi*t)-.006*t**6)*s)[:,None]
         T=np.gradient(C,axis=0); T/=np.linalg.norm(T,axis=1,keepdims=True)
         Sd=np.cross(T,D);Sd/=np.linalg.norm(Sd,axis=1,keepdims=True)
-        width=(.010+.018*np.sin(np.pi*t)**.6)*(1-.95*t**4)*s
+        width=(.007+.014*np.sin(np.pi*t)**.6)*(1-.95*t**4)*s
         P=C[:,None,:]+Sd[:,None,:]*x[None,:,None]*width[:,None,None]/2
         P+=D[:,None,:]*(.0035*(1-x*x)[None,:]*np.sin(np.pi*t)[:,None]*s)[...,None]
         N=np.cross(np.gradient(P,axis=0),np.gradient(P,axis=1));N*=np.where(np.sum(N*D[:,None,:],axis=2)>0,1,-1)[...,None]
@@ -185,8 +220,8 @@ def temple_locks(skin_dist, hc, s=1.0):
         strip=1 if side==1 else 2
         uv=np.stack([np.broadcast_to((strip+.18+.64*(x+1)/2)/8,P.shape[:2]),np.broadcast_to(1-(.1+.64*t[:,None]),P.shape[:2])],axis=2)
         q=[]
-        for j in range(14):
-            for i in range(4):
-                a=j*5+i;q.append((a,a+1,a+6,a+5))
+        for j in range(32):
+            for i in range(8):
+                a=j*9+i;q.append((a,a+1,a+10,a+9))
         out.append(dict(kind='temple_lock',verts=P.reshape(-1,3),normal=N.reshape(-1,3),uv=uv.reshape(-1,2),quads=np.array(q),tris=np.empty((0,3),np.int64)))
     return out

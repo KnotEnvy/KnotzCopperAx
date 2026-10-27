@@ -21,6 +21,8 @@ export const PROFILES = {
     grip: { twoHand: true, off: -0.15, flip: 'auto' },
     blade: { R: 1.26, pommel: 0.3 },   // weapon_grudgebrand.glb: tip y 1.265 (C2 r4 visual scale-up; was 1.065), pommel -0.36, grip_offhand y -0.14
     weight: 1.15,
+    breathe: 1.3,
+    springs: { hair: 0.55, kilt: 0.35, stiff: 1.55 }, // r18: heavy mane and overlapping tartan stay close to the body.
   },
   gorrim: {
     // Copper Ax haft runs weapon-local y -0.46..0.66 (head at +0.56): the lower hand sits near the butt.
@@ -35,7 +37,9 @@ export const PROFILES = {
     blade: { R: 1.0, L: 1.0, pommel: 0.1 },   // weapon_dawn/dusk.glb: tip y 0.936 (C2 r4 visual scale-up; was 0.796)
     weight: 0.8,
     look: { yaw: 44, pitch: 20 },
-    springs: { hair: 1.25, stiff: 0.85 },
+    // r18: gain blends toward the constrained tip; >1 extrapolates past it.
+    // A firmer, smaller response keeps the plait behind her during arm sweeps.
+    springs: { hair: 0.68, hairLimit: 18, stiff: 1.45 },
   },
   marauder: { blade: { R: 0.62, pommel: 0.12 }, weight: 1.1 },
   dummy: { weight: 1.3, breathe: 0 },

@@ -34,9 +34,9 @@ Build options (hero script): `--fast`, `--no-weapon`, `--stage skin`, `--device 
 
 | Asset | Triangles | Atlas | Notes |
 |---|---|---|---|
-| Hero | ≤ 30 000 (Brann ≈ 27 k) | 2048² albedo + normal + ORM | head region ≥ 5 k tris, face ≥ 1.75× texel density |
+| Hero / boss | ≤ 75 000 (owner 2026-10-26; Brann r2 ≈ 27 k) | 2048² albedo + normal + ORM | head region ≥ 5 k tris, face ≥ 1.75× texel density |
 | Human enemy | ≤ 18 000 | 1024–2048 | share lib parts, vary style dicts |
-| Boss / mount | ≤ 40 000 / ≤ 25 000 | 2048 | |
+| Mount | ≤ 25 000 | 2048 | |
 | Weapon | ≤ 3 000 | 1024 | separate GLB, grip at origin |
 | Prop | ≤ 5 000 | ≤ 1024 | merge statics per screen |
 One skinned mesh + one material per character (1–2 draw calls). Textures are embedded as WEBP (q90).

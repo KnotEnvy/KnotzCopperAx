@@ -26,7 +26,9 @@ for (let i = 0; i < argv.length; i++) {
 const file = opt._[0];
 if (!file) { console.error('usage: node tools/validate-glb.mjs <file.glb> [--kind character|weapon] ...'); process.exit(2); }
 const kind = opt.kind || (/weapon_/.test(path.basename(file)) ? 'weapon' : 'character');
-const maxTris = Number(opt.tris || (kind === 'weapon' ? 3000 : 30000));
+// Budgets: heroes + bosses 75 000 (owner 2026-10-26), other characters 30 000, weapons 3 000.
+const heroOrBoss = /^(hero|boss)_/.test(path.basename(file)) && kind === 'character';
+const maxTris = Number(opt.tris || (kind === 'weapon' ? 3000 : heroOrBoss ? 75000 : 30000));
 const maxTex = Number(opt.tex || 2048);
 const expH = opt.height !== undefined ? Number(opt.height) : null;
 const hTol = Number(opt['height-tol'] || 0.05);
