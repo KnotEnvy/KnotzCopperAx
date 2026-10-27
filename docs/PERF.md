@@ -17,6 +17,11 @@ still the primary gate; confirm on the real laptop before calling a perf item do
 
 ## 1. The rules
 
+**Tiers (owner, 2026-10-26):** the 1650 Ti 12 ms budget now applies to the **Low** preset only (achieved). **High** targets
+an RTX 4080-class GPU: until there is a 4080 calibration, High at 2560x1440 must hold ≤ 12 ms on the RTX 5070 column
+itself (`node tools/perfbench.mjs --quality high --size 2560x1440`), and Low at 1920x1080 ≤ 12 ms on the ≈1650 Ti
+estimate (`--quality low`). Gate every render change on BOTH.
+
 1. **Never add render cost without a perfbench number.** New effect, shader, pass, light, or stage content → run
    perfbench on the affected stage × phase before and after (`--baseline HEAD` does both in one interleaved run).
 2. **Budgets are measured in units that don't depend on load** (section 3). The fps you see in a capture is not one of them.

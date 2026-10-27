@@ -18,13 +18,41 @@ const g = (f, extra = {}) => ({ f, ...GUARD, ...extra });
 // ----------------------------------------------------------------------------------------------- locomotion
 // Locomotion carry is separate from GUARD so combat poses and hit frames stay unchanged.
 const CARRY = W([0.42, -0.32, 0.24], dir(-55, 22), [0, 0.2, 1]);
+// r19 (anim): the carry breathes and bobs with the body instead of gliding.
+// r20 (anim quick fix): the board still read idle and walk as near-identical with a locked carry. Measured cause: the
+// walk's torso twist lagged the feet by a quarter cycle, and the carry goals live in character axes (posed chest
+// ORIGIN only), so the chest turned under hands that stayed put. The walk now authors its carry in the chest frame
+// (goalSpace 'chest': hands and blade swing and roll with the shoulders), the twist peaks at the heel strikes, and the
+// off hand loosens on the passing poses. Run: the sword hand bobs on every footfall; the off arm pumps hip -> chest
+// with the elbow bent ~90 deg, close to the ribs (no straight punch, no chicken wing, clear of the fur waistband).
+const cyc = (ph, lag) => Math.cos(Math.PI * 4 * (ph - lag));   // two steps per cycle; 1 = just after a footfall
+const RAD = Math.PI / 180;
+const add = (a, b, k = 1) => a.map((x, i) => x + b[i] * k);
+// r21 (board r20: "the off fist sits 0.3-0.8 cm from the belly"): the idle/walk two-hand grip moves forward, up and in
+// toward the centre line (blade angle unchanged), so the near-straight off arm reaches the handle with a bent elbow and
+// both fists hang ~8 cm off the abdomen (probe: fist->torso >= 8.2 cm, fist->waistband >= 5 cm; r20 0.3 / 0.4 cm).
+const CARRY_FWD = [0.2, 0.14, -0.24];
+const fwd = (w) => ({ ...w, at: add(w.at, CARRY_FWD) });
+const WALK_LEAN = -9;
 const walk = gait({
-  P: 0.6, v: 3.2, duty: 0.5, cx: 0.4, lift: 0.13, heel: 0.12, bob: 0.028, hipsY: -0.09, hipsX: 0.03, twist: 5, lean: -8,
-  upper: (ph) => {
-    const b = Math.sin(ph * Math.PI * 4);                        // two steps per cycle
-    const s = Math.sin(ph * Math.PI * 2);
-    return { pose: torso({ pelvis: -5 * s, yaw: 13 * s, pitch: -8 + b * 2, roll: 4 * s, pelvisRoll: -2 * s, look: 0.9 }),
-      wpn: W([0.42 + s * 0.085, -0.32 + b * 0.075, 0.24 + s * 0.055], dir(-55 + s * 9, 22 + b * 6), [0, 0.2, 1]), grip: 1 };
+  P: 0.6, v: 3.2, duty: 0.5, cx: 0.4, lift: 0.13, heel: 0.12, bob: 0.036, hipsY: -0.09, hipsX: 0.03, twist: 5, lean: WALK_LEAN,
+  upper: (ph, k) => {
+    const c = Math.cos(ph * Math.PI * 2);          // +1 = left heel strike (left foot forward), -1 = right heel strike
+    const sw = Math.sin(ph * Math.PI * 2);         // weight over the left foot (+) / right foot (-)
+    const drop = cyc(ph, 0.1), give = Math.max(0, drop);
+    const pass = Math.max(0, -cyc(ph, 0.26));      // passing poses
+    // chest-frame carry (= the r19 carry un-pitched by the lean), swinging with the shoulders, tip lagging
+    const at = add([0.46 - give * 0.04 + pass * 0.02, -0.26 - drop * 0.08, 0.24 + c * 0.035], CARRY_FWD);
+    const bl = dir(-58 - c * 7, 26 - cyc(ph, 0.16) * 8);
+    return {
+      // r21: the head nods a beat after each footfall and counter-rolls against the chest roll (neck no longer rigid)
+      pose: torso({ pelvis: -8 * c, yaw: 22 * c, pitch: WALK_LEAN - 3 * cyc(ph, 0.04), roll: 6 * sw, pelvisRoll: -4 * sw, look: 0.9, hp: -2.5 * cyc(ph, 0.16), hr: -2.5 * sw, hy: -3 * Math.sin(Math.PI * 2 * (ph - 0.08)) }),
+      hips: [k.hips[0], k.hips[1], -0.026 * sw],
+      wpn: W(at, bl, [0, 0.2, 1]),
+      // off hand: baked fist just off the handle; the runtime grip lock pulls it back on, so where the grip weight dips
+      // the hand visibly loosens and slides, then re-seats. r21: the baked fist sits out in front (was toward the belly)
+      handL: add(add(at, bl, -0.4), [0.08, -0.02, 0.02]), grip: 1 - 0.25 * pass,
+    };
   },
 });
 const run = gait({
@@ -32,12 +60,16 @@ const run = gait({
   flight: 0.1, strike: 6, pushOff: 38,
   upper: (ph) => {
     const s = Math.sin(ph * Math.PI * 2);
+    const drop = cyc(ph, 0.06), give = Math.max(0, drop);
+    // off-arm pump in the chest frame: upper arm swings -25 deg (back, fist beside the hip) .. +40 deg (forward, fist
+    // at chest height), elbow 85-95 deg, small abduction so the arm stays by the ribs
+    const a = 7.5 + 32.5 * s, e = 84 - 4 * s;
     return {
-      // Raised outside carry stays in the idle/walk hemisphere throughout a crossfade.
-      // The old 172deg/-28deg trailing carry interpolated down through the front leg.
-      // Left arm counter-swings; the right elbow yields to every stride.
-      wpn: W([0.34 + s * 0.055, -0.27 + Math.cos(ph * Math.PI * 4) * 0.035, 0.36], dir(-58 + s * 4, 28 + s * 3), [0, 0.2, 1]), grip: 0,
-      pose: arm('L', { upper: [0.72 * s, -0.76, -0.42], fore: [0.6 + 0.65 * s, 0.14 + 0.3 * s, -0.34] }),
+      // Raised outside carry stays in the idle/walk hemisphere throughout a crossfade (Hero.js fades idle→run in 0.1 s:
+      // a trailing carry would swing ~150 deg through the front leg in that time). r20: the sword hand drops on every
+      // footfall and recovers (bob ~6 cm), swings fore/aft with the stride, blade tip lagging.
+      wpn: W([0.35 + s * 0.06 - give * 0.04, -0.23 - drop * 0.1, 0.36 - give * 0.03], dir(-58 + s * 6, 28 + s * 3 - cyc(ph, 0.12) * 7), [0, 0.2, 1]), grip: 0,
+      pose: arm('L', { upper: [Math.sin(a * RAD), -Math.cos(a * RAD), -(0.3 - 0.05 * s)], fore: [Math.sin((a + e) * RAD), -Math.cos((a + e) * RAD), -(0.1 - 0.04 * s)] }),
     };
   },
 });
@@ -48,15 +80,25 @@ export default {
     // riding: greatsword carried one-handed, blade up; a big one-armed overhead hack from the saddle
     ...rideSet({ carry: W([0.34, -0.1, 0.44], dir(10, 62), [0, 0, 1]), up: W([-0.05, 0.9, 0.36], dir(170, 40), [0, 0, 1]), hit: W([0.78, 0.0, 0.34], dir(10, -30), [0, 0, 1]), follow: W([0.6, -0.42, 0.3], dir(0, -62), [0, 0, 1]) }),
     idle: {
+      // r20: a readable breath (inhale lifts chest, shoulders and carry; exhale sags), a slow weight shift right -> left
+      // -> right with pelvis roll, and one clear regrip per loop: the off hand slips off the handle, the heavy blade is
+      // hitched up, the hand re-seats and the carry settles.
+      // r21: the carry is fwd() (see CARRY_FWD), the regrip slip sits higher off the waistband, and the head settles
+      // against the weight shift (small yaw / roll lag) instead of riding the chest.
       frames: 150, loop: true, plant: 1, breathe: 1, tags: ['idle'],
       keys: [
-        g(0, { wpn: CARRY, pose: torso({ pelvis: -12, yaw: 4, pitch: -5, roll: -1, look: 0.9 }) }),
-        g(50, { pose: torso({ pelvis: -17, yaw: 9, pitch: -8, roll: 3, look: 0.9 }), hips: [0.022, -0.072, 0.022], wpn: W([0.43, -0.30, 0.24], dir(-53, 24), [0, 0.2, 1]) }),
-        g(100, { pose: torso({ pelvis: -11, yaw: 3, pitch: -5, roll: -3, look: 0.9, hy: 4 }), hips: [-0.018, -0.095, -0.020], wpn: W([0.41, -0.33, 0.25], dir(-57, 20), [0, 0.2, 1]) }),
-        g(150, { wpn: CARRY }),
+        g(0, { wpn: fwd(CARRY), pose: torso({ pelvis: -12, yaw: 4, pitch: -6, roll: -5.5, pelvisRoll: 2.5, look: 0.9, hr: 1.5 }), hips: [0, -0.1, 0.036] }),
+        g(45, { pose: torso({ pelvis: -15, yaw: 8, pitch: 1, roll: 0, pelvisRoll: 0.5, look: 0.9, hp: -2, hy: -3 }), hips: [0.012, -0.08, 0.008], wpn: fwd(W([0.44, -0.2, 0.235], dir(-52, 29), [0, 0.2, 1])) }),
+        g(84, { pose: torso({ pelvis: -17, yaw: 9, pitch: -10, roll: 6.5, pelvisRoll: -3, look: 0.9, hr: -2, hy: -1.5 }), hips: [0.016, -0.108, -0.04], wpn: fwd(W([0.4, -0.37, 0.25], dir(-57, 17), [0, 0.2, 1])) }),
+        { f: 100, ...GUARD, pose: torso({ pelvis: -14, yaw: 6, pitch: -9, roll: 2, pelvisRoll: -2, look: 0.9, hy: 3 }), hips: [0.008, -0.104, -0.03],
+          wpn: fwd(W([0.39, -0.38, 0.27], dir(-62, 15), [0, 0.3, 1])), handL: add([0.23, -0.6, 0.49], add(CARRY_FWD, [0.04, 0.06, 0])), grip: 0.5 },
+        { f: 112, ease: 'out', ...GUARD, pose: torso({ pelvis: -12, yaw: 5, pitch: -1, roll: -1, pelvisRoll: -1, look: 0.9, hy: 2, hp: -3 }), hips: [0.004, -0.086, -0.016],
+          wpn: fwd(W([0.45, -0.22, 0.22], dir(-50, 31), [0, 0.15, 1])), handL: add([0.22, -0.44, 0.46], add(CARRY_FWD, [0.04, 0.06, 0])), grip: 0.75 },
+        g(124, { pose: torso({ pelvis: -12, yaw: 4, pitch: -4, roll: -2, pelvisRoll: 1, look: 0.9, hy: 1 }), hips: [0, -0.094, 0.012], wpn: fwd(W([0.43, -0.3, 0.235], dir(-54, 23.5), [0, 0.2, 1])) }),
+        g(150, { wpn: fwd(CARRY), pose: torso({ pelvis: -12, yaw: 4, pitch: -6, roll: -5.5, pelvisRoll: 2.5, look: 0.9, hr: 1.5 }), hips: [0, -0.1, 0.036] }),
       ],
     },
-    walk: { duration: 0.6, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
+    walk: { duration: 0.6, loop: true, goalSpace: 'chest', keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
     run: { duration: 0.56, loop: true, grip: 0, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
 
     // ------------------------------------------------------------------------------------------- the string
@@ -446,6 +488,23 @@ export default {
         { f: 0, pose: torso({ pelvis: -8, yaw: 4, pitch: 3, look: 0.5 }), hips: [0, -0.06, 0], ...ST_WIDE, wpn: W([0.2, -0.34, 0.74], dir(-20, 78), [0.96, 0.17, 0.2]), handL: [0.18, -0.46, -0.32] },
         { f: 75, pose: torso({ pelvis: -8, yaw: 5, pitch: 2, look: 0.5 }), hips: [0, -0.075, 0], ...ST_WIDE, wpn: W([0.2, -0.36, 0.74], dir(-20, 79), [0.96, 0.17, 0.2]), handL: [0.18, -0.47, -0.32] },
         { f: 150, pose: torso({ pelvis: -8, yaw: 4, pitch: 3, look: 0.5 }), hips: [0, -0.06, 0], ...ST_WIDE, wpn: W([0.2, -0.34, 0.74], dir(-20, 78), [0.96, 0.17, 0.2]), handL: [0.18, -0.46, -0.32] },
+      ],
+    },
+    // select_ready (r21; src/ui/select3d.js plays it on READY, else 'victory'): victory's straight overhead raise put the
+    // sword shoulder at ~107 deg of elevation and the deltoid / pauldron collapsed (board r20). Here a short heroic beat:
+    // gather low, heave the greatsword up two-handed, settle into a high guard at the right shoulder (vom Tag) with the
+    // blade upright beside the head, chin down. Shoulders stay at ~40-50 deg. The hands sit out to the right and the flat
+    // is turned ~50 deg off the camera so the ram-horn guard clears the jaw; the chest turns 2 deg right so the off
+    // hand still reaches the handle (grip miss ~2 cm). One-shot: the last key holds (breathing on).
+    // guard: 0 because the presentation pose clears the body by construction (as Seraphine's select clip).
+    select_ready: {
+      frames: 90, loop: false, plant: 1, breathe: 1, grip: 1, guard: 0,
+      keys: [
+        { f: 0, pose: torso({ pelvis: -8, yaw: 4, pitch: 3, look: 0.5 }), hips: [0, -0.06, 0], ...ST_WIDE, wpn: W([0.3, -0.36, 0.5], dir(-10, 70), [0.96, 0.17, 0.2]), grip: 0.4 },
+        { f: 9, ease: 'inOut', pose: torso({ pelvis: -14, yaw: -6, pitch: -12, look: 0.7, hp: -4 }), hips: [0.01, -0.16, 0], ...ST_WIDE, wpn: W([0.38, -0.42, 0.3], dir(20, -10), [0.96, 0.17, 0.2]), grip: 1 },
+        { f: 20, ease: 'outCubic', pose: torso({ pelvis: -14, yaw: 2, pitch: 9, look: 0.6, hp: 6 }), hips: [-0.01, -0.03, 0], ...ST_WIDE, wpn: W([0.4, 0.16, 0.57], dir(165, 60), [0.6, 0, 0.8]) },
+        { f: 34, ease: 'inOut', pose: torso({ pelvis: -12, yaw: -2, pitch: 5, look: 0.6, hp: -8, hy: 4 }), hips: [0, -0.09, 0], ...ST_WIDE, wpn: W([0.38, 0.06, 0.55], dir(140, 76), [0.6, 0, 0.8]) },
+        { f: 90, ease: 'inOut', pose: torso({ pelvis: -12, yaw: -2, pitch: 4, look: 0.6, hp: -8, hy: 4 }), hips: [0, -0.095, 0], ...ST_WIDE, wpn: W([0.38, 0.05, 0.55], dir(140, 76), [0.6, 0, 0.8]) },
       ],
     },
     // magic: Brann drives Grudgebrand into the earth (castPeak) — the spell erupts from the blade

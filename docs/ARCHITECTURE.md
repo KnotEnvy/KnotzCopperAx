@@ -120,7 +120,10 @@ src/showcase/               showcase framework (Showcase.js ctx helpers) + kinds
 - `node tools/progress.mjs --item <id> --title "<title>" --wave <W> --status <queued|building|critic|passed|failed|blocked> --iter N [--score X --verdict PASS|FAIL --gap "..."] [--note "..."] --shot <png> [--clip <mp4>]` updates the live progress page at `http://127.0.0.1:5190/progress/`.
 - `refs/` holds reference images (Golden Axe series and modern quality-bar games). See `refs/REFERENCES.md` for the index. **Reference images are for internal comparison only. Never ship or publish them.**
 
-## 8. Performance budget (GTX 1650 Ti, 1080p, "High")
+## 8. Performance budget — two tiers (owner, 2026-10-26)
+- **Low = GTX 1650 Ti** (`quality=low`, 1080p): every stage × phase ≤ 12 ms on the ≈1650 Ti estimate (docs/PERF.md). Achieved; it must stay true.
+- **High = RTX 4080-class baseline** (`quality=high`): graphics and VFX may now aim much higher. Until a 4080 calibration exists, High at 2560×1440 must hold ≤ 12 ms GPU on the dev box's RTX 5070 (≈ 70-75 % of a 4080), i.e. 60 fps on the target with margin. Heroes and bosses may use up to 75k triangles; anything that would push Low over budget needs a Low path (LOD, fewer particles, cheaper shader).
+The numbers below were the original single-tier budget (1650 Ti at 1080p "High"); they now apply to **Low**:
 ≤ 400 draw calls, ≤ 1.5 M triangles on screen, ≤ 1 shadow-casting directional light (plus fake shadows or blobs for extras), and a post chain ≤ 4 ms. Use instancing for foliage, debris, and particles. Merge static environment geometry per screen. Texture budget ≤ 2K per hero atlas. The `quality=low` preset disables SSAO-like effects, reduces the shadow map, and halves particles.
 
 ## 9. File ownership (edit only what you own; the orchestrator assigns owners per wave)
