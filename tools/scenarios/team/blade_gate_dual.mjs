@@ -13,6 +13,9 @@
 // PASS (blades) = both tips > 0.05 m every frame and no blade segment inside any shin/thigh capsule outside attacks; the
 // max tip angular speed (body frame) in locomotion transition windows is reported (whip_ok ≤ 720 deg/s), not gating. Braid: angle from down per frame, settle after stops / facing flips (max angle in [+0.5 s, +1.0 s]),
 // min braid-to-arm distance. Kick: min sole height over the run_attack frames, apex, and limb-into-torso distance.
+// r29 (anim): loincloth drape — kilt_F/B chain joints (+ tips) vs the thigh/shin capsules every frame (summary.loincloth: min
+// clearance in locomotion and in the kick, penetration counts, angle from down, settle after stops/flips; pass = 0 penetrations
+// and settle <= 30 deg). kilt_L/R are reported too when a rig has them weighted (Seraphine r29: unused).
 // Writes gate.json (summary + per-frame rows) and, unless GATE_SHOTS=0, strip_<n>_<from>-<to>.png (8 evenly spaced
 // frames 0..560 ms after each state change, cropped around the hero).
 import fs from 'node:fs';
@@ -48,7 +51,11 @@ export default async (api) => {
   });
   for (let i = 0; i < 90; i++) await api.advance(50);   // title card clears
   await api.evalGame(() => { const h = window.__KCA.game.world.query({ kind: 'hero' })[0]; h.pos.x = -6; h.pos.z = 0; h.vel.set(0, 0, 0); h.facing = 1; });
-  await api.advance(600);
+  // r30 (anim): the teleport above is a scenario artefact (no gameplay move) -> once the view has caught up with the jump, restart the
+  // spring chains so the first samples do not measure a loincloth still swinging from it (r29 release: F drape 38 deg, -15 mm at frame 0).
+  await api.advance(100);
+  await api.evalGame(() => { const h = window.__KCA.game.world.query({ kind: 'hero' })[0]; if (h.animator?.post?.springs) h.animator.post.springs.reset(); });
+  await api.advance(500);
 
   const tmp = path.join(api.outDir, '_frames');
   fs.mkdirSync(tmp, { recursive: true });
@@ -97,6 +104,14 @@ export default async (api) => {
         hair.push(b.map((x, i) => +(x + (x - a[i])).toFixed(4)));
       }
       out.hair = hair;
+      // r29 (anim): loincloth panels on kilt_F/B (kilt_L/R unused): chain joints + extrapolated tips, for the drape probe
+      out.kilt = {};
+      for (const ch of ['F', 'B', 'L', 'R']) {
+        const pts = [];
+        for (let i = 1; i <= 9; i++) { const b = by(`kilt_${ch}_${i}`); if (!b) break; pts.push(W(b)); }
+        if (pts.length >= 2) { const a = pts[pts.length - 2], b = pts[pts.length - 1]; pts.push(b.map((x, i) => +(x + (x - a[i])).toFixed(4))); }
+        if (pts.length) out.kilt[ch] = pts;
+      }
       const c = by('hips') ? by('hips').getWorldPosition(new V3()) : h.pos.clone();
       c.project(g.camera);
       const el = g.renderer?.domElement || document.querySelector('canvas');
@@ -187,6 +202,29 @@ export default async (api) => {
         if (d < dArm) { dArm = d; armHit = `${nm}_${s}@hair_${j}`; }
       }
       r.braidArm = +dArm.toFixed(4); r.braidArmAt = armHit;
+      // r29 (front braid on a chain that pivots behind the head): the chain vs the TORSO axis (neck -> hips), sagittal (+ = the
+      // chain further BACK than the torso axis = the plait pressed into the chest; - = lifted off it) and lateral (+ = toward +Z).
+      const ax = sub(r.hipsW, r.neckW), La = len(ax);
+      const fwd = [r.facing, 0, 0], side = [0, 0, 1];
+      const vs = [dot(v, fwd), v[1], dot(v, side)].map((x) => x / L), as = [dot(ax, fwd), ax[1], dot(ax, side)].map((x) => x / La);
+      r.braidTorso = +(deg(Math.atan2(-vs[0], -vs[1])) - deg(Math.atan2(-as[0], -as[1]))).toFixed(1);
+      r.braidTorsoSide = +(deg(Math.atan2(vs[2], -vs[1])) - deg(Math.atan2(as[2], -as[1]))).toFixed(1);
+    }
+    // loincloth drape (r29): min clearance of every kilt_F/B segment from the thigh + shin capsules (negative = inside), angle from down
+    if (r.kilt) {
+      r.drape = {};
+      for (const [ch, pts] of Object.entries(r.kilt)) {
+        let dmin = Infinity, at = '';
+        for (let j = 2; j < pts.length; j++) for (const s of ['L', 'R']) {   // j >= 2: the root segment is pinned under the belt
+          const dt = segDist(pts[j - 1], pts[j], r['thigh' + s], r['knee' + s]) - THIGH_R;
+          const ds = segDist(pts[j - 1], pts[j], r['knee' + s], r['ankle' + s]) - SHIN_R;
+          if (dt < dmin) { dmin = dt; at = `thigh_${s}@${j}`; }
+          if (ds < dmin) { dmin = ds; at = `shin_${s}@${j}`; }
+        }
+        const v = sub(pts[pts.length - 1], pts[0]), L = len(v);
+        r.drape[ch] = { clear: +dmin.toFixed(4), at, down: +deg(Math.acos(Math.min(1, Math.max(-1, -v[1] / L)))).toFixed(1),
+          back: +deg(Math.atan2(-v[0] * r.facing, -v[1])).toFixed(1) };
+      }
     }
     // feet / kick
     r.soleL = +(Math.min(r.ankleL[1], r.toeL[1]) - floor).toFixed(4);
@@ -223,7 +261,9 @@ export default async (api) => {
     blade[b].pass = blade[b].min_tip_m > MIN_TIP && blade[b].any_shin_contacts_loco === 0 && blade[b].any_thigh_contacts_loco === 0;
   }
   // braid settle after stops (→ idle) and facing flips
-  const settle = changes.filter((c) => (c.kind === 'flip' || (c.to === 'idle' && c.from !== 'idle'))).map((c) => {
+  // r29: only transitions whose idle holds >= 1 s count (a tap -> idle -> run within the window measured the run, not the settle)
+  const stable = (c) => !changes.some((d) => d.i > c.i && d.t < c.t + 1.0);
+  const settle = changes.filter((c) => (c.kind === 'flip' || (c.to === 'idle' && c.from !== 'idle')) && stable(c)).map((c) => {
     const w = rows.filter((r) => r.t >= c.t + 0.5 && r.t <= c.t + 1.0 && r.braidDown != null);
     const after = rows.filter((r) => r.t >= c.t && r.t <= c.t + 1.0);
     let tSettle = null;
@@ -240,6 +280,10 @@ export default async (api) => {
     max_down_all: Math.max(...br.map((r) => r.braidDown)),
     min_arm_dist_m: Math.min(...br.map((r) => r.braidArm)), min_arm_at: br.reduce((m, r) => (r.braidArm < m.braidArm ? r : m)).braidArmAt,
     settle, settle_worst_deg: Math.max(0, ...settle.map((s) => s.max_down_deg_0_5_1_0s ?? 0)),
+    // vs the torso axis (r29 front braid): idle mean = the rest offset; run/stops: max back (into the chest) and min (lifted)
+    torso_idle: stat(byLabel(/^idle$/), 'braidTorso'), torso_run: stat(byLabel(/^run/), 'braidTorso'),
+    torso_all: stat(br, 'braidTorso'), torso_side_all: stat(br, 'braidTorsoSide'),
+    torso_stops: stat(byLabel(/stop|flip|kick-idle/), 'braidTorso'),
   };
   const kr = rows.filter((r) => r.state === 'run_attack' || /run_attack/.test(r.clip || ''));
   const kick = kr.length ? {
@@ -249,10 +293,33 @@ export default async (api) => {
     max_root_rise_m: +(Math.max(...kr.map((r) => r.rootY)) - Math.min(...rows.map((r) => r.rootY))).toFixed(4),
     min_limb_torso_m: Math.min(...kr.map((r) => r.limbTorso)),
   } : { frames: 0, note: 'run_attack not reached' };
+  // loincloth summary (r29): per kilt chain — min clearance in locomotion and in the kick, frames inside a thigh/shin capsule,
+  // angle from down at idle / run, settle (max angle in [+0.5, +1.0 s] after stops and flips). Gate: no penetration (clear >= 0) in
+  // idle/walk/run and in the kick (run_attack), settle <= 30 deg.
+  const dr = rows.filter((r) => r.drape);
+  const loincloth = {};
+  for (const ch of Object.keys(dr[0]?.drape || {})) {
+    const lr = dr.filter((r) => loco.has(r.state) && !/attack|kick/.test(r.clip || ''));
+    const kr2 = dr.filter((r) => r.state === 'run_attack' || /run_attack/.test(r.clip || ''));
+    const st = (rr) => rr.length ? +Math.min(...rr.map((r) => r.drape[ch].clear)).toFixed(4) : null;
+    const ang = (rr) => rr.length ? { min: Math.min(...rr.map((r) => r.drape[ch].down)), max: Math.max(...rr.map((r) => r.drape[ch].down)), mean: +(rr.reduce((s, r) => s + r.drape[ch].down, 0) / rr.length).toFixed(1) } : null;
+    const settleK = changes.filter((c) => (c.kind === 'flip' || (c.to === 'idle' && c.from !== 'idle')) && stable(c)).map((c) => {
+      const w = dr.filter((r) => r.t >= c.t + 0.5 && r.t <= c.t + 1.0);
+      return { from: c.from, to: c.to, kind: c.kind, frame: c.i, max_down_deg_0_5_1_0s: w.length ? Math.max(...w.map((r) => r.drape[ch].down)) : null };
+    });
+    loincloth[ch] = {
+      min_clear_loco_m: st(lr), penetrations_loco: lr.filter((r) => r.drape[ch].clear < 0).length,
+      min_clear_kick_m: st(kr2), penetrations_kick: kr2.filter((r) => r.drape[ch].clear < 0).length,
+      min_clear_all_m: st(dr), min_at: dr.reduce((m, r) => (r.drape[ch].clear < m.drape[ch].clear ? r : m)).drape[ch].at,
+      idle_down: ang(dr.filter((r) => /^idle$/.test(r.label))), run_down: ang(dr.filter((r) => /^run/.test(r.label))), max_down_all: Math.max(...dr.map((r) => r.drape[ch].down)),
+      settle_worst_deg: Math.max(0, ...settleK.map((s) => s.max_down_deg_0_5_1_0s ?? 0)), settle: settleK,
+    };
+    loincloth[ch].pass = loincloth[ch].penetrations_loco === 0 && loincloth[ch].penetrations_kick === 0 && loincloth[ch].settle_worst_deg <= 30;
+  }
   const summary = {
     hero: HERO, step_ms: STEP, frames: rows.length, glb: GLB || `public/assets/models/hero_${HERO}.glb`,
     blade, pass: Object.values(blade).length === 2 && Object.values(blade).every((b) => b.pass),
-    braid, kick,
+    braid, kick, loincloth,
     transitions: changes.filter((c) => c.kind === 'state' && loco.has(c.from) && loco.has(c.to)).map((c) => {
       const w = rows.filter((r) => r.t >= c.t + WIN[0] && r.t <= c.t + WIN[1]);
       const o = { from: c.from, to: c.to, frame: c.i };
@@ -287,5 +354,6 @@ export default async (api) => {
   for (const r of rows) delete r.img;
   fs.rmSync(tmp, { recursive: true, force: true });
   fs.writeFileSync(path.join(api.outDir, 'gate.json'), JSON.stringify({ summary, rows }, null, 1));
-  api.log(JSON.stringify({ pass: summary.pass, blade, braid: { ...braid, settle: undefined }, kick }));
+  api.log(JSON.stringify({ pass: summary.pass, blade, braid: { ...braid, settle: undefined }, kick,
+    loincloth: Object.fromEntries(Object.entries(loincloth).map(([k, v]) => [k, { ...v, settle: undefined }])) }));
 };

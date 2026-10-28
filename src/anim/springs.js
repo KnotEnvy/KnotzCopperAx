@@ -13,6 +13,12 @@
 // TARGET direction from the animated one toward world down, tilted <fam>HangBack degrees toward the character's back,
 // before the spring, the cone limit and the gain blend use it. A plait then hangs behind her instead of turning with
 // the head (look-at yaw), while starts/stops still swing it around that hung target.
+// Opt-in HANG SPACE (C2 r29 Seraphine, additive; absent = world down as above): profile.springs.<fam>HangSpace = 'torso' hangs
+// toward the TORSO axis (neck -> hips, world space) tilted <fam>HangBack degrees toward the back, so a plait modelled lying on the
+// chest stays on the chest when the torso leans (run) instead of staying vertical while the bust leans into it.
+// Opt-in PER-FAMILY TUNING (C2 r29 Seraphine, additive; absent = old behaviour): profile.springs.<fam>Stiff (multiplies the family
+// spring constant instead of the shared `stiff`), <fam>Damp (× the family damping c) and <fam>Air (× the family air drag), so a
+// loincloth can be softer and more damped than the plait on the same character (the shared `stiff` 1.45 made the kilt bouncy).
 import * as THREE from 'three';
 import { wp, wq, rotateWorld } from './ik.js';
 
@@ -69,11 +75,12 @@ export class SpringChains {
         return {
           node: e.b.node, off, tipRest, X: new THREE.Vector3(), V: new THREE.Vector3(), Pa: new THREE.Vector3(), init: false,
           // Optional per-character family limit (degrees); old limits remain the default.
-          k: F.k * stiff * (1 - 0.35 * f), c: F.c, limit: ((this.gains[F.fam + 'Limit'] ?? F.limit) * (0.75 + 0.25 * f)) * Math.PI / 180, minD: {},
+          k: F.k * (this.gains[F.fam + 'Stiff'] ?? stiff) * (1 - 0.35 * f), c: F.c * (this.gains[F.fam + 'Damp'] ?? 1), limit: ((this.gains[F.fam + 'Limit'] ?? F.limit) * (0.75 + 0.25 * f)) * Math.PI / 180, minD: {},
         };
       });
-      this.chains.push({ F, bones, gain: this.gains[F.fam] ?? 1, hang: Math.min(1, Math.max(0, this.gains[F.fam + 'Hang'] ?? 0)),
-        hangBack: ((this.gains[F.fam + 'HangBack'] ?? 0) * Math.PI) / 180 });
+      this.chains.push({ F, bones, gain: this.gains[F.fam] ?? 1, air: F.air * (this.gains[F.fam + 'Air'] ?? 1), hang: Math.min(1, Math.max(0, this.gains[F.fam + 'Hang'] ?? 0)),
+        hangBack: ((this.gains[F.fam + 'HangBack'] ?? 0) * Math.PI) / 180,
+        hangAxis: this.gains[F.fam + 'HangSpace'] === 'torso' && P('neck') && P('hips') ? [P('neck').node, P('hips').node] : null });
     }
     // colliders (model-space rest geometry → per-bone calibrated radii)
     const has = (n) => rig.bones.has(n);
@@ -127,11 +134,12 @@ export class SpringChains {
     let hangDir = null;
     for (const ch of this.chains) {
       const g = gain * ch.gain;
-      if (ch.hang > 0 && !hangDir) {   // world down tilted toward the character's back (glTF forward = model +Z)
+      if (ch.hang > 0) {   // world down (or the torso axis, opt-in) tilted toward the character's back (glTF forward = model +Z)
         const fw = _c.set(0, 0, 1).applyQuaternion(wq(model, _q2)); fw.y = 0;
         if (fw.lengthSq() < 1e-8) fw.set(0, 0, 1);
         fw.normalize();
-        hangDir = _hd.set(0, -1, 0);
+        if (ch.hangAxis) { wp(ch.hangAxis[0], _a); wp(ch.hangAxis[1], _d1); hangDir = _hd.subVectors(_d1, _a); if (hangDir.lengthSq() < 1e-8) hangDir.set(0, -1, 0); hangDir.normalize(); }
+        else hangDir = _hd.set(0, -1, 0);
         hangDir.multiplyScalar(Math.cos(ch.hangBack)).addScaledVector(fw, -Math.sin(ch.hangBack)).normalize();
       }
       for (const bn of ch.bones) {
@@ -150,7 +158,7 @@ export class SpringChains {
           const va = _a.subVectors(P, bn.Pa).multiplyScalar(1 / h);
           const acc = _d1.subVectors(P, bn.X).multiplyScalar(bn.k);
           acc.addScaledVector(_d2.subVectors(bn.V, va), -bn.c);
-          acc.addScaledVector(bn.V, -ch.F.air);
+          acc.addScaledVector(bn.V, -ch.air);
           acc.addScaledVector(G, ch.F.grav);
           const V = bn.V.addScaledVector(acc, h);
           const X0 = _d2.copy(bn.X);

@@ -38,10 +38,16 @@ export const PROFILES = {
     weight: 0.8,
     look: { yaw: 44, pitch: 20 },
     // r18: gain blends toward the constrained tip; >1 extrapolates past it.
-    // A firmer, smaller response keeps the plait behind her during arm sweeps.
-    // C2 r24 (anim): hairHang/hairHangBack (opt-in, springs.js) hang the plait's target toward down, 10 deg behind her,
-    // instead of turning it with the head's look-at yaw (r18: ~25 deg into depth while running, 43 deg peaks at stops).
-    springs: { hair: 0.7, hairLimit: 15, stiff: 1.45, hairHang: 0.6, hairHangBack: 10 },
+    // C2 r24 (anim): hairHang/hairHangBack (opt-in, springs.js) hang the plait's target toward down, tilted to the back.
+    // C2 r29 (anim): the braid now lies on the LEFT FRONT of the chest while the hair_1..5 chain still pivots behind the head
+    // (rig contract: no bone moves), so a world-down hang left the plait vertical while the bust leaned into it (run) and swung
+    // it 10 deg into the chest at stops. hairHangSpace 'torso' (opt-in, springs.js) hangs it toward the TORSO axis tilted
+    // hairHangBack (= the chain's rest offset from the head axis, ~8 deg) so it rests on the chest in every lean; a tighter cone
+    // (hairLimit) and a stiffer spring keep the swing on the bust surface.
+    // C2 r29 phase B (anim): the loincloth panels (kilt_F/B) share `stiff` with the plait unless kiltStiff is set (springs.js opt-in):
+    // a softer, overdamped, draggier kilt settles under 30 deg after run stops instead of bouncing off the thigh collider.
+    springs: { hair: 0.7, hairLimit: 10, stiff: 1.45, hairHang: 0.8, hairHangBack: 8, hairHangSpace: 'torso',
+      kilt: 0.8, kiltLimit: 45, kiltHang: 0.72, kiltHangBack: 0, kiltStiff: 0.7, kiltDamp: 2.0, kiltAir: 2.4 },
   },
   marauder: { blade: { R: 0.62, pommel: 0.12 }, weight: 1.1 },
   // enemies-art-2 r22 (anim): weapon_halberd.glb tip y 1.50, butt -0.65, grip_offhand -0.34 (two-handed holds in

@@ -510,6 +510,13 @@ export async function buildSelectSet(game, heroIds) {
     taunt(idx) { const h = heroes[idx]; if (h && h.play) h.play('taunt', { restart: true }); },
     update(dt) {
       t += dt; punch = Math.max(0, punch - dt * 2.5);
+      // C2 r31 (additive; owner: "once selected [Seraphine] doesn't move"): the animator has no clip chaining (a one-shot clamps on
+      // its last key), so a hero whose clip set defines `select_hold` moves on to that loop once its `select_ready` beat has
+      // finished. Heroes without `select_hold` keep the clamped last key exactly as before; idle() / taunt() still take over.
+      for (const h of heroes) {
+        const an = h && h.animator;
+        if (an && an.cur && an.cur.name === 'select_ready' && an.cur.done && an.has('select_hold')) h.play('select_hold', { fade: 0.3 });
+      }
       for (const sm of smokers) {      // thin, dark, slow smoke curling up off the coals (never a lit orange puff)
         sm.t -= dt;
         if (sm.t <= 0) { sm.t = 2.4 + ((sm.x * 7.1) % 1 + 1) % 1 * 1.2; firePool.emit({ clip: 'smoke', pos: [sm.x + 0.05, sm.y, sm.z], size: [0.55 * sm.k, 0.7 * sm.k], life: 3.4, tint: '#4a3a34', alpha: 0.26, vel: [0.04, 0.55, 0], grow: 1.5, growY: 1.2, rot: sm.x }); }
