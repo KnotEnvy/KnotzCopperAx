@@ -8,12 +8,16 @@
 // Dawn flat-to-camera over the attack frames 0.32 -> 0.95. Spin keys (blades out along chest +-Z while the pelvis turns
 // through 360 deg) use a chest-FORWARD flat ([1, 0, 0]): when the turning chest brings a blade into the screen plane, its flat
 // faces the camera (an up-flat there was a 7-10 px edge-on line at light_3's own contact frames).
-import { dir, W, torso, pose, gait, leg, feet } from './_kit.js';
+import { dir, W, torso, pose, gait, leg, feet, arm } from './_kit.js';
 import { rideSet } from './_ride.js';
 
 const WL = W;
 // ----------------------------------------------------------------------------------------------- stances
-const ST = feet([0.2, 0.03, -0.02, -10, 4], [-0.2, 0.02, 0.06, -8, 36]);           // on the balls of the feet
+// C2 r27 (anim fix3; board r21 Opus: "the Duel guard crouch still pulls the knees inward", d_0261 = light_2's recovery): the leg
+// IK bends every knee toward her forward (bake pole ~8 deg out, runtime plant = straight forward), so a BENT knee over a foot
+// turned out 36 deg caved in (probe r27/idle_knees.mjs). Guard feet: front foot nearly straight (knee over the toes), wider,
+// back foot turned out less (36 -> 10) and set further back so its knee bends less. Strike keys keep their own feet.
+const ST = feet([0.2, 0.03, -0.04, -10, 0], [-0.28, 0.02, 0.08, -8, 10]);           // on the balls of the feet
 const ST_W = feet([0.3, 0, -0.04, 0, 4], [-0.28, 0.02, 0.08, -10, 40]);
 const G_T = torso({ pelvis: -24, yaw: 8, pitch: -9, look: 0.95 });
 const G_R = W([0.55, 0.04, 0.24], dir(-8, 20), [0, 0.3, 1]);
@@ -29,40 +33,139 @@ const TUCK_LEGS = pose(leg('L', { thigh: [0.9, -0.3, -0.12], shin: [-0.5, -0.9, 
   leg('R', { thigh: [0.75, -0.55, 0.12], shin: [-0.6, -0.8, 0.1], toe: [0.4, -0.9, 0] }));
 
 // ----------------------------------------------------------------------------------------------- locomotion
-const walk = gait({
-  P: 0.56, v: 3.85, duty: 0.48, cx: 0.38, lift: 0.12, heel: 0.12, bob: 0.03, hipsY: -0.08, twist: 10, lean: -7, width: 0.0,
-  upper: (ph) => {
-    const s = Math.sin(ph * Math.PI * 2);
-    return {
-      wpn: W([0.28 + s * 0.1, -0.5, 0.42], dir(30 + s * 10, -30), [0, 0.3, 1]),
-      wpnL: WL([0.28 - s * 0.1, -0.5, -0.42], dir(-30 + s * 10, -30), [0, 0.3, -1]),
-    };
-  },
+// C2 r25 (anim fix; board r19 Sol: "held upper body ... mannequin-like"): dancer's balance. The arms swing
+// contralateral to the legs (right hand forward as the left foot lands, ph 0) instead of a quarter cycle late; the chest
+// counter-rotates against the pelvis (net shoulders ~7 deg the other way) while the head holds the line (look .9) and
+// counter-tilts the shoulder roll; clavicles ride forward/back with each arm; a light bounce (bob + chest pitch twice a
+// cycle); the sabres' wrists lag the hands (follow-through), so the blades flick instead of hanging rigid.
+const TAU = Math.PI * 2;
+// C2 r26 (anim fix2; board r20 Sol: "the upright walk torso and repeated elbows-out carriage still feel mechanical"):
+// (a) the chest engages forward (pitch -7 -> -11; the head keeps the line, look .9); (b) elbows in: the hands ride closer
+// to the body (z .42 -> .38 arm lengths; an FK upper-arm elbow hint was tried and dropped: its joint configuration made the
+// walk-tap -> idle -> run blend swing Dawn through the right thigh for a frame, gate r26 it1); (c) less repetition: the loop is TWO strides (1.12 s)
+// and the wrist play, hand height and blade lift vary on a half-rate wave, different per sabre (Dawn and Dusk no longer
+// mirror each other), so no two consecutive steps carry the blades the same way. Legs are the same gait twice.
+// C2 r28 (anim fix4; board r22 Sol: "walk keeps the elbows winged and wrists near the hips"): the arm IK bends each elbow
+// toward 0.4 x a fixed out-down-back default + 0.6 x the FK upper-arm direction, and with the upper arm left at the A-pose
+// (40 deg out) that pole points ~80% OUTWARD: winged elbows (walk upper arms 50 deg out of her side plane, elbows .22 m out).
+// ELBOW(bR, bL) = an FK upper-arm hint (chest frame, z = outward for that side) that only seeds the pole; the IK still owns
+// the arm. ONE shared configuration in idle + walk + run (r26 tried it in the walk alone: the walk-tap -> idle -> run blend
+// between two different elbow configurations swung Dawn through the thigh), so locomotion blends stay a pure elbow swivel.
+const ELBOW = (bR, bL = bR) => ({ ...arm('R', { upper: bR }), ...arm('L', { upper: [bL[0], bL[1], -bL[2]] }) });
+const EL_DOWN = [-0.45, -1, -0.08];   // elbows down and a little back, close to the ribs
+const ELBOW_DOWN = ELBOW(EL_DOWN);
+// run: the hint follows the pump (k = 1 hand forward: elbow down under the shoulder; k = -1 hand back: elbow back, up and out).
+// A little more outward than EL_DOWN all through the pump: the plait swings ~15 deg sideways in the run and a fully tucked elbow
+// passed 9 cm from it (gate it2/it3 braid-arm .093 m; r27 .137 m with the elbows winged .33 m out).
+const elRun = (k) => { const u = (1 + k) / 2; return [-0.85 + 0.45 * u, -0.45 - 0.55 * u, 0.35 - 0.2 * u]; };
+const WALK_P = 0.56;
+// C2 r28: hands forward of the hips and in (z .38 -> .3, x .3 -> .42 arm lengths), elbows down by the ribs; Dawn's tip
+// forward-out and DOWN (az 32 -> 14, a real downward angle) so from the side the gold blade leaves the body ahead of the front
+// thigh instead of lying across it (board r22 Opus: "in walk and idle the gold sabre lies flat across the front thigh").
+const walkUpper = (cyc) => (ph) => {
+  const a = TAU * ph, c = Math.cos(a), w = Math.cos(a - 0.9), s = Math.sin(TAU * (ph - 0.24)), c2 = Math.cos(2 * a);
+  const hv = Math.PI * (ph + cyc), vR = Math.sin(hv), vL = Math.cos(hv + 0.8);   // one slow wave per two strides
+  const yR = -0.5 + 0.03 * c * c + 0.025 * vR, yL = -0.52 + 0.03 * c * c + 0.025 * vL;
+  return {
+    pose: { ...torso({ pelvis: -8 * c, yaw: 15 * c, pitch: -11 - 1.5 * c2, roll: 3 * s, pelvisRoll: -3 * s, look: 0.9, hr: -1.5 * s }),
+      clavicle_R: [-1 - c, 6 * c, 0], clavicle_L: [1 - c, 6 * c, 0], ...ELBOW_DOWN },
+    wpn: W([0.42 + 0.12 * c, yR, 0.3], dir(14 + (6 + 3 * vR) * w + 3 * vL, -30 + (5 + 3 * vR) * w), [0, 0.3, 1]),
+    wpnL: WL([0.42 - 0.1 * c, yL, -0.3], dir(-26 + (6 + 4 * vL) * w - 3 * vR, -28 - (5 + 3 * vL) * w), [0, 0.3, -1]),
+  };
+};
+const walkGait = (cyc) => gait({
+  P: WALK_P, v: 3.85, duty: 0.48, cx: 0.38, lift: 0.12, heel: 0.12, bob: 0.036, hipsY: -0.08, twist: 10, lean: -11, width: 0.0,
+  upper: walkUpper(cyc),
 });
-const run = gait({
+const walk = [...walkGait(0), ...walkGait(1).map((k) => ({ ...k, t: k.t + WALK_P }))];
+// C2 r24 (anim): push-off toe lift. The gait pitches the foot toes-down (pushOff) faster than it raises the ankle, so the
+// boot tip sank up to 33 mm into the floor (foot probe, r18). Raise the ankle so the boot pivots on its tip instead.
+const TOE_L = 0.21;
+// Blade sweep for the run pump: c = 1 leading → c = 0 the mid direction → c = -1 trailing (quadratic blend, normalised).
+const sweep = (lead, mid, trail, c) => {
+  const a = ((1 + c) * (1 + c)) / 4, m = (1 - c * c) / 2, b = ((1 - c) * (1 - c)) / 4;
+  const v = [0, 1, 2].map((i) => a * lead[i] + m * mid[i] + b * trail[i]), l = Math.hypot(...v) || 1;
+  return v.map((x) => x / l);
+};
+const toeLift = (f) => (f && f[3] < 0 ? [f[0], Math.max(f[1], TOE_L * Math.sin((-f[3] * Math.PI) / 180)), ...f.slice(2)] : f);
+const lifted = (keys) => keys.map((k) => ({ ...k, footL: toeLift(k.footL), footR: toeLift(k.footR) }));
+const runKeys = lifted(gait({
   P: 0.5, v: 8.84, duty: 0.22, cx: 0.44, lift: 0.36, heel: 0.1, bob: 0.05, hipsY: -0.1, hipsX: 0.08, twist: 9, lean: -24,
   flight: 0.15, strike: 4, pushOff: 42, width: 0.0,
   upper: (ph) => {
-    const s = Math.sin(ph * Math.PI * 2);
-    return {  // blades trailing: the dancer's sprint
-      wpn: W([-0.3 - s * 0.06, -0.34, 0.42], dir(172, -8 + s * 4), [0, 0.3, 1]),
-      wpnL: WL([-0.3 + s * 0.06, -0.34, -0.42], dir(-172, -8 - s * 4), [0, 0.3, -1]),
+    // C2 r25 (anim fix; board r19 Opus: "one fist stays locked at the hip and the gold sabre is held stiff and level;
+    // the arms never pump"): both arms PUMP contralateral to the legs (right hand forward as the left foot lands), the
+    // leading sabre angled forward-up, the trailing one back-up; between them each blade sweeps up and OUT over the
+    // shoulder line (never down: tips stay high, nothing crosses the legs or the hip drape), its wrist lagging the hand.
+    // The pelvis turns with the forward leg and the chest counter-rotates (net shoulders ~9 deg the other way), the
+    // clavicles push forward with each arm, the chest dips at every contact; the head holds the line (look .88).
+    const a = TAU * (ph + 0.03), c = Math.cos(a), cb = Math.cos(a - 0.4), s = Math.sin(TAU * (ph - 0.11));
+    const hand = (k) => [0.02 + 0.4 * k, -0.17 + 0.12 * k - 0.06 * (1 - k * k), 0.45 - 0.02 * k + 0.03 * (1 - k * k)];
+    const R = hand(c), L = hand(-c);
+    return {
+      pose: { ...torso({ pelvis: -10 * c, yaw: 19 * c, pitch: -24 - 2 * Math.cos(2 * a), roll: 3.5 * s, pelvisRoll: -3 * s, look: 0.88 }),
+        clavicle_R: [-1.5 * (1 + c), 7 * c, 0], clavicle_L: [1.5 * (1 - c), 7 * c, 0], ...ELBOW(elRun(c), elRun(-c)) },
+      wpn: W(R, sweep(dir(24, 38), [0, 0.7, 0.72], dir(158, 30), cb), [0, 0.3, 1]),
+      wpnL: WL([L[0], L[1], -L[2]], sweep(dir(-24, 38), [0, 0.7, -0.72], dir(-158, 30), -cb), [0, 0.3, -1]),
     };
   },
-});
+}));
+// C2 r25: the loop STARTS at ph 0.25 (both blades mid-sweep, up and out = nearest the idle hold). Hero.js plays 'run'
+// from t 0 with a 0.1 s fade; from ph 0 the idle->run blend slerped Dusk the long way round (~130 deg in one frame,
+// gate whip 4,400 deg/s). Footstep events shift with it (L lands at n 0.77, R at 0.27).
+const RUN_START = 4;   // of 16 samples
+const run = runKeys.map((_, i) => ({ ...runKeys[(i + RUN_START) % runKeys.length], t: (i * 0.5) / runKeys.length }));
 
 // Seraphine owns both hover and READY presentation; confirmation must retain the body line.
+// C2 r25 (anim fix; board r19 Opus: "the select pose is passive and sway-backed, pelvis forward and sabres hanging low,
+// next to Brann's raised greatsword"): an ACTIVE dancer's guard. Weight forward over the balls of the feet (front heel
+// up, hips a touch forward, chest leaning in -6 instead of the r24 S-curve that pushed the pelvis out), chin level,
+// head turned toward the select camera (~20 deg to her right). Dawn (right) RAISED high above the right shoulder, blade
+// flaring up and out-back over the shoulder line (flat to the camera); Dusk (left) extended low and forward in guard,
+// pointing down-forward-left. One diagonal line from the raised gold sabre to the low violet one, both inside the frame.
+// C2 r26 (anim fix2; board r20 Opus: "the select pose is knock-kneed (knees together, feet splayed)"): the knees solve
+// toward her forward (bake + runtime plant pole), so a BENT knee over a turned-out foot caved in (r25: back knee 33 deg
+// inside its toe line, select_knees.mjs). Now a grounded dancer's stance: the front (left) foot FLAT and turned out 16
+// deg with its knee bent over the toes, the back (right) leg long (near-straight knee) on the ball of a turned-out foot,
+// hips forward over the front foot and squarer (pelvis -16 -> -8; the chest keeps its net turn, so the raised Dawn and
+// the low Dusk keep their r25 lines).
+const SEL = (b) => ({
+  pose: { ...torso({ pelvis: -8 - b, yaw: 4 + b, pitch: -6 - b * 0.6, roll: 4, pelvisRoll: -4, look: 0.7, hy: -14, hp: 2.5 }),
+    clavicle_R: [-7 - b, 0, 0] },
+  hips: [0.06, -0.07 - b * 0.004, -0.01],
+  ...feet([0.2, 0, -0.03, 0, 16], [-0.3, 0.03, 0.08, -8, 30]),
+  wpn: W([0.16, 0.92 + b * 0.01, 0.4], dir(95 - b * 3, 48 + b), [0.9, 0.2, 0.35]),
+  wpnL: WL([0.44, -0.4 - b * 0.005, -0.28], dir(-38 + b * 2, -26 + b), [0.9, 0.2, -0.3]),
+});
+// C2 r25 (anim fix; board r19 Sol: counter-motion): the guard idle keeps r24's grips, feet and blade lines (gate-proven)
+// but breathes like a dancer: the weight sways between the feet (hips z) with the pelvis dropping on the free side, the
+// chest counter-rolls and turns a little, the head counter-tilts, the clavicles follow, a light 1 Hz bounce on the balls
+// of the feet, and both wrists play (Dawn's tip circles ±12 deg, Dusk's ±7 deg, out of phase). 24 samples, Catmull-Rom.
+// C2 r27: idle feet = the same knee-over-toe logic as select_stand (r26): the front (left) foot flat and nearly straight with the
+// knee bent over the toes, the back (right) leg long on the ball of a foot turned out 8 deg (r26: 28 deg with an 18 cm knee bend =
+// the knee 31 deg inside its toe line), both feet a little wider; hips forward over the front foot.
+const IDLE_FEET = feet([0.17, 0, -0.05, 0, 0], [-0.34, 0.035, 0.08, -9, 8]);
+const IDLE_KEYS = Array.from({ length: 25 }, (_, i) => {
+  const u = i / 24, a = TAU * u, s1 = Math.sin(a), c1 = Math.cos(a), c2 = Math.cos(2 * a);
+  return {
+    f: i * 5,
+    pose: { ...torso({ pelvis: -20 + 2 * c1, yaw: 8 + 3 * s1, pitch: -4 + 0.8 * c2, roll: 2 + 2.5 * s1, pelvisRoll: -3 * s1, look: 0.95, hr: -1.2 * s1 }),
+      clavicle_R: [-0.8 * (1 + s1), 2.5 * s1, 0], clavicle_L: [0.8 * (1 - s1), 2.5 * s1, 0], ...ELBOW_DOWN },
+    hips: [0.04 + 0.008 * c1, -0.045 - 0.004 * (1 - Math.cos(4 * a)), 0.012 * s1],
+    ...(i === 0 ? IDLE_FEET : {}),
+    // C2 r27 (board r21 Opus: "the showcase idle sets her hands on her hips while holding drawn sabres"): a sabre-ready carry.
+    // Both hands low, forward of the hips and out past them (arms long, elbows soft), the blades angled forward-out and a little
+    // down, wrists relaxed and playing (Dawn's tip circles +-10 deg, Dusk's +-7 deg, out of phase). Close to the walk carry, so
+    // idle <-> walk blends stay short.
+    // C2 r28: hands further forward (x .42 -> .52), a little higher and in, elbows down and soft (ELBOW_DOWN, shared with walk/run); Dawn's tip forward-out
+    // and down (dir(46,-10) -> dir(14,-30): from the side the gold blade now leaves the body ahead of the front thigh).
+    wpn: W([0.52 + 0.02 * s1, -0.61 + 0.012 * c2, 0.34], dir(14 + 8 * Math.sin(a + 0.6), -30 + 4 * Math.sin(2 * a + 1)), [0, 0.3, 1]),
+    wpnL: WL([0.48 - 0.02 * s1, -0.65 + 0.01 * c2, -0.42], dir(-48 - 7 * Math.sin(a + 1.4), -16 + 4 * Math.sin(2 * a + 2)), [0, 0.3, -1]),
+  };
+});
 const SELECT_PRESENTATION = {
-  // C2 r10 (Seraphine iter 17): hip over the support foot, counter-rotated shoulders and bent off arm; weight over the
-  // right (back) leg with that hip up, the left knee relaxed forward/in on a raised heel, shoulders counter-tilted,
-  // head turned; Dawn lowered clear of the torso, Dusk held at the hip. The static presentation clears the body,
-  // so disable the gameplay blade guard, which otherwise rotates the low sabre up beside her face.
   frames: 120, loop: true, plant: 1, guard: 0, breathe: 0.8, tags: ['idle'],
-  keys: [
-    { f: 0, pose: { ...torso({ pelvis: -24, yaw: 29, pitch: -3, roll: 31, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.045, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.58, 0.53], dir(34, -58), [0.92, 0.19, 0.35]), wpnL: WL([0.12, -0.25, -0.36], dir(-90, -38), [0.92, 0.19, 0.35]) },
-    { f: 60, pose: { ...torso({ pelvis: -24, yaw: 30, pitch: -2, roll: 30, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.049, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.57, 0.53], dir(35, -57), [0.92, 0.19, 0.35]), wpnL: WL([0.13, -0.26, -0.36], dir(-90, -39), [0.92, 0.19, 0.35]) },
-    { f: 120, pose: { ...torso({ pelvis: -24, yaw: 29, pitch: -3, roll: 31, pelvisRoll: -20, look: 0.55, hy: -26, hp: 3, hr: -4 }), upperarm_L: [48, 0, -15] }, hips: [-0.015, -0.045, 0.18], ...feet([0.24, 0.10, 0.12, -35, 5], [-0.025, 0, -0.012, 0, 12]), wpn: W([0.14, -0.58, 0.53], dir(34, -58), [0.92, 0.19, 0.35]), wpnL: WL([0.12, -0.25, -0.36], dir(-90, -38), [0.92, 0.19, 0.35]) },
-  ],
+  keys: [{ f: 0, ...SEL(0) }, { f: 60, ease: 'inOut', ...SEL(1) }, { f: 120, ease: 'inOut', ...SEL(0) }],
 };
 
 export default {
@@ -70,22 +173,11 @@ export default {
   clips: {
     // riding: Dawn raised, Dusk held low along the flank (no reins — knees steer); a falling cut from the saddle
     ...rideSet({ carry: W([0.46, -0.02, 0.36], dir(10, 40), [0, 0.3, 1]), carryL: W([0.3, -0.36, -0.42], dir(160, -30), [0, 0.3, -1]), up: W([0.0, 0.86, 0.36], dir(170, 40), [0, 0, 1]), hit: W([0.8, 0.02, 0.3], dir(10, -24), [0, 0, 1]), follow: W([0.56, -0.42, -0.1], dir(-40, -50), [0, 0, 1]) }),
-    idle: {  // relaxed asymmetric guard; weight settles over a supporting leg
-      frames: 120, loop: true, plant: 1, breathe: 0.65, tags: ['idle'],
-      keys: [
-        { f: 0, pose: torso({ pelvis: -20, yaw: 8, pitch: -4, roll: 2, look: 0.95 }), hips: [0.015, -0.045, 0],
-          ...feet([0.15, 0, -0.02, 0, 6], [-0.15, 0.018, 0.04, -7, 28]),
-          wpn: W([0.38, -0.10, 0.30], dir(8, 25), [0, 0.3, 1]), wpnL: WL([0.26, -0.32, -0.32], dir(-26, -24), [0, 0.3, -1]) },
-        { f: 40, ease: 'inOut', pose: torso({ pelvis: -18, yaw: 10, pitch: -3, roll: 1, look: 0.95 }), hips: [0.025, -0.035, 0],
-          wpn: W([0.40, -0.08, 0.30], dir(10, 27), [0, 0.3, 1]) },
-        { f: 80, ease: 'inOut', pose: torso({ pelvis: -22, yaw: 7, pitch: -5, roll: 2, look: 0.95 }), hips: [0.005, -0.047, 0],
-          wpn: W([0.37, -0.11, 0.31], dir(7, 24), [0, 0.3, 1]), wpnL: WL([0.28, -0.30, -0.32], dir(-24, -22), [0, 0.3, -1]) },
-        { f: 120, ease: 'inOut', pose: torso({ pelvis: -20, yaw: 8, pitch: -4, roll: 2, look: 0.95 }), hips: [0.015, -0.045, 0],
-          wpn: W([0.38, -0.10, 0.30], dir(8, 25), [0, 0.3, 1]), wpnL: WL([0.26, -0.32, -0.32], dir(-26, -24), [0, 0.3, -1]) },
-      ],
+    idle: {  // relaxed asymmetric guard; weight settles over a supporting leg (C2 r25: IDLE_KEYS, dancer's balance)
+      frames: 120, loop: true, plant: 1, breathe: 0.65, tags: ['idle'], keys: IDLE_KEYS,
     },
-    walk: { duration: 0.56, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
-    run: { duration: 0.5, loop: true, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
+    walk: { duration: 2 * WALK_P, loop: true, keys: walk, events: [{ n: 0.01, name: 'footstep', foot: 'L' }, { n: 0.26, name: 'footstep', foot: 'R' }, { n: 0.51, name: 'footstep', foot: 'L' }, { n: 0.76, name: 'footstep', foot: 'R' }] },
+    run: { duration: 0.5, loop: true, keys: run, events: [{ n: 0.27, name: 'footstep', foot: 'R' }, { n: 0.77, name: 'footstep', foot: 'L' }] },
 
     // ------------------------------------------------------------------------------------------- string
     // light_1: Dawn (right) flat forehand cut right → left (4 / 3 / 12)

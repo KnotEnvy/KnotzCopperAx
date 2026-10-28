@@ -25,8 +25,10 @@ export default {
   enemy_skeleton_purple: { kind: 'character', weapon: 'weapon_sword_bone', notes: 'elite' },
   enemy_knight: { kind: 'character', weapon: 'weapon_halberd', notes: 'silver / Lt.' },
   enemy_knight_silver: { kind: 'character', weapon: 'weapon_halberd', notes: 'Lt.' },
-  enemy_knight_red: { kind: 'character', weapon: 'weapon_halberd', notes: 'Col.' },
-  enemy_knight_gold: { kind: 'character', weapon: 'weapon_halberd', notes: 'Gen.' },
+  enemy_knight_red: { kind: 'character', weapon: 'weapon_halberd_red', notes: 'Col.' },
+  enemy_knight_gold: { kind: 'character', weapon: 'weapon_halberd_gold', notes: 'Gen.' },
+  weapon_halberd_red: { kind: 'weapon', notes: 'r23 crimson Colonel pennant' },
+  weapon_halberd_gold: { kind: 'weapon', notes: 'r23 purple-gold General pennant' },
   // enemies-art-3: Ogre Brute hide tiers (Brute Brothers = green + red) + Viper Maiden tiers (+ Wyrm Rider captain)
   enemy_ogre: { kind: 'character', weapon: 'weapon_ogre_hammer', notes: 'green' },
   enemy_ogre_green: { kind: 'character', weapon: 'weapon_ogre_hammer' },

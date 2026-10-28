@@ -2,7 +2,7 @@
 // the pelvis snaps before the shoulders, the head bit buries itself in the follow-through and the whole body sinks
 // into the ground on impact. Headbutt dash, grapple-heavy close game, INVULNERABLE backward roll-stab back attack.
 // Frames match characters/movesets/gorrim.js (strike pose on the first ACTIVE tick). Both hands on the haft (profile
-// grip lock, off hand 0.34 m toward the butt) except where a key sets grip: 0 (headbutt, grabs, throws, run).
+// grip lock, off hand 0.34 m toward the butt) except where a key sets grip: 0 (headbutt, grabs, throws, victory).
 // Axe goals: W(at, haft, bit) — `at` = right-hand grip point from the posed chest in arm lengths, haft = weapon +Y
 // (toward the head), bit = which way the cutting edge faces. C(haft, n) computes the bit so it LEADS the swing,
 // n = the swing's rotation axis: [0,0,-1] overhead chop, [0,1,0] right→left, [0,-1,0] left→right, [0,0,1] rising.
@@ -30,25 +30,61 @@ const g = (f, extra = {}) => ({ f, ...GUARD, ...extra });
 const LOW = C([0.08, -0.5, 0.46], dir(172, -30), DOWN);
 const CLINCH = { pose: torso({ pelvis: -12, yaw: 12, pitch: -12, look: 1 }), hips: [0.02, -0.14, 0], ...ST_WIDE, wpn: LOW, handL: [0.72, 0.18, -0.06], grip: 0 };
 
+// ----------------------------------------------------------------------------------------------- carry (C2 r25 anim)
+// Pose #1 of docs/refs/c2/heroes/gorrim_r24_poses.png: the low, heavy two-hand carry. The haft runs level across the
+// belt, the right hand at the head end by the right hip, the off hand 0.34 m toward the butt in front of the belly; the
+// head hangs out to his RIGHT and LOW with the bits up/down (broad face to the front and select cameras). The Sept idle
+// held the head up in front of the face (close_0: blade over the face). Used by idle, walk and select_stand.
+const CARRY_EDGE = [0.3, 1, 0];   // bits up/down, the upper bit tipped a little forward
+const CARRY = (dx = 0, dy = 0, az = 0, el = 0) => W([0.62 + dx, -0.34 + dy, -0.06], dir(80 + az, -6 + el), CARRY_EDGE);
+const ST_IDLE = feet([0.12, 0, -0.1, 0, 14], [-0.12, 0, 0.13, 0, 26]);   // wide, nearly square squat, left foot a touch ahead
+const IDLE = { pose: torso({ pelvis: -8, yaw: 5, pitch: -7, look: 0.9 }), hips: [0, -0.21, 0], ...ST_IDLE, wpn: CARRY(), grip: 1 };
+// Run trail (pose #3): both hands at the right hip, the haft pointing back-out so the head trails low at his right-back.
+// az 112 (not straight back): the idle/walk carry is az 80 and the run fade is 0.1 s, so the haft turns ~35 deg, no whip.
+const TRAIL = (dx = 0, dy = 0, az = 0, el = 0) => W([0.46 + dx, -0.36 + dy, 0.08], dir(112 + az, -4 + el), [0.15, 1, 0]);
+// r26: weapon goals are char-space (they do not turn with the chest), so a locomotion carry that should ride the
+// shoulders is turned here: yaw a whole goal (grip point about the chest, haft, bit) by a degrees (+ = to his LEFT).
+const TAU = Math.PI * 2;
+const yawV = (v, a) => { const c = Math.cos(a * Math.PI / 180), s = Math.sin(a * Math.PI / 180); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; };
+const yawW = (w, a) => ({ at: yawV(w.at, a), blade: yawV(w.blade, a), edge: yawV(w.edge, a) });
+
 // ----------------------------------------------------------------------------------------------- locomotion
 // Short legs: quicker cadence. v in hip-heights/s at clip speed 1 (walk 2.72 m/s, hip 0.62 m, animator ×1.19).
+// r26 WALK — heavy dwarf roll (board r5: "upper body and axe locked while only the legs cycle"). The pelvis swings its
+// leading hip forward at each contact and the shoulders counter-rotate against it; the body settles onto every footfall
+// (low point just after contact, leaning into it), rocks over the stance foot (hips shift, pelvis drops on the swing
+// side, the chest tips toward the planted leg), and the two-hand carry rides the shoulders: the axe head swings
+// fore/aft with them a beat late and dips after each footfall. Foot timing (P, v, duty, cx) unchanged since r25.
+const WK = { pelvis: 12, chest: 10, roll: 4.5, pRoll: 3, bob: 0.06, sway: 0.065, lean: -10 };
 const walk = gait({
-  P: 0.5, v: 3.7, duty: 0.52, cx: 0.4, lift: 0.14, heel: 0.12, bob: 0.034, hipsY: -0.11, hipsX: 0.03, twist: 8, lean: -9,
-  width: 0.06, toeOut: 14, sway: 0.03,
+  P: 0.5, v: 3.7, duty: 0.52, cx: 0.4, lift: 0.14, heel: 0.12, bob: 0.042, hipsY: -0.13, hipsX: 0.03, twist: 10, lean: -8,
+  width: 0.07, toeOut: 14, sway: 0.055,
   upper: (ph) => {
-    const b = Math.sin(ph * Math.PI * 4);
-    return { wpn: C([0.42, -0.28 + b * 0.025, 0.14], dir(-8, 46 + b * 3), DOWN), grip: 1 };
+    const c = Math.cos(TAU * ph), s = Math.sin(TAU * ph);
+    const d = Math.cos(2 * TAU * (ph - 0.09));    // +1 = the settle just after each contact (L at 0, R at 0.5)
+    const dl = Math.cos(2 * TAU * (ph - 0.14));   // the heavy head dips a beat later
+    const pose = torso({ pelvis: -WK.pelvis * c, yaw: (WK.pelvis + WK.chest) * c, pitch: WK.lean - 3 * d, roll: -(WK.pRoll + WK.roll) * s, pelvisRoll: WK.pRoll * s, look: 0.9 });
+    const hips = [0.03, -0.13 - WK.bob * d, -WK.sway * s];
+    const sh = WK.chest * Math.cos(TAU * (ph - 0.06));   // shoulder line, lagged: the axe follows the shoulders
+    return { pose, hips, wpn: yawW(CARRY(0, -0.02 - 0.035 * dl, 0, 2 - 6 * dl + 3 * s), 1.1 * sh - 2.5), grip: 1 };   // biased back: the forward swing stays off the face
   },
 });
+// r26 RUN — HEADBUTT DASH (pose #3): pelvis tipped and the torso pitched hard (helm leads; the head only half
+// counter-rotated, more neck bend stretches the collar), a deep drop onto each stance and a nod into the push-off;
+// both hands stay on the haft at the right hip and PUMP with the stride — the grip drives forward/back with the
+// counter-rotating shoulders while the trailing head swings and bounces a beat late. Foot timing unchanged.
+const RN = { pelvis: 10, chest: 9, lean: -46, pPitch: -6 };
 const run = gait({
-  P: 0.42, v: 9.6, duty: 0.26, cx: 0.46, lift: 0.34, heel: 0.1, bob: 0.05, hipsY: -0.12, hipsX: 0.07, twist: 12, lean: -20,
+  P: 0.42, v: 9.6, duty: 0.26, cx: 0.46, lift: 0.34, heel: 0.1, bob: 0.075, hipsY: -0.17, hipsX: 0.12, twist: 9, lean: RN.lean,
   flight: 0.1, strike: 6, pushOff: 38, width: 0.06, toeOut: 12,
   upper: (ph) => {
-    const s = Math.sin(ph * Math.PI * 2);
-    return {  // axe carried on the shoulder like a lumberjack, off arm pumping hard
-      wpn: C([0.12 - s * 0.05, 0.12, 0.42], dir(168, 34 + s * 5), DOWN), grip: 0,
-      pose: arm('L', { upper: [0.6 * s, -0.8, -0.34], fore: [0.95 * s + 0.4, 0.5, -0.22] }),
-    };
+    const c = Math.cos(TAU * ph), s = Math.sin(TAU * ph);
+    const d = Math.cos(2 * TAU * (ph - 0.13));    // +1 = mid-stance (the kit's run hips are lowest here)
+    const dl = Math.cos(2 * TAU * (ph - 0.2));
+    const pose = torso({ pelvis: -RN.pelvis * c, yaw: (RN.pelvis + RN.chest) * c, pitch: RN.lean - 4 * d, pelvisPitch: RN.pPitch, roll: -3 * s, look: 0.45, hp: -8 });
+    const sh = RN.chest * Math.cos(TAU * (ph - 0.04));
+    const pump = Math.cos(TAU * (ph - 0.04));      // +1 = right shoulder forward: hands drive forward
+    return { pose, wpn: yawW(TRAIL(0.07 * pump, 0.03 - 0.04 * dl, -4 * pump, 7 - 7 * dl), 1.2 * sh), grip: 1 };
   },
 });
 
@@ -61,17 +97,20 @@ export default {
   clips: {
     // riding: axe on the shoulder, reins in the left fist; one-armed overhead chop
     ...rideSet({ carry: C([0.14, 0.12, 0.42], dir(168, 36), DOWN), up: C([-0.04, 0.9, 0.34], dir(172, 40), DOWN), hit: C([0.76, 0.0, 0.3], dir(8, -30), DOWN), follow: C([0.6, -0.4, 0.28], dir(0, -62), DOWN) }),
-    idle: {  // heavy-chested breathing, the axe bobbing, a shrug of the shoulders
+    // idle (r25): low heavy two-hand carry (CARRY), knees bent and weight sunk; a slow breathing lift, then a regrip
+    // settle (sink, the head dips and rolls a touch, settles back). The axe stays clear of the face from every front camera.
+    idle: {
       frames: 140, loop: true, plant: 1, breathe: 1.2, tags: ['idle'],
       keys: [
-        g(0),
-        g(46, { pose: torso({ pelvis: -17, yaw: 9, pitch: -10.5, look: 0.9 }), hips: [0.01, -0.13, 0], wpn: C([0.43, -0.27, 0.14], dir(-8, 45), DOWN) }),
-        g(94, { pose: torso({ pelvis: -15, yaw: 7, pitch: -8, look: 0.9, hy: -5 }), hips: [-0.005, -0.11, 0], wpn: C([0.42, -0.24, 0.15], dir(-10, 51), DOWN) }),
-        g(140),
+        { f: 0, ...IDLE },
+        { f: 50, ease: 'inOut', ...IDLE, pose: torso({ pelvis: -8, yaw: 4, pitch: -5.5, look: 0.9, hp: 2 }), hips: [0, -0.195, 0], wpn: CARRY(0, 0.025, 0, 1.5) },
+        { f: 86, ease: 'inOut', ...IDLE, pose: torso({ pelvis: -9, yaw: 6, pitch: -8.5, look: 0.9, hy: -3 }), hips: [0.005, -0.22, 0], wpn: CARRY(0.015, -0.03, -4, -4) },
+        { f: 102, ease: 'out', ...IDLE, pose: torso({ pelvis: -8.5, yaw: 5.5, pitch: -7.5, look: 0.9, hy: -1 }), hips: [0, -0.215, 0], wpn: CARRY(0, -0.005, 1.5, 0.5) },
+        { f: 140, ease: 'inOut', ...IDLE },
       ],
     },
     walk: { duration: 0.5, loop: true, keys: walk, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
-    run: { duration: 0.42, loop: true, grip: 0, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
+    run: { duration: 0.42, loop: true, grip: 1, keys: run, events: [{ n: 0.02, name: 'footstep', foot: 'L' }, { n: 0.52, name: 'footstep', foot: 'R' }] },
 
     // ------------------------------------------------------------------------------------------- the string
     // light_1: diagonal forehand chop, high-right → low-left, the bit ends near the floor (8 / 4 / 15)
@@ -460,32 +499,29 @@ export default {
       ],
       events: [{ f: 12, name: 'impact' }, { f: 22, name: 'impact' }, { f: 32, name: 'impact' }, { f: 36, name: 'roar' }],
     },
-    victory: {  // the Copper Ax thrust at the sky, fist pumping, beard to the wind
-      frames: 60, loop: true, grip: 0, breathe: 1,
+    // victory (r25; also the select READY clip): the Sept sky-thrust raised the axe overhead beside the helm (select READY
+    // 2x: arm over the beard). Now a squat, proud, laughing stance: the Copper Ax resting on the right shoulder with the
+    // head behind it, left fist on the belt, chest out and chin up; two hearty laugh bounces per loop. Face fully clear.
+    victory: {
+      frames: 60, loop: true, grip: 0, breathe: 1, plant: 1, guard: 0,
       keys: [
-        { f: 0, pose: torso({ pelvis: -12, yaw: -6, pitch: 10, look: 0.3, hp: 14 }), hips: [0, -0.06, 0], ...ST_WIDE, wpn: C([0.16, 1.02, 0.3], dir(4, 86), DOWN), handL: [0.36, 0.1, -0.5] },
-        { f: 15, ease: 'out', pose: torso({ pelvis: -12, yaw: -8, pitch: 12, look: 0.3, hp: 16 }), hips: [0, -0.04, 0], handL: [0.3, 0.7, -0.5] },
-        { f: 30, ease: 'in', pose: torso({ pelvis: -12, yaw: -6, pitch: 10, look: 0.3, hp: 14 }), hips: [0, -0.07, 0], wpn: C([0.18, 1.04, 0.3], dir(0, 88), DOWN), handL: [0.36, 0.08, -0.5] },
-        { f: 45, ease: 'out', pose: torso({ pelvis: -12, yaw: -8, pitch: 12, look: 0.3, hp: 16 }), hips: [0, -0.04, 0], handL: [0.3, 0.7, -0.5] },
-        { f: 60, ease: 'in', pose: torso({ pelvis: -12, yaw: -6, pitch: 10, look: 0.3, hp: 14 }), hips: [0, -0.06, 0], wpn: C([0.16, 1.02, 0.3], dir(4, 86), DOWN), handL: [0.36, 0.1, -0.5] },
+        { f: 0, pose: torso({ pelvis: -10, yaw: -3, pitch: 7, look: 0.4, hp: 10 }), hips: [0, -0.15, 0], ...ST_IDLE, wpn: W([0.24, 0.02, 0.5], dir(162, 36), [0.2, 0.4, 1]), handL: [0.16, -0.44, -0.5] },
+        { f: 12, ease: 'out', pose: torso({ pelvis: -10, yaw: -4, pitch: 10, look: 0.4, hp: 15 }), hips: [0, -0.125, 0], wpn: W([0.24, 0.05, 0.5], dir(162, 39), [0.2, 0.4, 1]), handL: [0.16, -0.42, -0.5] },
+        { f: 30, ease: 'inOut', pose: torso({ pelvis: -10, yaw: -3, pitch: 7, look: 0.4, hp: 10 }), hips: [0, -0.155, 0], wpn: W([0.24, 0.015, 0.5], dir(162, 35.5), [0.2, 0.4, 1]), handL: [0.16, -0.44, -0.5] },
+        { f: 42, ease: 'out', pose: torso({ pelvis: -10, yaw: -2, pitch: 10, look: 0.4, hp: 14 }), hips: [0, -0.13, 0], wpn: W([0.24, 0.045, 0.5], dir(162, 38.5), [0.2, 0.4, 1]), handL: [0.16, -0.42, -0.5] },
+        { f: 60, ease: 'inOut', pose: torso({ pelvis: -10, yaw: -3, pitch: 7, look: 0.4, hp: 10 }), hips: [0, -0.15, 0], ...ST_IDLE, wpn: W([0.24, 0.02, 0.5], dir(162, 36), [0.2, 0.4, 1]), handL: [0.16, -0.44, -0.5] },
       ],
     },
-    // select_stand (C2 r2, hero-weapons; src/ui/select3d.js plays it when it exists, else idle): the select camera is
-    // ~33 deg off his forward axis (char-space dir ≈ [0.96, 0.18, -0.21]); the idle/victory bits point forward = the head
-    // edge-on to that camera. Here the Copper Ax stands haft-up beside his head with the bits LEFT-RIGHT (flats to camera).
-    // C2 r3 (board r2: "Gorrim's select pose turns the ax head edge-on behind the haft across his chest"): the r2 one-handed
-    // haft-up stand asked the short arm for 0.9 arm lengths of reach; the IK fell short and laid the haft across the chest.
-    // Now the haft is held LEVEL in both hands in front of the belt (0.45 arm lengths: easy reach), the head out to his
-    // RIGHT clear of the body, bits up / down, the haft perpendicular to the camera ray so the double-bit's BROAD FACE
-    // squares to the select camera (char-space camera dir [0.96, 0.18, -0.21]: dir(80, 14) · cam = 0).
+    // select_stand (src/ui/select3d.js plays it when it exists, else idle). r25: the same low two-hand carry as the idle
+    // (pose #1), a prouder chest and chin (look 0.5) and a slow breath; the head out to his right with the bits up/down
+    // squares its broad face to the select camera (char-space dir ≈ SEL_CAM). guard: 0 — the pose clears the body by
+    // construction (the runtime torso guard once swung a level haft back over the chest, C2 r3).
     select_stand: {
-      // guard: 0 — the runtime blade guard (RigPost step 5, torso capsule) swung the level haft back to vertical over the
-      // chest in the select set; the pose is static and authored clear of the body, so the guard is off for this clip.
       frames: 140, loop: true, plant: 1, breathe: 1.2, grip: 1, guard: 0, tags: ['idle'],
       keys: [
-        { f: 0, pose: torso({ pelvis: -10, yaw: 6, pitch: 4, look: 0.5 }), hips: [0, -0.1, 0], ...ST_WIDE, wpn: C([0.44, -0.30, 0.20], dir(80, 14), SEL_CAM) },
-        { f: 70, pose: torso({ pelvis: -10, yaw: 7, pitch: 2, look: 0.5 }), hips: [0, -0.12, 0], ...ST_WIDE, wpn: C([0.44, -0.32, 0.20], dir(80, 15), SEL_CAM) },
-        { f: 140, pose: torso({ pelvis: -10, yaw: 6, pitch: 4, look: 0.5 }), hips: [0, -0.1, 0], ...ST_WIDE, wpn: C([0.44, -0.30, 0.20], dir(80, 14), SEL_CAM) },
+        { f: 0, pose: torso({ pelvis: -8, yaw: 4, pitch: 2, look: 0.5, hp: 3 }), hips: [0, -0.15, 0], ...ST_IDLE, wpn: CARRY(0.02, 0.02, 0, 2) },
+        { f: 70, ease: 'inOut', pose: torso({ pelvis: -8, yaw: 5, pitch: 0, look: 0.5, hp: 2 }), hips: [0, -0.165, 0], ...ST_IDLE, wpn: CARRY(0.02, -0.005, -1, 0) },
+        { f: 140, ease: 'inOut', pose: torso({ pelvis: -8, yaw: 4, pitch: 2, look: 0.5, hp: 3 }), hips: [0, -0.15, 0], ...ST_IDLE, wpn: CARRY(0.02, 0.02, 0, 2) },
       ],
     },
     // magic: storm — the Copper Ax raised two-handed to call the lightning (castPeak), then brought down

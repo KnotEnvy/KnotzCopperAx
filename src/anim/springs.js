@@ -8,6 +8,11 @@
 //   const sc = new SpringChains(rigInfo, profile); sc.nodes() → bones it writes (for FK restore)
 //   sc.update(dt, gain)      after all other pose work (reads the animated pose, writes rotations)
 //   sc.kick(worldVec)        velocity impulse (m/s) on every tip (hits, landings); sc.reset()
+//
+// Opt-in HANG (C2 r24 Seraphine, additive; absent = old behaviour): profile.springs.<fam>Hang (0..1) bends each bone's
+// TARGET direction from the animated one toward world down, tilted <fam>HangBack degrees toward the character's back,
+// before the spring, the cone limit and the gain blend use it. A plait then hangs behind her instead of turning with
+// the head (look-at yaw), while starts/stops still swing it around that hung target.
 import * as THREE from 'three';
 import { wp, wq, rotateWorld } from './ik.js';
 
@@ -21,6 +26,7 @@ const FAMILIES = [
 const G = new THREE.Vector3(0, -9.81, 0);
 const _H = new THREE.Vector3(), _P = new THREE.Vector3(), _a = new THREE.Vector3(), _d1 = new THREE.Vector3(), _d2 = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _t = new THREE.Vector3(), _c = new THREE.Vector3(), _e = new THREE.Vector3();
+const _Pt = new THREE.Vector3(), _hd = new THREE.Vector3(), _q2 = new THREE.Quaternion();
 
 function closestOnSeg(p, a, b, out) {
   const ab = _e.subVectors(b, a); const l2 = ab.lengthSq();
@@ -66,7 +72,8 @@ export class SpringChains {
           k: F.k * stiff * (1 - 0.35 * f), c: F.c, limit: ((this.gains[F.fam + 'Limit'] ?? F.limit) * (0.75 + 0.25 * f)) * Math.PI / 180, minD: {},
         };
       });
-      this.chains.push({ F, bones, gain: this.gains[F.fam] ?? 1 });
+      this.chains.push({ F, bones, gain: this.gains[F.fam] ?? 1, hang: Math.min(1, Math.max(0, this.gains[F.fam + 'Hang'] ?? 0)),
+        hangBack: ((this.gains[F.fam + 'HangBack'] ?? 0) * Math.PI) / 180 });
     }
     // colliders (model-space rest geometry → per-bone calibrated radii)
     const has = (n) => rig.bones.has(n);
@@ -117,34 +124,44 @@ export class SpringChains {
     if (!this.chains.length) return;
     const h = Math.min(dt, 1 / 30);
     const col = this._colliders(model);
+    let hangDir = null;
     for (const ch of this.chains) {
       const g = gain * ch.gain;
+      if (ch.hang > 0 && !hangDir) {   // world down tilted toward the character's back (glTF forward = model +Z)
+        const fw = _c.set(0, 0, 1).applyQuaternion(wq(model, _q2)); fw.y = 0;
+        if (fw.lengthSq() < 1e-8) fw.set(0, 0, 1);
+        fw.normalize();
+        hangDir = _hd.set(0, -1, 0);
+        hangDir.multiplyScalar(Math.cos(ch.hangBack)).addScaledVector(fw, -Math.sin(ch.hangBack)).normalize();
+      }
       for (const bn of ch.bones) {
         const node = bn.node;
         wp(node, _H);
         node.localToWorld(_P.copy(bn.off));
         const L = _P.distanceTo(_H);
-        if (!bn.init || bn.X.distanceTo(_P) > L * 4 + 0.5 || g <= 0) {
-          bn.X.copy(_P); bn.V.set(0, 0, 0); bn.Pa.copy(_P); bn.init = true;
+        // target tip: the animated one, optionally hung toward down/back (opt-in; hang 0 = the animated tip)
+        const P = ch.hang > 0 ? _Pt.subVectors(_P, _H).multiplyScalar(1 / Math.max(L, 1e-6)).lerp(hangDir, ch.hang).normalize().multiplyScalar(L).add(_H) : _P;
+        if (!bn.init || bn.X.distanceTo(P) > L * 4 + 0.5 || g <= 0) {
+          bn.X.copy(P); bn.V.set(0, 0, 0); bn.Pa.copy(P); bn.init = true;
           if (g <= 0) continue;
         }
         if (h > 0) {
           // animated tip velocity (for relative damping)
-          const va = _a.subVectors(_P, bn.Pa).multiplyScalar(1 / h);
-          const acc = _d1.subVectors(_P, bn.X).multiplyScalar(bn.k);
+          const va = _a.subVectors(P, bn.Pa).multiplyScalar(1 / h);
+          const acc = _d1.subVectors(P, bn.X).multiplyScalar(bn.k);
           acc.addScaledVector(_d2.subVectors(bn.V, va), -bn.c);
           acc.addScaledVector(bn.V, -ch.F.air);
           acc.addScaledVector(G, ch.F.grav);
           const V = bn.V.addScaledVector(acc, h);
           const X0 = _d2.copy(bn.X);
           bn.X.addScaledVector(V, h);
-          this._constrain(bn, ch, col, _H, _P, L);
+          this._constrain(bn, ch, col, _H, P, L);
           bn.V.subVectors(bn.X, X0).multiplyScalar(1 / h);
           if (bn.V.lengthSq() > 900) bn.V.setLength(30);
-        } else this._constrain(bn, ch, col, _H, _P, L);
-        bn.Pa.copy(_P);
+        } else this._constrain(bn, ch, col, _H, P, L);
+        bn.Pa.copy(P);
         // blend by gain, rotate the bone from the animated tip to the simulated one
-        _t.copy(_P).lerp(bn.X, g);
+        _t.copy(P).lerp(bn.X, g);
         const a = _d1.subVectors(_P, _H), b = _d2.subVectors(_t, _H);
         if (a.lengthSq() > 1e-10 && b.lengthSq() > 1e-10) {
           _q.setFromUnitVectors(a.normalize(), b.normalize());

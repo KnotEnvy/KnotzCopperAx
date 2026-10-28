@@ -9,6 +9,7 @@ export default {
   id: 'knight',
   name: 'Hollow Knight',
   asset: 'enemy_knight',
+  animCharacter: 'knight',   // r22 anim: own clips/profile (anim/clips/enemy_knight.js, profiles.js)
   height: 2.0,
   hp: 70,
   speed: 1.75,

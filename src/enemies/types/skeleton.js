@@ -10,6 +10,7 @@ export default {
   id: 'skeleton',
   name: 'Grave Skeleton',
   asset: 'enemy_skeleton',
+  animCharacter: 'skeleton',   // r22 anim: own profile (anim/profiles.js); clips = the generic set
   height: 1.8,
   hp: 30,
   speed: 2.7,

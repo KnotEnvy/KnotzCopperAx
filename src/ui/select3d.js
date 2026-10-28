@@ -252,8 +252,8 @@ const SELECT_GRADE = {
   // pushed (rimMul) so each reads as a bright edge against the darkened wall pocket; Seraphine's scene-lit share (hemi / fill / spot: flat light)
   // drops and her directional key carries her, so she gets a lit side and a real shadow side.
   brann: { key: '#ffe2c8', keyMul: 0.95, amb: ['#7f93c8', 0.09], scene: [0.95, 0.98, 1.03], rimMul: 1.7 },
-  seraphine: { key: '#ffe8d2', keyMul: 1.15, amb: ['#b4bdd6', 0.13], scene: [0.86, 0.83, 0.78], desat: 0.07, rough: 0.62, rimMul: 0.8 },
-  gorrim: { key: '#ffe6cc', keyMul: 1.18, amb: ['#7f93c8', 0.09], rimMul: 1.8 },
+  seraphine: { key: '#ffe8d2', keyMul: 1.05, amb: ['#d9c9b9', 0.25], scene: [0.86, 0.83, 0.78], desat: 0.03, rough: 0.62, rimMul: 0.8 },
+  gorrim: { key: '#ffe6cc', keyMul: 1.18, amb: ['#c9a98c', 0.055], scene: [0.42, 0.40, 0.35], rimMul: 0.8 },
 };
 function gradeSelectHero(h, id) {
   const g = SELECT_GRADE[id];

@@ -29,3 +29,4 @@ blender/out/seraphine_head_*/
 blender/out/viper_head_sdf_*.npz
 blender/out/viper_head_*/
 tmp/
+progress/qa/model/

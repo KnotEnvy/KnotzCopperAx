@@ -39,9 +39,29 @@ export const PROFILES = {
     look: { yaw: 44, pitch: 20 },
     // r18: gain blends toward the constrained tip; >1 extrapolates past it.
     // A firmer, smaller response keeps the plait behind her during arm sweeps.
-    springs: { hair: 0.68, hairLimit: 18, stiff: 1.45 },
+    // C2 r24 (anim): hairHang/hairHangBack (opt-in, springs.js) hang the plait's target toward down, 10 deg behind her,
+    // instead of turning it with the head's look-at yaw (r18: ~25 deg into depth while running, 43 deg peaks at stops).
+    springs: { hair: 0.7, hairLimit: 15, stiff: 1.45, hairHang: 0.6, hairHangBack: 10 },
   },
   marauder: { blade: { R: 0.62, pommel: 0.12 }, weight: 1.1 },
+  // enemies-art-2 r22 (anim): weapon_halberd.glb tip y 1.50, butt -0.65, grip_offhand -0.34 (two-handed holds in
+  // clips/enemy_knight.js); the long tabard (kilt_F/B to mid-shin) swings slower and less so it stays off the legs.
+  knight: {
+    grip: { twoHand: true, off: -0.34, flip: 'auto' },
+    blade: { R: 1.5, pommel: 0.65 },
+    weight: 1.35,
+    breathe: 0.8,
+    look: { yaw: 30, pitch: 14 },
+    springs: { kilt: 0.6, stiff: 1.35 },
+  },
+  // weapon_sword_bone.glb tip y 0.79; light frame, the short rag loincloth flaps a bit more.
+  skeleton: {
+    blade: { R: 0.8, pommel: 0.15 },
+    weight: 0.8,
+    breathe: 0.5,
+    look: { yaw: 44, pitch: 20 },
+    springs: { kilt: 1.15 },
+  },
   dummy: { weight: 1.3, breathe: 0 },
 };
 
