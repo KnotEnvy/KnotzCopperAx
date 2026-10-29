@@ -51,10 +51,12 @@ export async function buildHall(ctx, kit, { low = false } = {}) {
   braz.push({ x: THRONE.x - 5.4, y: 0.0, z: THRONE.z - 0.6 }, { x: THRONE.x + 5.4, y: 0.0, z: THRONE.z - 0.6 });
   braz.push({ x: ALTAR.x - 3.3, y: 0, z: ALTAR.z + 0.4, s: 0.75 }, { x: ALTAR.x + 3.3, y: 0, z: ALTAR.z + 0.4, s: 0.75 });
   kit.place(group, 'brazier', braz, { castShadow: true });
+  // env r32: witchfire kept SMALL and contained (was 1.25 m flames + 2.6 m glow cards: the brightest, most blooming
+  // shapes in the hall); the analytic pools below are unchanged
   braz.forEach((b, i) => {
     const s = b.s || 1, y = 1.55 * s;
-    fx.flame([b.x, y, b.z], { height: 1.25 * s, width: 0.8 * s, intensity: 4.2, seed: i * 0.37, soot: false });
-    fx.glow([b.x, y + 0.5 * s, b.z], { size: 2.6 * s, color: '#3cff70', intensity: 0.5 });
+    fx.flame([b.x, y, b.z], { height: 1.0 * s, width: 0.66 * s, intensity: 3.2, seed: i * 0.37, soot: false });
+    fx.glow([b.x, y + 0.42 * s, b.z], { size: 1.8 * s, color: '#3cff70', intensity: 0.3 });
     fires.push({ x: b.x, y: y + 0.55, z: b.z, i: 0.75 * s, seed: i * 1.7 });
   });
 
@@ -125,16 +127,17 @@ export async function buildHall(ctx, kit, { low = false } = {}) {
   shaft.position.set(ALTAR.x, 7.3, ALTAR.z + 0.2); group.add(shaft);
 
   // ---------------------------------------------------------------- captives on chains
-  const chainMat = patchMaterial(new THREE.MeshStandardMaterial({ color: '#77777c', metalness: 0.85, roughness: 0.42 }), { key: 'chain' });
+  // env r32: chains catch the cool architecture rake (archK) so the captive supports read against the hall
+  const chainMat = patchMaterial(new THREE.MeshStandardMaterial({ color: '#77777c', metalness: 0.85, roughness: 0.42 }), { key: 'chain', archK: 1 });
   const link = new THREE.TorusGeometry(0.06, 0.017, 6, 10);
   const linkMats = [];
   // captives are story focal points hanging in the gloom: soft key lift + emerald rim so they read against the hall
   const captiveMat = patchMaterial(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.75 }), {
-    key: 'captive',
+    key: 'captive', archK: 0.6,
     surface: /* glsl */`
       float fr = pow(1.0 - clamp(dot(s5N, s5V), 0.0, 1.0), 2.5);
       float key = clamp(dot(s5N, normalize(vec3(-0.4, 0.5, 0.8))) * 0.6 + 0.4, 0.0, 1.0);
-      s5Emit = diffuseColor.rgb * key * 0.55 + vec3(0.25, 0.9, 0.45) * fr * 0.35;
+      s5Emit = diffuseColor.rgb * key * 0.55 + vec3(0.4, 0.58, 0.95) * fr * 0.3;   // env r32: cool separation rim (was emerald)
       if (vS5Mask > 0.2 && vS5Mask < 0.37) { metalnessFactor = 0.8; roughnessFactor = 0.35; }`,
     vertPars: 'varying float vS5Mask;\n',
     vertMain: '#ifdef USE_COLOR_ALPHA\n vS5Mask = color.a;\n#else\n vS5Mask = 0.0;\n#endif\n',

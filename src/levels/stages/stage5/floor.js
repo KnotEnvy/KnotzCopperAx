@@ -1,5 +1,6 @@
-// Stage 5 floor: polished black-green obsidian slabs (2.4 m) framed by a border of small basalt setts (mixed scale),
-// recessed seams with grime, fine glassy veins + conchoidal chips; witchfire and the relic mirror in the glass.
+// Stage 5 floor: worn black-green obsidian slabs (2.4 m) framed by a border of small basalt setts (mixed scale),
+// recessed seams with grime, fine glassy veins + conchoidal chips; env r32: rough worn surface (no mirror pools), a few
+// worn-polish patches keep short soft reflections of the witchfire.
 // The arena carries a bronze-inlaid coiled-serpent roundel; the gallery's near edge has COLLAPSED into a green-lit
 // abyss (ring-outs); three arena CRACK ZONES glow and open into pits on demand (Morvane phase 2).
 import * as THREE from 'three';
@@ -86,23 +87,49 @@ vec3 nW = vec3((h2 - 0.5) * 0.03, 1.0, (h3 - 0.5) * 0.03);
 // witchfire → 0.14 (the edge still turns, no longer a lit line)
 nW.xz += edir * bev * (inSlab > 0.5 ? 0.14 : 0.06);
 nW.xz += (vec2(s5n(p * 11.0), s5n(p * 11.0 + 3.3)) - 0.5) * (inSlab > 0.5 ? 0.02 + chip * 0.4 : 0.07);
+// r32 single fix: cleaved stone terraces and sparse edge spalls. These are normal/roughness changes; preserve the
+// approved slab albedo and dark seam calculation. Offset each slab's grain so no repeated stamp crosses the hall.
+mat2 turn = mat2(0.8, -0.6, 0.6, 0.8);
+vec3 bed = s5ng(p * 3.2 + vec2(h2, h3) * 13.0), grit = s5ng(turn * p * 9.5 + 17.0);
+vec3 cleft = s5cleft(p * 1.8 + vec2(h2, h3) * 5.0);
+float broken = smoothstep(0.46, 0.7, scuff) * inSlab;
+float cut = (1.0 - smoothstep(0.006, 0.03, cleft.x)) * broken;
+vec2 stoneSlope = bed.yz * 0.025 + transpose(turn) * grit.yz * 0.07;
+stoneSlope += cleft.yz * (1.0 - smoothstep(0.015, 0.085, cleft.x)) * broken * 0.12;
+float spall = inSlab * (1.0 - smoothstep(0.04, 0.24, edgeS)) * smoothstep(0.48, 0.76, grit.x);
+nW.xz -= stoneSlope * (1.0 - seam) * (inSlab > 0.5 ? 1.0 : 0.35);
+nW.xz += edir * spall * 0.13;
+// A few short fractures start at the existing cut edge and die inside the slab; no full-cell vein stamp or bright
+// outline. The fracture's core only darkens, while its rough lips tilt a little toward/away from the existing light.
+float along = e.x < e.y ? f.y : f.x;
+float scarD = along - (0.55 + 1.55 * h2 + 0.10 * sin(edgeS * 28.0 + h1 * 21.0));
+float scarReach = (1.0 - smoothstep(0.12, 0.45 + h1 * 0.3, edgeS)) * inSlab * step(0.48, h3);
+float scar = (1.0 - smoothstep(0.008, 0.028, abs(scarD))) * scarReach;
+nW.xz += vec2(edir.y, edir.x) * sign(scarD) * (1.0 - smoothstep(0.012, 0.065, abs(scarD))) * scarReach * 0.075;
 s5N = normalize(nW);
 normal = normalize((viewMatrix * vec4(s5N, 0.0)).xyz);
 diffuseColor.rgb = alb;
-s5Wet = inSlab > 0.5 ? 1.0 - dust * 0.6 : 0.15;
+// env r32: WORN ROUGH obsidian. The near-mirror slabs (rough 0.06, mirror 0.9) turned the stage back light and the
+// witchfire into repeated green-white glare pools, one per tilted slab. Slabs are now rough 0.72-0.86 with sparse
+// irregular worn-polish patches (down to ~0.5) that keep a few short broken reflections near the braziers.
+float wear = smoothstep(0.6, 0.84, s5fbm(p * 0.55 + h3 * 6.0)) * (1.0 - dust);
+s5Wet = inSlab > 0.5 ? (0.2 + 0.45 * wear) * (1.0 - dust * 0.6) : 0.1;
 // border setts: irregular — per-sett polish (some glassy like the slabs, most matte) under patchy grime, so the border
 // band melts into the slabs in places instead of drawing an even dark grid line around every slab
 float settPol = smoothstep(0.35, 0.95, s5h(sid + 7.1)) * (1.0 - smoothstep(0.3, 0.7, dust));
 // Dust + chips can exceed the polish budget; keep mirror weights nonnegative (pow(0, negative) is undefined).
-s5Mirror = inSlab > 0.5 ? max(0.9 - dust * 0.7 - chip * 0.6, 0.0) * (1.0 - seam) : settPol * 0.55 * (1.0 - seam);
-roughnessFactor = inSlab > 0.5 ? mix(0.06, 0.5, dust) + chip * 0.3  : 0.88;
+s5Mirror = inSlab > 0.5 ? max(0.3 * wear - dust * 0.2 - chip * 0.6, 0.0) * (1.0 - seam) : settPol * 0.08 * (1.0 - seam);
+roughnessFactor = inSlab > 0.5 ? clamp(mix(0.74, 0.86, dust) - 0.24 * wear + chip * 0.06, 0.5, 0.92) : 0.84;
+roughnessFactor = clamp(roughnessFactor + (scuff - 0.45) * 0.2 + spall * 0.12 + cut * 0.12 + (h2 - 0.5) * 0.08, 0.5, 0.96);
 // perf-1650 look fix: every slab's bevel (normals tilted toward the seam) mirrored the green witchfire into a thin
 // bright line and the rough sett border caught a broad sheen → the floor read as a neon grid. Bevels keep a quarter of
 // the direct specular, the matte setts a third; the slab faces are unchanged.
-s5SpecK = inSlab > 0.5 ? mix(1.0, 0.22, bev) : 0.1;   // setts: the green fire sheen on the rough border WAS the grid
+s5SpecK = inSlab > 0.5 ? mix(1.0, 0.22, bev) : 0.5;   // env r32: 0.1 → 0.5: the setts share the (now broad, rough) sheen so the border is no dark grid either   // setts: the green fire sheen on the rough border WAS the grid
 s5Mirror *= 1.0 - 0.95 * bev * inSlab;
-s5Mirror *= 1.0 - 0.8 * margin; s5SpecK *= 1.0 - 0.8 * margin;
-alb *= 1.0 - 0.45 * margin; diffuseColor.rgb = alb;
+// env r32: margin cut 0.8/0.45 → 0.3/0.25 — against the now evenly sheened slabs the old cut drew a wide dark grid
+s5Mirror *= 1.0 - 0.8 * margin; s5SpecK *= 1.0 - 0.3 * margin;
+alb *= 1.0 - 0.25 * margin; diffuseColor.rgb = alb;
+diffuseColor.rgb *= (1.0 - 0.16 * spall) * (1.0 - 0.38 * scar) * (1.0 - 0.22 * cut);
 metalnessFactor = inlay * 0.3;
 if (inlay > 0.5) { roughnessFactor = 0.6; s5Mirror = 0.0; s5Wet = 0.2; }
 s5Emit = vec3(0.25, 1.0, 0.45) * crackGlow * (1.6 + 0.6 * sin(s5Time * 5.0 + p.x));
@@ -128,7 +155,7 @@ void main() {
 export function buildFloor(ctx, kit) {
   const { group } = ctx;
   const mat = patchMaterial(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0 }), {
-    key: 'floor', surface: FLOOR_SURFACE, extraPars: FLOOR_PARS,
+    key: 'floor', surface: FLOOR_SURFACE, extraPars: FLOOR_PARS, laneK: 1,   // env r32: broad cool lane sheen (shading.js s5Lane)
     uniforms: { ...PITS, s5Gallery: { value: new THREE.Vector4(GALLERY.x0, GALLERY.x1, EDGE_Z, (ARENA.x0 + ARENA.x1) / 2) } },
   });
   const geo = new THREE.PlaneGeometry(130, 26, 1, 1); geo.rotateX(-Math.PI / 2); geo.translate(30, 0, -1);

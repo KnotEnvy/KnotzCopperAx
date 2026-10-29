@@ -6,8 +6,9 @@
 //             door bursts; the near floor has collapsed into a green-lit abyss (ring-outs over the broken lip)
 //   screen 2  the throne arena — obsidian throne on its dais, the stolen COPPER AX relic hovering over the altar in a
 //             gold shaft, the chained Queen + consort hanging above; boss hook for Morvane Deathcoil (anchors below)
-// Look: emerald witchfire (16 analytic pools + 2 real lights re-seated for the actors) vs deep violet shadow, warm gold
-// ONLY on the relic; polished obsidian mirrors the fires. Env code lives in ./stage5/**.
+// Look (env r32): a cool slate basalt hall lit by a broad high rake (stage-local, hall materials only), small contained
+// emerald witchfire (16 analytic pools + 2 real lights re-seated for the actors), worn rough charcoal obsidian underfoot,
+// warm gold ONLY from the relic (rims the throne from above-behind). Env code lives in ./stage5/**.
 import * as THREE from 'three';
 import { EV } from '../../core/EventBus.js';
 import { loadKit } from './stage5/kit.js';
@@ -18,6 +19,7 @@ import { createMotes } from './stage5/motes.js';
 import { createRingOuts } from './stage5/ringout.js';
 import { createSetPieces } from './stage5/setpieces.js';
 import { updateFires } from './stage5/shading.js';
+import { lightBreakables } from './stage5/props.js';
 import { GALLERY, EDGE_Z, THRONE, RELIC, BONES, CAPTIVES, CRACKS, ARENA, DOORS } from './stage5/layout.js';
 
 const FRAMING = { fov: 34, distance: 14, height: 3.2, lookHeight: 1.9 };
@@ -50,13 +52,17 @@ export default {
     sun: { color: '#8e88b0', intensity: 0.5, dir: [0.25, 0.9, 0.35], shadow: true, radius: 3, frustum: [-16, 16, 12, -10] },
     fill: { color: '#4a2a78', intensity: 0.45, dir: [-0.6, 0.3, 0.7] },
     hemi: { sky: '#2e2046', ground: '#07100a', intensity: 0.38 },
-    rim: { color: '#58ff8a', intensity: 2.2, dir: [0.2, 0.45, -1] },
+    // env r32: the back light was saturated green at 2.2: it tinted the whole hall and its mirror image on the glossy
+    // slabs WAS the repeated green-white floor pools → cool slate back light (green stays in the witchfire only)
+    rim: { color: '#7e8aa8', intensity: 1.1, dir: [0.2, 0.45, -1] },
     fog: { color: '#0a0812', near: 20, far: 95, height: { density: 0.05, base: 0, falloff: 0.45, start: 14, max: 0.6, color: '#0e1c16' },
       depthGrade: { start: 14, end: 60, dim: 0.3, desat: 0.25, tint: '#140e22' } },
     env: { intensity: 0.28 },
     exposure: 1.1,
-    grade: { saturation: 1.08, contrast: 1.16, vibrance: 0.08, lift: [0.004, 0.0, 0.014], shadowTint: [0.5, 0.38, 0.66], highlightTint: [0.5, 0.62, 0.46], split: 0.28 },
-    bloom: { intensity: 1.1, threshold: 0.95, smoothing: 0.3, radius: 0.75 },
+    // env r32: highlights were split-toned green (warm skin and the throne went olive) → neutral-warm highlights, indigo
+    // shadows; bloom intensity down so the (smaller) witchfire no longer glares. Threshold unchanged (actor clamp).
+    grade: { saturation: 1.05, contrast: 1.16, vibrance: 0.08, lift: [0.004, 0.0, 0.014], shadowTint: [0.46, 0.45, 0.58], highlightTint: [0.53, 0.5, 0.46], split: 0.24 },
+    bloom: { intensity: 0.85, threshold: 0.95, smoothing: 0.3, radius: 0.75 },
     vignette: { offset: 0.28, darkness: 0.6 },
     character: { rim: '#78ffa4', intensity: 0.55, power: 3.0, floor: 0.05, base: 0.0, edge: 2.6, width: 2.5, maxNdv: 0.6,
       key: { color: '#f0ece0', intensity: 2.8, wrap: 0.35, dir: [-0.6, 0.6, 0.5] }, ambient: '#9a86c0', ambientIntensity: 0.45 },
@@ -80,6 +86,7 @@ export default {
     const relicLight = new THREE.PointLight('#ffaa48', 0, 14, 2); relicLight.position.set(RELIC.x, RELIC.y - 1, RELIC.z + 3); group.add(relicLight);
 
     const scope = game.bus.scope();
+    const propLight = lightBreakables(game);
     scope.on(EV.WAVE_START, (ev) => {
       if (!ev) return;
       if (ev.screen === 0 && ev.wave === 2) game.after(10, () => sp.burstDoor(0));
@@ -95,7 +102,7 @@ export default {
       updateFires(hall.fires, t, f.x);
       let a = null, b = null, da = 1e9, db = 1e9;
       for (const T of hall.fires) { const d = Math.abs(T.x - f.x) + Math.abs(T.z) * 0.3; if (d < da) { b = a; db = da; a = T; da = d; } else if (d < db) { b = T; db = d; } }
-      [a, b].forEach((T, i) => { const l = lights[i]; if (!T) { l.intensity = 0; return; } l.position.set(T.x, T.y, T.z + 0.8); l.intensity = 4 * (0.85 + 0.15 * Math.sin(t * 9 + i * 2.1)); });
+      [a, b].forEach((T, i) => { const l = lights[i]; if (!T) { l.intensity = 0; return; } l.position.set(T.x, T.y, T.z + 0.8); l.intensity = 3.2 * (0.85 + 0.15 * Math.sin(t * 9 + i * 2.1)); });   // env r32: 4 → 3.2 (less green on actors)
       relicLight.intensity = Math.max(0, 1 - Math.abs(f.x - RELIC.x) / 14) * 16;
       hall.update(dt, t);
       sp.update(dt, t);
@@ -114,7 +121,7 @@ export default {
       groundAt: () => 0,
       dispose() {
         if (cam && cam.resetFraming) cam.resetFraming();
-        scope.dispose(); ring.dispose(); sp.dispose();
+        scope.dispose(); propLight.dispose(); ring.dispose(); sp.dispose();
         if (active === env) active = null;
       },
     };

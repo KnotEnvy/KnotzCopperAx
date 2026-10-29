@@ -1,5 +1,5 @@
 // Stage 3 — Eaglespine Skies (DESIGN §6, §10; GA "Fiend's Path" + "Eagle's Head"): the heroes fight ON THE BACK of a
-// colossal golden eagle soaring through a canyon of cloud and stone spires at golden hour.
+// colossal golden eagle soaring through a canyon of cloud and stone spires in the cool high air of late afternoon.
 //
 // Composition (learned from stage 2: the creature must read in EVERY gameplay frame): the eagle IS the arena. All
 // screens share the eagle's back, the camera holds a fixed 3/4 belt framing on it, so each frame shows the tail fan
@@ -30,10 +30,37 @@ export const RING_ZONES = [
   { x0: -8.9, x1: -4.3, side: 1 },           // rump, camera side (behind the near wing's trailing edge)
   { x0: -8.9, x1: -5.2, side: -1 },          // rump, far side
 ];
-const SUN_DIR = [-0.42, 0.07, -0.9];         // low golden sun, upper-left behind the far wing (primaries backlit)
+const SUN_DIR = [-0.42, 0.07, -0.9];         // low sun, upper-left behind the far wing (primaries backlit)
+// env-r32 (board r2: "one beige-tan value band"): three value planes. The AIR is cool blue-grey (cloud sea, puffs,
+// haze, spires); the warm light lives on the fighters (actor key/rim) and sparsely on cloud crowns toward the sun.
+// `sun` here is only the sky shaders' forward scatter (cloud rims/crowns toward the sun), kept dim so it stays sparse.
 const COLORS = {
-  seaLit: '#ffd9a6', seaShade: '#8c84b0', haze: '#f2c292', sun: '#ffd49a', puffLit: '#fff0d6', puffShade: '#a08cb4',
+  seaLit: '#aab6c8', seaShade: '#46526c', haze: '#7a8caa', sun: '#b8a084', puffLit: '#bcc6d6', puffShade: '#56627c',
 };
+// env-r32 stage-local eagle light response (never an albedo lift). The r32 feathers.js already carries a quiet,
+// pigment-bound, sun-facing satin (rim .13 / sheen .08, was a gold .55 Fresnel that lifted the deck), so the feather
+// rim is left as built (featherRim null: toning it again would dim it twice). The neck/head keeps the donor GLB and
+// head material: its rim is neutralised + halved and `headTint` (every channel < 1, so it can only DARKEN the pale
+// donor vertex colours) settles the golden nape toward the darker umber body.
+const EAGLE_LOOK = { featherRim: null, headRim: { color: '#f0d6b4', k: 0.5 }, headTint: '#dcc8b4' };
+function toneEagle(eagle) {
+  if (!eagle || !eagle.group) return;
+  const seen = new Set();
+  const tone = (u, look) => {
+    if (!look || !u || !u.value || seen.has(u)) return;
+    const { color, k } = look;
+    seen.add(u);
+    const c = new THREE.Color(color);
+    u.value.set(c.r, c.g, c.b, u.value.w * k);
+  };
+  eagle.group.traverse((o) => {
+    const U = o.isMesh && o.material && o.material.userData ? o.material.userData.U : null;
+    if (U && U.uS3Rim) tone(U.uS3Rim, EAGLE_LOOK.featherRim);
+    if (U && U.uHRim) tone(U.uHRim, EAGLE_LOOK.headRim);
+  });
+  const hm = eagle.headMat, tint = EAGLE_LOOK.headTint && new THREE.Color(EAGLE_LOOK.headTint);
+  if (hm && hm.color && tint && Math.max(tint.r, tint.g, tint.b) <= 1) hm.color.multiply(tint);
+}
 const SPEED = 34;                             // flight speed (m/s) the world streams past at
 const wallX1 = (z) => 2.7 + 0.9 * THREE.MathUtils.smoothstep(Math.abs(z), 0.8, 2.0);   // neck-side wall: fights stay on the lit back
 
@@ -51,25 +78,36 @@ export default {
   zBand: [-2.2, 2.2],
   extents: LOCK,
   playerStart: { x: -3, z: 0 },
+  // env-r32 value plan (blueprint docs/notes/blueprints/stage3-env_r32.md): cool blue-grey sky/cloud sea (rendered L*
+  // ~55-70) → muted cool stone spires → dark warm-umber eagle mass → softly lit spine → warm-keyed fighters. The sun sits
+  // just inside the top-left corner, so the whole visible horizon takes `horizonSun` and `sunGlow` washes the frame:
+  // both are cool/low now (the r2 peach wash). Scene lights are near-neutral (blue hemi/rim/env greyed the umber
+  // feathers). With the r32 dark umber feather pigments the deck needs LIGHT, not albedo: the sun keeps the r2 high
+  // elevation (it lights the horizontal spine, so the lane reads softly lit while the body stays dark) and the
+  // actor-only key carries the fighters (restrained warm, more directional). The grade splits WARM darks / neutral
+  // lights: the umber eagle sits in the shadow-mid band and keeps its chroma while the (unlit, already cool) sky stays
+  // cool. No new lights, passes or albedo lifts.
+  // r32 single fix: a broader, higher neutral-warm key lights upward spine normals; existing fill/hemi
+  // retain dark flank detail. Pigments, feather rim/sheen and actor-only light response remain untouched.
   lighting: {
     base: 'sky-high',
-    sky: { zenith: '#1a3470', top: '#3a68b0', horizon: '#ff9f62', horizonSun: '#ffe6a8', bottom: '#e0a878', sunDir: SUN_DIR, sunColor: '#ffd49a',
-      sunDisc: '#fff6e0', sunDiscIntensity: 6, sunSize: 0.022, sunGlow: 1.1, hazeHeight: 0.16,
-      clouds: { cover: 0.42, color: '#b08aa0', lit: '#ffe2b8', scale: 1.1, speed: 0.01, opacity: 0.75, band: [-0.02, 0.04, 0.32, 0.7], stretch: [0.25, 1] } },
-    sun: { color: '#ffe0b0', intensity: 3.0, dir: [-0.5, 0.66, 0.56], shadow: true, radius: 3, frustum: [-16, 16, 12, -12] },
-    fill: { color: '#8aa0d8', intensity: 0.5, dir: [0.7, 0.35, 0.6] },
-    hemi: { sky: '#a8b8e0', ground: '#b88a6a', intensity: 0.62 },
-    rim: { color: '#ffd29a', intensity: 1.8, dir: [-0.4, 0.2, -1] },
-    fog: { color: '#eab48c', near: 60, far: 1500, sun: { color: '#ffd6a0', strength: 0.6, power: 8 },
-      depthGrade: { start: 24, end: 160, dim: 0.14, desat: 0.16, tint: '#d49a78' } },
-    env: { intensity: 0.55 },
+    sky: { zenith: '#1a3060', top: '#4c6ea6', horizon: '#7a90b4', horizonSun: '#a0aaba', bottom: '#5a6a86', sunDir: SUN_DIR, sunColor: '#f0d0a0',
+      sunDisc: '#fff2dc', sunDiscIntensity: 5, sunSize: 0.022, sunGlow: 0.4, hazeHeight: 0.2,
+      clouds: { cover: 0.42, color: '#5a6a8a', lit: '#d8d4cc', scale: 1.1, speed: 0.01, opacity: 0.6, band: [-0.02, 0.04, 0.32, 0.7], stretch: [0.25, 1] } },
+    sun: { color: '#ffe2c4', intensity: 5.0, dir: [-0.38, 0.88, 0.28], shadow: true, radius: 3, frustum: [-16, 16, 12, -12] },
+    fill: { color: '#a8a0ac', intensity: 0.45, dir: [0.7, 0.35, 0.6] },
+    hemi: { sky: '#a29a94', ground: '#4e3626', intensity: 0.65 },
+    rim: { color: '#eadcc4', intensity: 1.0, dir: [-0.3, 0.45, -1] },
+    fog: { color: '#7f90ae', near: 50, far: 1200, sun: { color: '#c8bca8', strength: 0.25, power: 8 },
+      depthGrade: { start: 24, end: 220, dim: 0.0, desat: 0.4, tint: '#7f90b4' } },
+    env: { intensity: 0.32 },
     exposure: 1.0,
-    grade: { saturation: 1.12, contrast: 1.1, vibrance: 0.16, lift: [0.0, 0.0, 0.012], gamma: [1, 1, 1.0], gain: [1.02, 1.0, 0.97],
-      shadowTint: [0.4, 0.4, 0.62], highlightTint: [0.64, 0.52, 0.36], split: 0.26 },
+    grade: { saturation: 1.12, contrast: 1.12, vibrance: 0.14, lift: [0.0, 0.0, 0.006], gamma: [1, 1, 1.0], gain: [1.0, 1.0, 1.0],
+      shadowTint: [0.53, 0.48, 0.45], highlightTint: [0.52, 0.51, 0.49], split: 0.2 },
     bloom: { intensity: 0.9, threshold: 1.1, smoothing: 0.35, radius: 0.75 },
     vignette: { offset: 0.3, darkness: 0.45 },
-    character: { rim: '#ffe6c0', intensity: 0.62, power: 3.0, floor: 0.06, base: 0.0, edge: 2.7, width: 2.5, maxNdv: 0.6,
-      key: { color: '#fff0dc', intensity: 2.9, wrap: 0.35, dir: [-0.66, 0.56, 0.5] }, ambient: '#b0b4d4', ambientIntensity: 0.46 },
+    character: { rim: '#ffd8a8', intensity: 0.7, power: 3.0, floor: 0.06, base: 0.0, edge: 2.7, width: 2.5, maxNdv: 0.6,
+      key: { color: '#ffe2c0', intensity: 3.4, wrap: 0.3, dir: [-0.62, 0.5, 0.6] }, ambient: '#a8aac0', ambientIntensity: 0.44 },
     wind: { dir: [-1, 0.05], strength: 1.2, gust: 1 },
   },
   async build(ctx) {
@@ -81,8 +119,9 @@ export default {
 
     const sky = buildSky(ctx, { sunDir: SUN_DIR, colors: COLORS, low, seaY: -60 });
     const eagle = await buildEagle(ctx, { ringZones: RING_ZONES });
+    toneEagle(eagle);
     const feathers = createLooseFeathers(ctx.group, { count: low ? 50 : 100 });
-    const motes = createAmbient({ kind: 'dust', count: low ? 70 : 140, box: [30, 9, 14], offset: [0, 1.5, -2], quality: q, color: '#fff0d8', color2: '#d8b890', size: 0.035, intensity: 0.5, velocity: [-14, 0.2, 0] });
+    const motes = createAmbient({ kind: 'dust', count: low ? 70 : 140, box: [30, 9, 14], offset: [0, 1.5, -2], quality: q, color: '#f2ece2', color2: '#c8bca8', size: 0.035, intensity: 0.5, velocity: [-14, 0.2, 0] });
     ctx.group.add(motes.object);
 
     const ring = createRingOuts(game, {

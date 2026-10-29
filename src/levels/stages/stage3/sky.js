@@ -1,8 +1,10 @@
 // Stage 3 — the flight world: everything that streams PAST the eagle (it flies +X at `speed`, so the world scrolls −X).
-//   cloud sea far below (shader plane, golden-lit tops / lavender troughs, scrolling), cumulus puffs in 4 parallax layers
+//   cloud sea far below (shader plane, lit crowns / slate troughs, scrolling), cumulus puffs in 4 parallax layers
 //   (far towers, mid banks, under-the-eagle, fast wisps), stone spires rising out of the clouds (instanced, recycled),
 //   wind streaks + speed lines around the bird, the ring-out edge flow, the stone ARCH set piece, the Serpent Keep on the
 //   horizon (approaches with stage progress) and a low sun flare.
+//   env-r32: the air is cool blue-grey (colours come from stage3.js COLORS) and the stone is cool desaturated grey
+//   (was warm sandstone, part of the r2 one-beige-band read); the sun flare is dimmer so the warm accent stays sparse.
 //
 //   const sky = buildSky(ctx, { sunDir, colors, low }) ; sky.update(dt, t, cam, { speed, progress, bank })
 //   sky.arch.start(onPass)  → the arch sweeps over the eagle (≈ 6 s); sky.arch.active; sky.arch.overhead (0..1)
@@ -136,7 +138,7 @@ function puffLayer(o, tex, cfg, rng) {
   const U = {
     uTex: { value: tex }, uLit: { value: C(o.colors.puffLit) }, uShade: { value: C(o.colors.puffShade) }, uHaze: { value: C(o.colors.haze) },
     uSunC: { value: C(o.colors.sun) }, uSunDir: { value: new THREE.Vector3(...o.sunDir).normalize() }, uFade: { value: new THREE.Vector2(cfg.fade[0], cfg.fade[1]) },
-    uStretch: { value: cfg.stretch || 1 }, uAlpha: { value: 1 },
+    uStretch: { value: cfg.stretch || 1 }, uAlpha: { value: cfg.alpha1 ?? 1 },
   };
   const m = new THREE.ShaderMaterial({
     uniforms: U, transparent: true, depthWrite: false, fog: false,
@@ -190,7 +192,10 @@ function puffLayer(o, tex, cfg, rng) {
 function spireGeometry(rng, H, R) {
   const seg = 18, rows = 44;
   const pos = [], col = [], idx = [];
-  const bands = [C('#8a5a3a'), C('#b0805a'), C('#6a4a36'), C('#c89a6a'), C('#7a5842')];
+  // env-r32: cool weathered grey stone. Hue only: each band keeps the old sandstone band's linear luminance or less
+  // (0.96-0.97 x donor; a scene-pass +20 % lift was rejected: never brighten an albedo for contrast). Separation from
+  // the eagle comes from light, the distance haze below and fog depthGrade, not from the albedo.
+  const bands = [C('#6a6162'), C('#8d8687'), C('#544e50'), C('#a49f9f'), C('#625c5f')];
   const ph = [rng.next() * 6, rng.next() * 6, rng.next() * 6];
   for (let j = 0; j <= rows; j++) {
     const t = j / rows, y = -H * 0.35 + t * H;
@@ -210,7 +215,7 @@ function spireGeometry(rng, H, R) {
   for (let j = 0; j < rows; j++) for (let i = 0; i < seg; i++) { const a = j * (seg + 1) + i, b = a + seg + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
   // flat-ish crown with a grass/shrub cap tint
   const cy = -H * 0.35 + H, ci = pos.length / 3;
-  pos.push(0, cy + 0.6, 0); col.push(0.32, 0.36, 0.16);
+  pos.push(0, cy + 0.6, 0); col.push(0.28, 0.31, 0.26);
   const top0 = rows * (seg + 1);
   for (let i = 0; i < seg; i++) idx.push(ci, top0 + i + 1, top0 + i);
   const g = new THREE.BufferGeometry();
@@ -222,15 +227,20 @@ function spireGeometry(rng, H, R) {
 
 function spires(o, rng, low) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  // env-r32 aerial perspective: the scene fog starts too far out (it must not veil the keep finale), so the spires take
+  // their own view-distance haze toward the cloud-sea haze colour (rgb, max share): near ones keep form, far ones go pale
+  const hz = C(o.colors.haze);
+  const uSpHaze = { value: new THREE.Vector4(hz.r, hz.g, hz.b, 0.6) };
   // sandstone strata + weathering streaks, triplanar (keeps the silhouettes chunky, the surfaces detailed)
   patchStandard(mat, {
-    key: 'kcaS3Spire',
+    key: 'kcaS3Spire', uniforms: { uSpHaze }, fragHead: 'uniform vec4 uSpHaze;',
+    fragEnd: 'outgoingLight = mix(outgoingLight, uSpHaze.rgb, (1.0 - exp(-length(vViewPosition) / 350.0)) * uSpHaze.w);',
     albedo: /* glsl */`
       vec4 n1 = kTri(vKW * 0.02, vKN, 1.0), n2 = kTri(vKW * 0.09, vKN, 1.0);
       float strata = sin(vKW.y * 0.55 + n1.r * 6.0) * 0.5 + 0.5;
       float streak = smoothstep(0.55, 0.8, texture2D(kNoise, vec2(vKW.x * 0.03 + vKW.z * 0.03, vKW.y * 0.004)).g);
       diffuseColor.rgb *= (0.78 + 0.34 * strata) * (0.85 + 0.3 * n2.g) * (1.0 - 0.3 * streak);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.26, 0.1), smoothstep(0.75, 0.95, vKN.y) * 0.8);`,
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.23, 0.18), smoothstep(0.75, 0.95, vKN.y) * 0.8);`,
     bump: 'normal = kBump(vKW, normal, kTri(vKW * 0.035, vKN, 1.0).r * 2.0 + sin(vKW.y * 0.55) * 0.3, 0.7, 1.0);',
   });
   const variants = [spireGeometry(rng, 150, 14), spireGeometry(rng, 120, 10), spireGeometry(rng, 170, 18)];
@@ -324,23 +334,27 @@ function streaks(o, rng, cfg) {
 function archGeometry(rng) {
   // a natural sandstone arch bridging the flight path: pillars at z −48 / +48, span crown at y ≈ 34
   const seg = 14, rows = 60;
-  const pos = [], col = [], idx = [];
-  const bands = [C('#9a6440'), C('#c08a5c'), C('#7a5038'), C('#d8a878')];
+  const pos = [], col = [], idx = [], uv = [];
+  const bands = [C('#7c6a66'), C('#a08f88'), C('#625552'), C('#b9aba4')];   // env-r32: cool grey stone (was sandstone)
   const cl = (t) => { const a = Math.PI * t; return [-48 * Math.cos(a), -80 + 114 * Math.pow(Math.max(0, Math.sin(a)), 0.35)]; };
   for (let j = 0; j <= rows; j++) {
     const t = j / rows, a = Math.PI * t;
     // centre line: an arch in the y–z plane
     const [cz, cy] = cl(t);
-    const r = 11 * (1 - 0.35 * Math.sin(a)) + 3 * Math.sin(t * 29.0);
+    const r = 11 * (1 - 0.35 * Math.sin(a)) + 1.6 * Math.sin(t * 29.0) + 0.4 * Math.sin(t * 61.0);
     const [z0, y0] = cl(Math.max(0, t - 0.01)), [z1, y1] = cl(Math.min(1, t + 0.01));
     const tz = z1 - z0, ty = y1 - y0, tl = Math.hypot(tz, ty) || 1;
     const nz = -ty / tl, ny = tz / tl;
     const band = bands[Math.floor(cy * 0.12 + 20) % bands.length];
     for (let i = 0; i <= seg; i++) {
-      const b = (i / seg) * Math.PI * 2;
-      const rr = r * (0.85 + 0.25 * Math.sin(b * 3 + t * 13 + rng.next() * 0.3));
+      // Continuous eroded cross-section, including the duplicated seam. Consume the original RNG
+      // sample to preserve downstream deterministic construction; never jitter vertices independently.
+      rng.next();
+      const b = ((i % seg) / seg) * Math.PI * 2;
+      const rr = r * (0.91 + 0.10 * Math.sin(b * 3 + t * 13) + 0.035 * Math.sin(b * 5 - t * 21));
       const ox = Math.cos(b) * rr * 1.25, on = Math.sin(b) * rr;
       pos.push(ox, cy + ny * on, cz + nz * on);
+      uv.push(i / seg, t);
       const lit = 0.7 + 0.3 * Math.max(0, Math.sin(b));
       col.push(band.r * lit, band.g * lit, band.b * lit);
     }
@@ -349,8 +363,38 @@ function archGeometry(rng) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
+  // Average both sides of the duplicated UV seam so the major form has continuous normals.
+  const n = g.attributes.normal, v = new THREE.Vector3(), w = new THREE.Vector3();
+  for (let j = 0; j <= rows; j++) {
+    const lo = j * (seg + 1), hi = lo + seg;
+    v.fromBufferAttribute(n, lo).add(w.fromBufferAttribute(n, hi)).normalize();
+    n.setXYZ(lo, v.x, v.y, v.z); n.setXYZ(hi, v.x, v.y, v.z);
+  }
   return g;
+}
+
+// Same opaque arch draw, same pigments. Local-space strata stay attached during the sweep.
+function archMaterial() {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+  patchStandard(mat, {
+    key: 'kcaS3ArchStoneR32',
+    vertHead: 'varying vec3 vArchP;', vertMain: 'vArchP = position;',
+    fragHead: 'varying vec3 vArchP;',
+    albedo: /* glsl */`
+      vec4 stone = kTri(vArchP * 0.055, vKN, 1.0);
+      float bed = sin(vArchP.y * 0.72 + stone.r * 3.0 + vArchP.z * 0.09);
+      float seam = smoothstep(0.55, 0.92, bed);
+      // Weathering only darkens the approved vertex pigments: multiplier is in [0.7568, 1].
+      diffuseColor.rgb *= (0.88 + 0.12 * stone.g) * (1.0 - 0.14 * seam);`,
+    rough: 'roughnessFactor = 0.82 + 0.15 * kTri(vArchP * 0.055, vKN, 1.0).g;',
+    bump: /* glsl */`
+      float grain = kTri(vArchP * 0.055, vKN, 1.0).r;
+      float relief = grain * 0.24 + sin(vArchP.y * 0.72 + grain * 3.0 + vArchP.z * 0.09) * 0.22;
+      normal = kBump(-vViewPosition, normal, relief, 0.22, faceDirection);`,
+  });
+  return mat;
 }
 
 // ---------------------------------------------------------------- serpent keep (horizon goal)
@@ -359,7 +403,10 @@ function keepGroup() {
   const rock = new THREE.MeshStandardMaterial({ color: '#4a3a40', roughness: 1, flatShading: true });
   const wall = new THREE.MeshStandardMaterial({ color: '#3a3444', roughness: 0.9, flatShading: true });
   const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 3.2, 1.2), fog: true });
-  const crag = new THREE.Mesh(new THREE.ConeGeometry(70, 190, 9, 4), rock); crag.position.y = -40; g.add(crag);
+  const crag = new THREE.Mesh(new THREE.ConeGeometry(70, 190, 9, 4), rock);
+  // Present the existing crag as a broad foundation; all five tower feet intersect it.
+  // The inverted taper descends into the cloud bank; topology, materials and draws stay unchanged.
+  crag.rotation.z = Math.PI; crag.scale.set(0.82, 0.72, 0.55); crag.position.y = -40; g.add(crag);
   const towers = [[0, 60, 9, 70], [-24, 40, 6, 50], [22, 44, 6, 56], [-40, 25, 5, 36], [38, 28, 5, 40]];
   for (const [x, y, r, h] of towers) {
     const t = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.85, r, h, 8), wall); t.position.set(x, y, 0); g.add(t);
@@ -387,13 +434,14 @@ export function buildSky(ctx, o) {
   const layers = [
     puffLayer(o, tex, { name: 'far', count: low ? 18 : 30, range: 700, y: [-70, 30], z: [-420, -900], size: [110, 260], aspect: [0.45, 0.7], alpha: [0.75, 1], fade: [300, 1400], speedMul: 1, order: -4 }, rng),
     puffLayer(o, tex, { name: 'mid', count: low ? 16 : 21, range: 260, y: [-60, -18], z: [-70, -300], size: [40, 90], aspect: [0.4, 0.6], alpha: [0.7, 1], fade: [150, 700], speedMul: 1, order: -3 }, rng),
-    puffLayer(o, tex, { name: 'under', count: low ? 10 : 18, range: 90, y: [-34, -14], z: [-40, 16], size: [18, 40], aspect: [0.35, 0.55], alpha: [0.55, 0.9], fade: [80, 400], speedMul: 1, order: -2 }, rng),
+    // env-r32: the under-the-eagle banks drift right behind the fighters; 0.8 so they stay a soft mid plane, not a pale veil
+    puffLayer(o, tex, { name: 'under', count: low ? 10 : 18, range: 90, y: [-34, -14], z: [-40, 16], size: [18, 40], aspect: [0.35, 0.55], alpha: [0.55, 0.9], alpha1: 0.8, fade: [80, 400], speedMul: 1, order: -2 }, rng),
     puffLayer(o, tex, { name: 'wisps', count: 0, range: 70, y: [-12, 3], z: [-34, -12], size: [14, 28], aspect: [0.14, 0.24], alpha: [0.1, 0.24], fade: [60, 300], speedMul: 1.1, stretch: 2.2, order: -1 }, rng),
   ];
   for (const l of layers) root.add(l.mesh);
   const sp = spires(o, rng, low); for (const m of sp.meshes) root.add(m);
   const lines = [
-    streaks(o, rng, { name: 'wind', count: low ? 40 : 80, range: 34, speed: [55, 95], len: [5, 14], wid: [0.03, 0.09], alpha: [0.18, 0.45], color: '#fff2da',
+    streaks(o, rng, { name: 'wind', count: low ? 40 : 80, range: 34, speed: [55, 95], len: [5, 14], wid: [0.03, 0.09], alpha: [0.18, 0.45], color: '#e6ecf6',
       boxes: [{ y: [-4.5, -1.4], z: [3.2, 8] }, { y: [0.6, 7], z: [-8, -18] }, { y: [2.5, 6], z: [-2, 2] }, { y: [-6, -2], z: [-4, 2] }] }),
     streaks(o, rng, { name: 'lip', count: low ? 10 : 18, range: 14, speed: [30, 50], len: [2, 5], wid: [0.02, 0.05], alpha: [0.35, 0.7], color: '#ffe8c4',
       boxes: [{ y: [-0.55, 0.05], z: [2.75, 3.4] }] }),
@@ -401,7 +449,7 @@ export function buildSky(ctx, o) {
   for (const l of lines) root.add(l.mesh);
 
   // arch
-  const arch = { mesh: new THREE.Mesh(archGeometry(rng), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true })), active: false, x: 400, overhead: 0, onPass: null, passed: false };
+  const arch = { mesh: new THREE.Mesh(archGeometry(rng), archMaterial()), active: false, x: 400, overhead: 0, onPass: null, passed: false };
   arch.mesh.name = 'stoneArch'; arch.mesh.visible = false; arch.mesh.frustumCulled = false; root.add(arch.mesh);
   arch.start = (onPass) => { arch.active = true; arch.passed = false; arch.x = 260; arch.onPass = onPass || null; arch.mesh.visible = true; };
 
@@ -410,8 +458,9 @@ export function buildSky(ctx, o) {
 
   // sun flare (anamorphic streak + glow), follows the camera along the sun direction
   const flareT = glowTexture([[0, 'rgba(255,248,225,1)'], [0.12, 'rgba(255,214,150,0.8)'], [0.4, 'rgba(255,170,90,0.18)'], [1, 'rgba(255,140,60,0)']]);
-  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareT, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, opacity: 0.85 }));
-  const streak = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareT, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, opacity: 0.4 }));
+  // env-r32: dimmer (was 0.85 / 0.4) — the gold glow covered the top-left third of the frame
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareT, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, opacity: 0.45 }));
+  const streak = new THREE.Sprite(new THREE.SpriteMaterial({ map: flareT, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, opacity: 0.18 }));
   flare.renderOrder = 9; streak.renderOrder = 9; root.add(flare, streak);
   const sunDir = new THREE.Vector3(...o.sunDir).normalize();
 
@@ -434,10 +483,13 @@ export function buildSky(ctx, o) {
         if (!arch.passed && arch.x < camX + 2) { arch.passed = true; if (arch.onPass) arch.onPass(); }
         if (arch.x < camX - 300) { arch.active = false; arch.mesh.visible = false; arch.overhead = 0; }
       }
-      // keep: far on the horizon → looming as the stage ends
+      // Keep: stage progress drives only this visual backdrop. The old high/far transform projected
+      // the tower tops above the belt camera. Lower, smaller architecture approaches the open sky
+      // just left of the eagle head, with its crag rooted in the cloud sea. Nearer depth naturally
+      // reduces the existing fog; no overlay, added light, camera or progression change.
       const p = THREE.MathUtils.smoothstep(progress, 0, 1);
-      keep.position.set(THREE.MathUtils.lerp(700, 240, p), THREE.MathUtils.lerp(-40, -30, p), THREE.MathUtils.lerp(-1500, -620, p));
-      keep.scale.setScalar(THREE.MathUtils.lerp(1.4, 1.6, p));
+      keep.position.set(THREE.MathUtils.lerp(700, 55, p), THREE.MathUtils.lerp(-80, -60, p), THREE.MathUtils.lerp(-1500, -240, p));
+      keep.scale.setScalar(THREE.MathUtils.lerp(0.7, 0.5, p));
       if (cam) {
         flare.position.copy(cam.position).addScaledVector(sunDir, 400); flare.scale.setScalar(150);
         streak.position.copy(flare.position); streak.scale.set(900, 26, 1);
