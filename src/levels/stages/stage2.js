@@ -155,6 +155,7 @@ export default {
       world.position.y = PIVOT.y + SWAY.heave * Math.sin(lt * 0.88);
       const dip = Math.max(0, rollPh);
       spray.uniforms.uSurge.value = dip;
+      water.uniforms.kWaRimF.value.z = dip;   // env-r33: rim foam surges where the shell dips into the swell
       village.swing(lt, -roll * 3 - tilt);
       if (tortoise) {
         tortoise.update(dt, lt, tilt, fxX, cam && cam.camera);
@@ -187,7 +188,7 @@ export default {
     charUniforms.kSceneGrade.value.set(0.15, 0.15, 0.15, 0);
     const env = {
       update,
-      tortoise, ring, village,
+      tortoise, ring, village, water,
       groundAt: (x, z) => shellH(x, z),
       crestAt: crestH,
       dispose() {

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import * as M from '../../../render/materials.js';
 import { patchStandard } from '../../../render/shaderlib.js';
 import { buildHut } from '../stage1/huts.js';
-import { timber, tube, panel, merge, xform, rngFrom, V3 } from '../stage1/geo.js';
+import { timber, tube, panel, merge, xform, rngFrom, V3, fbm2 } from '../stage1/geo.js';
 import { shellH, rimZ } from './shell.js';
 
 // r4: few, small stilt huts on the FAR slope of the crest (stilts lashed down to the costal plates), spaced ~16 m so
@@ -19,6 +19,23 @@ export const HUTS = [
   { x: 53.0, z: -6.1, yaw: -0.12, w: 4.4, d: 3.2, seed: 13 },
   { x: 73.0, z: -6.1, yaw: 0.06, w: 3.8, d: 3.0, seed: 19 },
   { x: 88.0, z: -6.1, yaw: -0.1, w: 3.6, d: 2.9, seed: 29 },
+];
+// env-r33: one add-on family per hut (silhouette / support / use, not hue): roof proportions + a supported, lashed
+// side structure on the gable end `side` (+1 = +x). 'frame' = tall steep roof + drying frame of hanging bundles,
+// 'leanto' = low shed roof on posts over a side deck with reed bundles + firewood, 'netrack' = posted rack with a
+// drying net + fish bar, 'awning' = side deck with a plank awning, crates and a barrel. Families repeat at most twice,
+// mirrored and with different roofs, never as a duplicated row.
+// Sides face away from the neck root (it rides 7 m right of the camera focus): at the per-screen cameras (x 4.8, 22.8,
+// 40.8, 58-66) every add-on stays left of that root, so the head-to-shell join remains visible past the huts. The first
+// hut's drying frame goes on its OUTER side: on +x it stood right behind the stage-start spawn (x 1-4.5) and filled the
+// bright lake strip behind the heroes' heads.
+export const HUT_FAMILY = [
+  { kind: 'frame', side: -1, wallH: 1.7, rise: 1.8, ov: 0.5 },
+  { kind: 'leanto', side: 1, wallH: 1.6, rise: 1.05, ov: 0.7 },
+  { kind: 'awning', side: 1, wallH: 1.45, rise: 0.95, ov: 0.8 },
+  { kind: 'netrack', side: 1, wallH: 1.55, rise: 1.25, ov: 0.55 },
+  { kind: 'leanto', side: 1, wallH: 1.6, rise: 1.15, ov: 0.65 },
+  { kind: 'frame', side: -1, wallH: 1.65, rise: 1.6, ov: 0.55 },
 ];
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -76,7 +93,8 @@ export function buildVillage(ctx, { ringZones, lightSpots }) {
       plank(x, floor + 0.03, z, 0.27, hd * 2 + 0.5, h.yaw);
     }
     platforms.push({ x: h.x, z: h.z, y: floor, front: corner(0, hd + 0.3), hw, yaw: h.yaw });
-    const r = buildHut({ wallH: 1.55, rise: 1.25, ...h, y: floor + 0.06, mats, burning: 0, char: 0, collapse: 0 }, rng);
+    const HF = HUT_FAMILY[HUTS.indexOf(h) % HUT_FAMILY.length];
+    const r = buildHut({ wallH: HF.wallH, rise: HF.rise, ov: HF.ov, ...h, y: floor + 0.06, mats, burning: 0, char: 0, collapse: 0 }, rng);
     group.add(r.group);
     // eave lanterns (front corners) + door glow
     for (const s of [-1, 1]) {
@@ -182,12 +200,187 @@ export function buildVillage(ctx, { ringZones, lightSpots }) {
     }
   }
 
+  // ---- env-r33 VARIANTS: four supported, lashed add-on families (one per hut, seeded table), plus spreader feet and
+  // lashings for every stilt. Rear/side only: everything stays at z <= -4.6 (lane edge -2.4) and below the eaves, so
+  // the open belt and the head/neck view over the huts are unchanged. Merged into the existing wood/rope meshes;
+  // thatch roofs/bundles and nets add exactly two draws (villageThatchX, villageNets). Low: fewer lashing turns,
+  // coarser nets. Deterministic: own rng (3303) so the original village rng stream (lanterns, props) is untouched.
+  const vr = rngFrom(3303);
+  const lowQ = q.name === 'low';
+  const TV = (a, b, r, o = {}) => woodG.push(timber(a, b, { r, r2: r * 0.9, rng: vr, mask: wmask, sides: 5, ...o }));
+  const plankV = (x, y, z, w, d, yaw, th = 0.06) => woodG.push(xform(panel(w, th, d), { pos: [x, y, z], rot: [0, yaw, (vr.next() - 0.5) * 0.03] }));
+  const thatchG = [], netG = [];
+  const stats = { feet: 0, lashings: 0, families: [] };
+  const footAt = (x, z, yaw) => {
+    const y = shellH(x, z), sl = (shellH(x, z + 0.2) - shellH(x, z - 0.2)) / 0.4, sx = (shellH(x + 0.2, z) - shellH(x - 0.2, z)) / 0.4;
+    woodG.push(xform(panel(0.5, 0.08, 0.32), { pos: [x, y + 0.025, z], rot: [-Math.atan(sl) * Math.cos(yaw), yaw, Math.atan(sx)] }));
+    stats.feet++;
+    return y;
+  };
+  // rope lashing: n turns of a thin rope ring round a member at p (axis dir), radius r
+  const lash = (p, dir, r, n = 2) => {
+    if (lowQ) n = 1;
+    const seg = lowQ ? 5 : 7;
+    const d = dir.clone().normalize(), a = Math.abs(d.y) < 0.9 ? V3(0, 1, 0).cross(d).normalize() : V3(1, 0, 0).cross(d).normalize(), b = d.clone().cross(a);
+    for (let k = 0; k < n; k++) {
+      const c = p.clone().addScaledVector(d, (k - (n - 1) / 2) * 0.055), pts = [];
+      for (let i = 0; i <= seg; i++) { const t = i / seg * Math.PI * 2; pts.push(c.clone().addScaledVector(a, Math.cos(t) * (r + 0.02)).addScaledVector(b, Math.sin(t) * (r + 0.02))); }
+      ropeG.push(tube(pts, pts.map(() => 0.017), { sides: 3, cap: false }));
+      stats.lashings++;
+    }
+  };
+  const post = (x, z, yTop, r, yaw) => { const g = footAt(x, z, yaw); TV(V3(x, g + 0.02, z), V3(x, yTop, z), r); lash(V3(x, g + 0.12, z), V3(0, 1, 0), r); return g; };
+  // lumpy thatch sheet across 4 corners (p00 p10 = top edge, p01 p11 = bottom edge) + a rolled eave; uv = metres
+  const thatchSheet = (p00, p10, p01, p11, seed) => {
+    const cell = lowQ ? 0.42 : 0.28, Lu = p00.distanceTo(p10), Lv = p00.distanceTo(p01), nu = Math.max(4, Math.ceil(Lu / cell)), nv = Math.max(3, Math.ceil(Lv / cell));
+    const nrm = p10.clone().sub(p00).cross(p01.clone().sub(p00)).normalize(); if (nrm.y < 0) nrm.negate();
+    const pos = [], uv = [], idx = [];
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+      const u = i / nu, v = j / nv;
+      const p = p00.clone().lerp(p10, u).lerp(p01.clone().lerp(p11, u), v);
+      const lump = (fbm2(u * Lu * 1.1 + seed, v * Lv * 1.2, 5, 3) - 0.5) * 0.09 + 0.05;
+      p.addScaledVector(nrm, lump); if (j === nv) p.y -= (fbm2(u * Lu * 3 + seed, 1, 9, 2) - 0.5) * 0.12;
+      pos.push(p.x, p.y, p.z); uv.push(u * Lu, v * Lv);
+    }
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + nu + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    M.addMask(g); thatchG.push(g);
+    const eave = []; for (let i = 0; i <= nu; i++) eave.push(p01.clone().lerp(p11, i / nu).addScaledVector(nrm, 0.02));
+    thatchG.push(tube(eave, eave.map(() => 0.075), { sides: 6, rng: vr, jitter: 0.25, cap: false }));
+  };
+  // reed / fish bundle: lumpy tube in thatch, tied with two lashings
+  const bundle = (a, b, r) => {
+    const pts = [], rad = [];
+    for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(a.clone().lerp(b, t)); rad.push(r * (0.75 + 0.35 * Math.sin(t * Math.PI)) * (0.9 + vr.next() * 0.2)); }
+    thatchG.push(tube(pts, rad, { sides: lowQ ? 5 : 7, rng: vr, jitter: 0.2, cap: true }));
+    const d = b.clone().sub(a); lash(a.clone().lerp(b, 0.22), d, r * 0.8, 1); lash(a.clone().lerp(b, 0.78), d, r * 0.8, 1);
+  };
+  // fishing net hung over a bar a→b: front + back drapes, sagging between ties, ragged hem (uv = metres)
+  const netDrape = (a, b, hang, seed) => {
+    const L = a.distanceTo(b), nu = Math.max(5, Math.ceil(L / (lowQ ? 0.4 : 0.22))), nv = lowQ ? 4 : 7;
+    const along = b.clone().sub(a).normalize(), out = V3(0, 1, 0).cross(along).normalize();
+    for (const side of [1, -1]) {
+      const pos = [], uv = [], idx = [];
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+        const u = i / nu, v = j / nv;
+        const hem = hang * (0.72 + 0.38 * fbm2(u * L * 0.9 + seed + side, 3, 17, 3));
+        const p = a.clone().lerp(b, u);
+        p.y -= v * hem + Math.sin(u * Math.PI) * 0.12 * v;
+        p.addScaledVector(out, side * (0.035 + v * 0.16 + Math.sin(u * L * 2.1 + seed) * 0.05 * v));
+        pos.push(p.x, p.y, p.z); uv.push(u * L, v * hem);
+      }
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a0 = j * (nu + 1) + i, b0 = a0 + nu + 1; idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+      M.addMask(g); netG.push(g);
+    }
+  };
+  // spreader feet + lashings under every existing stilt (the six per hut built above)
+  for (const h of HUTS) {
+    const hw = (h.w ?? 5) / 2 + 0.6, hd = (h.d ?? 3.7) / 2 + 0.6, cs = Math.cos(h.yaw), sn = Math.sin(h.yaw);
+    for (const [u, v] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd], [0, -hd], [0, hd]]) {
+      const x = h.x + u * 0.95 * cs + v * 0.95 * sn, z = h.z - u * 0.95 * sn + v * 0.95 * cs;
+      footAt(x, z, h.yaw); if (!lowQ) lash(V3(x, shellH(x, z) + 0.1, z), V3(0, 1, 0), 0.12);
+    }
+  }
+  HUTS.forEach((h, hi) => {
+    const F = HUT_FAMILY[hi % HUT_FAMILY.length], s = F.side, P = platforms[hi];
+    const w = h.w ?? 5, d = h.d ?? 3.7, wallH = F.wallH, floor = P.y, base = floor + 0.06;
+    const cs = Math.cos(h.yaw), sn = Math.sin(h.yaw);
+    const W = (u, y, v) => V3(h.x + u * cs + v * sn, y, h.z - u * sn + v * cs);
+    const hw = w / 2 + 0.6;
+    stats.families.push(F.kind);
+    if (F.kind === 'leanto') {
+      // shed roof on the gable end: wall plate under the main gable, two posts on spreader feet, deck at floor level
+      const L = 2.0 + vr.next() * 0.4, u0 = s * (w / 2 + 0.05), u1 = s * (w / 2 + L), vb = -d / 2 - 0.1, vf = d / 2 + 0.0;
+      const yHi = base + wallH - 0.42, yLo = base + 0.78;
+      TV(W(u0, yHi, vb - 0.2), W(u0, yHi, vf + 0.2), 0.07);                                    // wall plate
+      for (const v of [vb, vf]) { const p = W(u1, 0, v); post(p.x, p.z, yLo + 0.05, 0.085, h.yaw); }
+      TV(W(u1, yLo, vb - 0.25), W(u1, yLo, vf + 0.25), 0.075);                                 // outer beam
+      for (const v of [vb, vf]) lash(W(u1, yLo, v), V3(0, 1, 0), 0.085);
+      for (const v of [vb, 0, vf]) TV(W(u0, yHi + 0.05, v), W(u1 + s * 0.3, yLo - 0.06, v), 0.045);   // rafters
+      for (let u = u0 + s * 0.15; s * (u1 - u) > -0.1; u += s * 0.3) plankV(W(u, floor + 0.03, 0).x, floor + 0.03, W(u, floor + 0.03, 0).z, 0.27, d + 0.2, h.yaw);
+      thatchSheet(W(u0 + s * 0.02, yHi + 0.16, vf + 0.25), W(u0 + s * 0.02, yHi + 0.16, vb - 0.25), W(u1 + s * 0.42, yLo - 0.02, vf + 0.25), W(u1 + s * 0.42, yLo - 0.02, vb - 0.25), hi * 7.1);
+      // under it: stacked reed bundles + a firewood rick against the wall
+      for (let k = 0; k < (lowQ ? 2 : 4); k++) { const y = floor + 0.17 + (k > 1 ? 0.26 : 0); const uu = u0 + s * (0.35 + (k % 2) * 0.45 + (k > 1 ? 0.22 : 0)); bundle(W(uu, y, vb + 0.25), W(uu, y + 0.03, vf - 0.35), 0.13); }
+      for (let k = 0; k < 5; k++) TV(W(u1 - s * 0.45, floor + 0.12 + (k % 3) * 0.13, vb + 0.4 + Math.floor(k / 3) * 0.13), W(u1 - s * 0.45, floor + 0.12 + (k % 3) * 0.13, vb + 1.3 + Math.floor(k / 3) * 0.13), 0.06);
+    } else if (F.kind === 'netrack') {
+      // drying rack beside the hut on the shell: two posts with braces + guy ropes, a net over the top bar, fish bar
+      const ua = s * (hw + 0.7), ub = s * (hw + 3.1), v = -0.55;
+      const pa = W(ua, 0, v), pb = W(ub, 0, v);
+      const ga = shellH(pa.x, pa.z), gb = shellH(pb.x, pb.z), top = Math.max(ga, gb) + 2.25;
+      post(pa.x, pa.z, top + 0.12, 0.08, h.yaw); post(pb.x, pb.z, top + 0.12, 0.08, h.yaw);
+      const A = V3(pa.x, top, pa.z), B = V3(pb.x, top, pb.z);
+      TV(A.clone().addScaledVector(B.clone().sub(A).normalize(), -0.2), B.clone().addScaledVector(B.clone().sub(A).normalize(), 0.2), 0.055);
+      lash(A, B.clone().sub(A), 0.06); lash(B, B.clone().sub(A), 0.06);
+      for (const [p, g] of [[pa, ga], [pb, gb]]) {                                            // raking braces to feet behind
+        const back = W(0, 0, v - 1.0); const bx = p.x + (back.x - W(0, 0, v).x), bz = p.z + (back.z - W(0, 0, v).z);
+        const gy = footAt(bx, bz, h.yaw); TV(V3(bx, gy + 0.03, bz), V3(p.x, top - 0.45, p.z), 0.05); lash(V3(p.x, top - 0.45, p.z), V3(0, 1, 0), 0.08);
+      }
+      netDrape(A.clone().lerp(B, 0.06), A.clone().lerp(B, 0.82), 1.15, hi * 3.3);
+      const lo = top - 0.95;                                                                  // lower bar with hanging fish bundles
+      TV(V3(pa.x, lo, pa.z), V3(pb.x, lo, pb.z), 0.035);
+      for (let k = 0; k < (lowQ ? 3 : 5); k++) { const t = 0.2 + k * 0.14, c = V3(pa.x, lo, pa.z).lerp(V3(pb.x, lo, pb.z), t); bundle(c.clone().add(V3(0, -0.06, 0.06)), c.clone().add(V3(0.02, -0.5 - vr.next() * 0.15, 0.08)), 0.055); }
+      rope(sagLine(A.clone(), W(ua - s * 0.9, shellH(W(ua - s * 0.9, 0, v - 0.6).x, W(ua - s * 0.9, 0, v - 0.6).z) + 0.05, v - 0.6), 0.04, 4), 0.016);
+    } else if (F.kind === 'frame') {
+      // tall-roof hut with a drying frame at the gable: two poles, three bars of hanging reed / fish bundles
+      const ua = s * (w / 2 + 0.35), ub = s * (w / 2 + 2.05), v = -d / 2 + 0.2;
+      const pa = W(ua, 0, v), pb = W(ub, 0, v);
+      const top = Math.max(shellH(pa.x, pa.z), shellH(pb.x, pb.z)) + 2.6;
+      post(pa.x, pa.z, top, 0.07, h.yaw); post(pb.x, pb.z, top, 0.07, h.yaw);
+      for (const [k, y] of [[0, top - 0.1], [1, top - 0.85], [2, top - 1.6]]) {
+        const A = V3(pa.x, y, pa.z), B = V3(pb.x, y, pb.z);
+        TV(A, B, 0.035); lash(A, V3(0, 1, 0), 0.07, 1); lash(B, V3(0, 1, 0), 0.07, 1);
+        const n = lowQ ? 2 : 3 + (k % 2);
+        for (let i = 0; i < n; i++) { const c = A.clone().lerp(B, (i + 0.6) / (n + 0.2)); bundle(c.clone().add(V3(0, -0.04, 0.05)), c.clone().add(V3(0.03, -0.55 - vr.next() * 0.12, 0.07)), 0.07); }
+      }
+      TV(V3(pa.x, top - 2.0, pa.z), V3(pb.x, top - 0.2, pb.z), 0.04);                            // diagonal brace
+    } else if (F.kind === 'awning') {
+      // side deck on two extra stilts, a plank awning on posts lashed to the wall plate, crates and a barrel
+      const u0 = s * hw, u1 = s * (hw + 2.3), vb = -d / 2 - 0.3, vf = d / 2 + 0.2;
+      const yW = base + wallH + 0.25, yO = floor + 1.55;
+      for (const v of [vb, vf]) { const p = W(u1, 0, v); post(p.x, p.z, yO + 0.06, 0.08, h.yaw); lash(W(u1, floor - 0.05, v), V3(0, 1, 0), 0.08); }
+      TV(W(u1, floor - 0.05, vb - 0.15), W(u1, floor - 0.05, vf + 0.15), 0.07);                    // deck bearer
+      for (let u = u0 + s * 0.12; s * (u1 - u) > -0.12; u += s * 0.3) plankV(W(u, floor + 0.03, (vb + vf) / 2).x, floor + 0.03, W(u, floor + 0.03, (vb + vf) / 2).z, 0.27, vf - vb + 0.3, h.yaw);
+      TV(W(s * (w / 2 + 0.05), yW, vb - 0.2), W(s * (w / 2 + 0.05), yW, vf + 0.2), 0.065);
+      TV(W(u1, yO, vb - 0.3), W(u1, yO, vf + 0.3), 0.07);
+      for (const v of [vb, vf]) { lash(W(u1, yO, v), V3(0, 1, 0), 0.08); TV(W(u1, yO - 0.55, v), W(u1 - s * 0.6, yO, v), 0.04); }
+      for (let v = vb - 0.25; v < vf + 0.3; v += 0.31) woodG.push(xform(panel(u1 - u0 + 0.5, 0.045, 0.29), { pos: [W((u0 + u1) / 2 + s * 0.12, 0, v).x, (yW + yO) / 2 + 0.07, W((u0 + u1) / 2 + s * 0.12, 0, v).z], rot: [0, h.yaw, Math.atan2(yO - yW, Math.abs(u1 - u0)) * s + (vr.next() - 0.5) * 0.04] }));
+      for (const [du, dv, kind] of [[0.55, -0.4, 'crate'], [1.2, -0.55, 'barrel'], [0.6, 0.35, 'crate']]) { const p = W(u0 + s * du, 0, dv); props.push({ kind, x: p.x, y: floor + 0.06, z: p.z, yaw: vr.next() * 3, s: 0.78 + vr.next() * 0.2 }); }
+      rope(sagLine(W(u1, yO + 0.05, vb), W(u1, yO + 0.05, vf), 0.15, 6), 0.016);
+    }
+  });
+  // assemble the two new material groups (the wood / rope additions merge into villageWood / ropes below)
+  if (thatchG.length) { const g = merge(thatchG); const m = new THREE.Mesh(g, mats.thatch); m.castShadow = true; m.receiveShadow = true; m.name = 'villageThatchX'; group.add(m); }
+  if (netG.length) {
+    const nm = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.3, transparent: true, depthWrite: false });
+    patchStandard(nm, {
+      key: 'kcaNetX',
+      // knotted diamond mesh (12 cm): anti-aliased cords carry the alpha (gaps show what is behind), and the pattern
+      // filters to a uniform ~45 % veil with distance instead of shimmering
+      albedo: /* glsl */`
+      vec2 g = vKUv / 0.12; vec2 dd = vec2(g.x + g.y, g.x - g.y) * 0.7071;
+      vec2 f = abs(fract(dd) - 0.5); vec2 fw = max(fwidth(dd), vec2(1e-4));
+      float cord = max(1.0 - smoothstep(0.0, 1.4 * fw.x + 0.06, 0.5 - f.x), 1.0 - smoothstep(0.0, 1.4 * fw.y + 0.06, 0.5 - f.y));
+      float far = clamp(max(fw.x, fw.y) * 2.5, 0.0, 1.0);
+      cord = mix(cord, 0.45, far);
+      float tone = texture2D(kNoise, vKUv * 0.35).r;
+      diffuseColor.rgb *= vec3(0.17, 0.145, 0.105) * (0.75 + 0.45 * tone);
+      diffuseColor.a = clamp(cord * 0.92, 0.0, 1.0);`,
+    });
+    const m = new THREE.Mesh(merge(netG), nm); m.castShadow = false; m.receiveShadow = true; m.renderOrder = 1; m.name = 'villageNets'; group.add(m);
+  }
+
   // ---- assemble static meshes
   const addMesh = (list, mat, name) => { const g = merge(list); if (!g) return null; const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true; m.name = name; group.add(m); return m; };
   addMesh(woodG, mats.wood, 'villageWood');
   addMesh(redG, mats.red, 'ringoutPosts');
   const ropeMat = new THREE.MeshStandardMaterial({ color: '#7a6c4e', roughness: 0.95 });
-  addMesh(ropeG, ropeMat, 'ropes');
+  // env-r33 fix (inherited): merge() leaves its input list intact, so the later flagRopes merge re-merged EVERY rope and the
+  // whole rope set was drawn twice (13 056 duplicate triangles on the donor). splice: 'ropes' takes the list, 'flagRopes'
+  // then holds only the prayer-flag lines. Same pixels, half the rope cost.
+  addMesh(ropeG.splice(0), ropeMat, 'ropes');
 
   // ---- flags (instanced quads; the vertex shader flutters them)
   const flags = [];
@@ -305,5 +498,5 @@ void main() { float r = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-r * r 
   };
   swing(0, 0);
   void one; void q;
-  return { swing, lanterns, platforms, mats, boardwalk: BW };
+  return { swing, lanterns, platforms, mats, boardwalk: BW, variants: stats };
 }

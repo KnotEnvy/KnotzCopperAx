@@ -3,13 +3,39 @@
 // statues and gargoyles. Returns handles for the set pieces (setpieces.js).
 import * as THREE from 'three';
 import { createFireKit } from '../../../render/fire.js';
-import { patchMaterial, kitMaterial } from './shading.js';
+import { patchMaterial, kitMaterial, setWeatherSources } from './shading.js';
 import { WATER_Y, WALL_Z, WIDE_X, FAR_WALL_Z, GATE_X, COURT_X, STAIRS, INNER_X } from './layout.js';
 
 const OZ = WALL_Z - 1.5;            // module origin z so facade fronts land on WALL_Z
 const MOAT_BASE = -4.8;             // outer wall modules stand in the moat (walkway ≈ 4.2, merlons ≈ 5.4–6.5)
 const GATE_BASE = -0.8;
 const PI = Math.PI;
+
+// A separate material on the existing serpent instances only. The local-height mask covers the
+// donor's stepped plinth (top at y=1); the hood/head/neck/coil and every other kit draw keep their
+// original response. Compose with kitMaterial rather than copying its weather/mask implementation.
+function pedestalMaterial() {
+  const m = kitMaterial({ glow: 0.6 });
+  const compile = m.onBeforeCompile, key = m.customProgramCacheKey();
+  m.onBeforeCompile = (sh, renderer) => {
+    compile.call(m, sh, renderer);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vS4PlinthY;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvS4PlinthY = position.y;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vS4PlinthY;')
+      .replace('#include <lights_physical_fragment>', `
+        float s4Plinth = 1.0 - smoothstep(0.99, 1.045, vS4PlinthY);
+        float s4PlinthWear = s4n(vS4World.xz * 1.7 + 23.0);
+        roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.76 + 0.12 * s4PlinthWear), s4Plinth);
+        s4WetM *= 1.0 - 0.42 * s4Plinth;
+        s4Mirror *= 1.0 - 0.7 * s4Plinth;
+        #include <lights_physical_fragment>`);
+  };
+  m.customProgramCacheKey = () => key + ':plinth-r33-satin';
+  return m;
+}
+
 
 // ---------------------------------------------------------------------------------------------- adder banner
 function bannerTexture() {
@@ -125,7 +151,7 @@ export async function buildCastle(ctx, kit, { low = false } = {}) {
     { x: 48.4, y: 0, z: -5.4, s: 1.0, ry: 0.25 }, { x: 55.6, y: 0, z: -5.4, s: 1.0, ry: -0.25 },
     { x: INNER_X - 5.6, y: 0, z: -5.2, s: 1.4, ry: 0.2 }, { x: INNER_X + 5.6, y: 0, z: -5.2, s: 1.4, ry: -0.2 },
     { x: 14, y: 0, z: -2.9, s: 0.85, ry: 0.1 },
-  ]);
+  ], { material: pedestalMaterial() });
   const garg = [
     { x: 12, y: 3.0, z: WALL_Z - 0.05 }, { x: 22.5, y: 4.4, z: WALL_Z - 0.05 }, { x: 33.5, y: 4.4, z: WALL_Z - 0.05 },
     { x: 44, y: 5.2, z: WALL_Z - 0.05 }, { x: 60, y: 5.2, z: WALL_Z - 0.05 }, { x: 99, y: 5.2, z: WALL_Z - 0.05 },
@@ -173,6 +199,13 @@ export async function buildCastle(ctx, kit, { low = false } = {}) {
     fx.flame([x, y + 0.35, WALL_Z + 0.52], { height: 0.75, width: 0.42, intensity: 5, soot: false });
     torches.push({ x, y: y + 0.6, z: WALL_Z + 0.9, i: 2.4, seed: x * 1.3 });
   }
+  // env-r33 static kit weathering sources: soot plumes above every wall sconce and the four braziers standing by the
+  // back walls; wet stains below the gargoyle spouts (the living one included: its stain stays when it leaps away)
+  setWeatherSources({
+    soot: [...sconces.map(([x, y]) => ({ x, y: y + 0.62, z: WALL_Z + 0.52, k: 1 })),
+      ...[[45.5, -5.4], [58.5, -5.4], [INNER_X - 3.4, -5.6], [INNER_X + 3.4, -5.6]].map(([x, z]) => ({ x, y: 2.75, z, k: 0.8 }))],
+    drips: [...garg, { x: 56.5, y: 5.2, z: WALL_Z - 0.05 }].map((g) => ({ x: g.x, y: g.y + 0.15, z: g.z, k: 0.85 })),
+  });
   // windows glowing in the far keep (tiny warm glows) + far fires
   for (const [x, y, z, s] of [[-8, 14, FK - 21, 2.4], [-8, 20, FK - 21, 1.8], [-32, 11, FK - 27, 1.8], [18, 12, FK - 25, 1.8], [8, 4.5, FK + 1.4, 1.2], [-24, 4.5, FK + 1.2, 1.2], [-8, 1.5, FK + 1.6, 2.2]]) fx.glow([x, y, z], { size: s, color: '#ff9a40', intensity: 0.9, flicker: 0.3 });
   const fire = fx.build(); if (fire) group.add(fire);

@@ -46,4 +46,6 @@ export default {
   boss_brute_mog: { kind: 'character', weapon: 'boss_brute_hammer_mog', notes: 'Brute Brothers: Mog the Butcher, 3.0 m native' },
   boss_captain_patina: { kind: 'character', weapon: 'boss_captain_halberd_patina', notes: 'Hollow Knight Captains: Col. Patina, 3.0 m native' },
   boss_captain_oxide: { kind: 'character', weapon: 'boss_captain_halberd_oxide', notes: 'Hollow Knight Captains: Gen. Oxide, 3.1 m native' },
+  // env: Stage 4 structural supplement (env-r33, blender/build_env_stage4_r33_structure.py), overlaid by name on env_stage4_kit
+  env_stage4_r33_structure: { kind: 'env', url: '/assets/models/env_stage4_r33_structure.glb', notes: 'nine coursed-ashlar module replacements; donor kit keeps the rest' },
 };

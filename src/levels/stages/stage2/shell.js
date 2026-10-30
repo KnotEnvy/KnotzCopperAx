@@ -1,8 +1,10 @@
 // Stage 2 — continuous weathered carapace. The low vertebral scutes carry the fight belt;
 // a broad costal flank behind it meets the nuchal hood and neck, while the near marginal
 // rim curls into the lake. Ground heights and visible plate relief share one analytic surface.
-// Fused horn faces, amber growth bands and a sharp overhanging marginal row
-// distinguish the deck from terrain. Moss and lichen remain confined to the seams.
+// Horn scutes (env-r33 fix): dark quiet centres, worn lighter perimeters carrying short broken
+// growth-layer edges that follow the plate edges, cloudy tortoiseshell pigment, narrow broken worn
+// bevels beside the seams and a restrained worn satin. No centre-radius field, no radial fibres (together they read
+// as sawn end grain), no complete contours. Moss and lichen remain confined to the seams.
 import * as THREE from 'three';
 import { patchStandard } from '../../../render/shaderlib.js';
 import { smooth } from '../stage1/geo.js';
@@ -138,20 +140,64 @@ vec4 kPlate(vec2 p) {
 float kPlateHash(float id) { return fract(sin(id * 1.73 + 0.31) * 17.13); }
 `;
 
-export function shellMaterial(o = {}) {
-  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.87, metalness: 0, envMapIntensity: o.env ?? 0.16 });
-  const U = {
-    kScUmber: { value: new THREE.Color(o.edge || '#302c1a') },     // plate rim band
-    kScOlive: { value: new THREE.Color(o.olive || '#42452a') },
-    kScOchre: { value: new THREE.Color(o.plate || '#795024') },
-    kScTan: { value: new THREE.Color(o.tan || '#967037') },
-    kScCore: { value: new THREE.Color(o.core || '#ae8646') },       // areola
-    kScSeam: { value: new THREE.Color(o.seam || '#353725') },
-    kScMoss: { value: new THREE.Color(o.moss || '#3f4930') },
-    kScBarn: { value: new THREE.Color(o.barnacle || '#777d58') },
-    kScWet: { value: new THREE.Color(o.wet || '#16201a') },
-    kScOpt: { value: new THREE.Vector4(WATER_Y, o.small ? 1 : 0, 0, 0) },
-  };
+// Edge frame of the nearest plate edge: the same polygonal distance as kPlate, plus the coordinate
+// ALONG that edge and a small edge id. Growth layers run parallel to edges (a function of e) and are
+// broken along them (a function of t). Nothing here measures distance to a plate centre.
+const GLSL_EDGE = /* glsl */`
+vec3 kEdgeFrame(vec2 p, vec4 h) {
+  if (p.y > 2.6) {
+    float fx = fract((p.x - 4.0) / 3.5 + 0.5) - 0.5;
+    float dX = (0.5 - abs(fx)) * 3.5, dIn = p.y - 2.6;
+    return dIn < dX ? vec3(dIn, p.x, 7.0) : vec3(dX, p.y, 8.0 + step(0.0, fx));
+  }
+  vec2 q = h.xy;
+  float a0 = q.y, a1 = 0.866025404 * q.x + 0.5 * q.y, a2 = 0.866025404 * q.x - 0.5 * q.y;
+  float m0 = abs(a0), m1 = abs(a1), m2 = abs(a2);
+  vec3 f;
+  if (m0 >= m1 && m0 >= m2) f = vec3(${HEX * 0.5} - m0, q.x, step(0.0, a0));
+  else if (m1 >= m2) f = vec3(${HEX * 0.5} - m1, -0.5 * q.x + 0.866025404 * q.y, 2.0 + step(0.0, a1));
+  else f = vec3(${HEX * 0.5} - m2, 0.5 * q.x + 0.866025404 * q.y, 4.0 + step(0.0, a2));
+  float dRow = 2.6 - p.y;
+  if (dRow < f.x) f = vec3(dRow, p.x, 6.0);
+  f.x = max(f.x, 0.0);
+  return f;
+}
+`;
+
+// World position → the shell's own unrolled coordinates (x, w): the end squeeze of ends(x), then the
+// cross-section: w = z on the belt, arc length beyond it (the far table is the same PROFILE the deck
+// mesh stores in aSc). Used by the nuchal hood (shellMaterial({ worldSc: true })) so it carries the
+// SAME material field as the deck it rises from, continuous across the join, without any texture or
+// readback. Vertical projection: valid on the deck's upper surface (the near rim below its lip clamps).
+const FAR_D = FAR_TABLE.filter((p) => p.z < BELT.far).map((p) => BELT.far - p.z).sort((a, b) => a - b);
+const FAR_W = FAR_D.map((d) => { const z = BELT.far - d; return FAR_TABLE.find((p) => Math.abs(p.z - z) < 1e-9).w; });
+const WORLD_SC_TAB = [BELT.far, ...FAR_W];                                   // w at d = 0, 0.3 … 3.3, 3.8 … 13.8
+const WORLD_SC_N = WORLD_SC_TAB.length;                                      // 33
+const WORLD_SC_SLOPE = (WORLD_SC_TAB[WORLD_SC_N - 1] - WORLD_SC_TAB[WORLD_SC_N - 2]) / 0.5;
+const GLSL_WORLD = /* glsl */`
+uniform float kScFarW[${WORLD_SC_N}];
+vec2 kScWorld(vec3 wp) {
+  float x = wp.x, u = 0.0;
+  if (x > ${FRONT.x0}.0) u = min(1.0, (x - ${FRONT.x0}.0) / ${FRONT.len}.0);
+  else if (x < ${BACK.x0}.0) u = min(1.0, (${BACK.x0}.0 - x) / ${BACK.len}.0);
+  float k = sqrt(max(0.02, 1.0 - u * u * 0.85));
+  float zc = ${CZ} + (wp.z - ${CZ}) / k;
+  float w = zc;
+  if (zc > ${BELT.near}) w = ${BELT.near} + (min(zc, 3.98) - ${BELT.near}) * 1.0209;
+  else if (zc < ${BELT.far}) {
+    float d = ${BELT.far} - zc;
+    float fi = d <= 3.3 ? d / 0.3 : 11.0 + (d - 3.3) / 0.5;
+    fi = clamp(fi, 0.0, ${(WORLD_SC_N - 1).toFixed(1)} - 0.001);
+    int i = int(floor(fi));
+    w = mix(kScFarW[i], kScFarW[i + 1], fi - float(i));
+    if (d > ${FAR_D[FAR_D.length - 1]}) w = kScFarW[${WORLD_SC_N - 1}] + (d - ${FAR_D[FAR_D.length - 1]}) * ${WORLD_SC_SLOPE.toFixed(6)};
+  }
+  return vec2(x, w);
+}
+`;
+
+// The far herd (herd.js, small:true) keeps the exact first-build response: donor body and program key.
+function donorShellMaterial(o, m, U) {
   patchStandard(m, {
     key: 'kcaShell8', uniforms: U,
     vertHead: 'attribute vec2 aSc; varying vec2 vSc;',
@@ -218,6 +264,134 @@ float kScH; float kScMossAmt; float kScWetAmt; float kScGloss;
     rough: /* glsl */`
   // Growth bands vary between dry matte and worn satin; moss remains matte.
   roughnessFactor = mix(0.88, 0.69, kScGloss);
+  roughnessFactor = mix(roughnessFactor, 0.96, kScMossAmt);
+  roughnessFactor = mix(roughnessFactor, 0.67, kScWetAmt);
+`,
+    bump: /* glsl */`
+  normal = kBump(-vViewPosition, normal, kScH, 1.0, faceDirection);
+`,
+  });
+  return m;
+}
+
+// Horn material tunables (env-r33 fix). Seed 33 is folded into the per-plate hashes below.
+const HORN = {
+  seed: 33,
+  layerPeriod0: 0.06,      // growth-layer period at the seam (m)
+  layerGrowth: 0.27,       // period grows by this much per metre inward (layers pack toward seams)
+  layerReach: [0.55, 1.45],  // layers fade out over this e range (m); centres beyond are quiet
+  layerHeight: 0.016,      // layer step relief (m, derivative bump): ~1.6 cm risers on a 5 m plate
+  layerLight: 0.6,         // mix toward the lighter worn horn on each layer crest
+  cloudDark: 0.22,         // tortoiseshell pigment cloud darkening (mix)
+  seamDepth: 0.012,
+};
+
+export function shellMaterial(o = {}) {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.87, metalness: 0, envMapIntensity: o.env ?? 0.16 });
+  const U = {
+    kScUmber: { value: new THREE.Color(o.edge || '#302c1a') },     // plate rim band
+    kScOlive: { value: new THREE.Color(o.olive || '#42452a') },
+    kScOchre: { value: new THREE.Color(o.plate || '#795024') },
+    kScTan: { value: new THREE.Color(o.tan || '#967037') },
+    kScCore: { value: new THREE.Color(o.core || '#ae8646') },       // areola
+    kScSeam: { value: new THREE.Color(o.seam || '#353725') },
+    kScMoss: { value: new THREE.Color(o.moss || '#3f4930') },
+    kScBarn: { value: new THREE.Color(o.barnacle || '#777d58') },
+    kScWet: { value: new THREE.Color(o.wet || '#16201a') },
+    kScOpt: { value: new THREE.Vector4(WATER_Y, o.small ? 1 : 0, o.worldSc ? 1 : 0, 0) },
+  };
+  if (o.small) return donorShellMaterial(o, m, U);
+  const world = !!o.worldSc;
+  if (world) U.kScFarW = { value: new Float32Array(WORLD_SC_TAB) };
+  const H = HORN;
+  patchStandard(m, {
+    key: world ? 'kcaShell33fW' : 'kcaShell33f', uniforms: U,
+    defines: world ? { KSC_WORLD: 1 } : undefined,
+    vertHead: 'attribute vec2 aSc; varying vec2 vSc;',
+    vertMain: 'vSc = aSc;',
+    fragHead: /* glsl */`
+uniform vec3 kScUmber, kScOlive, kScOchre, kScTan, kScCore, kScSeam, kScMoss, kScBarn, kScWet; uniform vec4 kScOpt; varying vec2 vSc;
+${GLSL_PLATE}
+${GLSL_EDGE}
+${world ? GLSL_WORLD : ''}
+float kScH; float kScMossAmt; float kScWetAmt; float kScGloss;
+`,
+    albedo: /* glsl */`
+  #ifdef KSC_WORLD
+  vec2 sc = kScWorld(vKW);
+  #else
+  vec2 sc = vSc;
+  #endif
+  // Broad pigment clouds (n1/n2), fine pores (n3) and micro grain: all mip-filtered texture reads.
+  vec4 n1 = kN(sc * 0.037), n2 = kN(sc * 0.105 + 0.3), n3 = kN(sc * 0.21);
+  vec4 grain = kN(sc * vec2(0.48, 0.63));
+  vec4 pl = kPlate(sc), hx = kHex(sc);
+  vec3 ef = kEdgeFrame(sc, hx);
+  float e = pl.x, t = ef.y, eid = ef.z;
+  float idh = kPlateHash(pl.z), idh2 = kPlateHash(pl.z + 7.0), idh3 = kPlateHash(pl.z + 19.0);
+  float edgeGate = kPlateHash(pl.z + 3.0 + eid * 5.0);             // per plate edge: how much layering shows
+  float aa = max(fwidth(e), 0.006);
+  float seam = 1.0 - smoothstep(0.012, 0.04 + aa * 0.65, e);
+  // ---- value plan: dark olive-umber horn over the whole plate (lane band ~45-85 display luma);
+  // plates differ coherently in olive/umber balance and a little warmth; centres a touch darker and
+  // cooler; no pale areola, no broad light perimeter. Worn tan appears only on narrow bevels and
+  // exposed layer edges.
+  vec3 base = mix(kScUmber, kScOlive, 0.3 + 0.45 * idh + 0.25 * n1.g);
+  vec3 warm = mix(kScOchre, kScTan, 0.35 * idh2);
+  float centre = smoothstep(0.7, 2.2, e);
+  vec3 c = mix(base, warm, 0.1 + 0.16 * idh2 + 0.06 * n2.r);
+  c = mix(c, base * 0.82, centre * 0.35);
+  // tortoiseshell pigment: soft darker clouds, denser on some plates, never per-pixel colour
+  float cloud = smoothstep(0.44, 0.72, n1.r * 0.7 + n2.g * 0.3 + (idh2 - 0.5) * 0.1);
+  c = mix(c, kScUmber * 0.8, cloud * ${H.cloudDark});
+  c *= (0.84 + n1.g * 0.1 + n3.r * 0.18) * (0.9 + 0.2 * idh3);        // coherent per-plate value step
+  // ---- worn bevel: a narrow, broken lighter band just inside the seam (edge wear), not a halo
+  vec4 nb0 = kN(vec2(t * 0.16 + eid * 0.43, idh * 0.61 + 0.2));
+  float bevel = smoothstep(0.03, 0.09, e) * (1.0 - smoothstep(0.12, 0.3, e)) * smoothstep(0.42, 0.6, nb0.r);
+  c = mix(c, warm, bevel * 0.35);
+  // ---- growth layers: edge-parallel layer terminations whose period shrinks toward the seam
+  // (phi counts layers: dphi/de = 1 / (p0 + g e)), broken along the edge per layer and per edge,
+  // gated per edge, absent from the centres. The worn edge of each layer is a hair lighter and the
+  // riser is in the bump, so the light catches the packed layers near the seams.
+  float p0 = ${H.layerPeriod0} * (0.85 + 0.3 * idh), g = ${H.layerGrowth};
+  float phi = log(1.0 + g * e / p0) / g;
+  float fw = fwidth(phi);
+  float layerFade = 1.0 - smoothstep(0.22, 0.5, fw);
+  float layerN = floor(phi), s = fract(phi);
+  vec4 nb = kN(vec2(t * 0.085 + eid * 0.37, layerN * 0.173 + idh * 0.5));
+  float brk = smoothstep(0.4, 0.55, nb.g) * smoothstep(0.3, 0.5, nb.b + 0.15 * nb.r);
+  float reachHi = pl.y > 1.5 ? 0.75 : ${H.layerReach[1]};                       // small marginal plates: shorter reach
+  float reach = (1.0 - smoothstep(${H.layerReach[0]} * reachHi / ${H.layerReach[1]}, reachHi, e)) * smoothstep(0.03, 0.1, e);
+  // profile per layer: a gentle rise then a short riser at s = 0.44..0.56 (the exposed, worn edge)
+  float step_ = smoothstep(0.0, 0.44, s) * (1.0 - smoothstep(0.44, 0.56 + fw * 0.6, s));
+  float ridge = smoothstep(0.3, 0.46, s) * (1.0 - smoothstep(0.46, 0.56 + fw * 0.6, s));   // the lit worn crest (thin)
+  float layerAmt = brk * reach * layerFade * (0.15 + 0.85 * smoothstep(0.3, 0.8, edgeGate));
+  vec3 hornEdge = mix(c * 1.3, warm, 0.25);
+  c = mix(c, hornEdge, ridge * layerAmt * ${H.layerLight});
+  c *= 1.0 - (1.0 - step_) * layerAmt * 0.05;
+  // ---- worn satin: polished patches on the centres and lane (roughness), micro pores everywhere
+  // broad per-plate sheen (whole-plate gradients, not patches: patches reflect the sky as pale mottling)
+  float polish = smoothstep(0.3, 0.85, n1.g * 0.45 + idh2 * 0.4 + n1.r * 0.15) * (0.45 + 0.55 * centre);
+  c *= 1.0 + polish * 0.03;
+  c *= 0.9 + grain.b * 0.2;
+  float moss = (1.0 - smoothstep(0.025, 0.11, e)) * smoothstep(0.35, 0.62, n1.r) * 0.7;
+  float lichen = (1.0 - smoothstep(0.06, 0.16, e)) * smoothstep(0.58, 0.7, n2.g) * 0.12;
+  float groove = 1.0 - smoothstep(0.02, 0.12, e);
+  c *= 1.0 - groove * 0.28;
+  c = mix(c, kScSeam, seam * 0.75);
+  c = mix(c, kScMoss, moss);
+  c = mix(c, kScBarn, lichen);
+  float wet = 1.0 - smoothstep(0.05, 0.65, vKW.y - kScOpt.x);
+  c = mix(c, c * 0.5 + kScWet * 0.12, wet * 0.65);
+  diffuseColor.rgb = c;
+  kScMossAmt = moss; kScWetAmt = wet; kScGloss = polish * (1.0 - layerAmt * 0.5) + bevel * 0.2;
+  kScH = -seam * ${H.seamDepth} - groove * 0.006 + step_ * layerAmt * ${H.layerHeight} + bevel * 0.0015
+       + (grain.b - 0.5) * 0.0025 * (1.0 - polish * 0.6) + (n3.b - 0.5) * 0.0015;
+
+`,
+    rough: /* glsl */`
+  // Dry horn is matte; worn patches and bevels turn satin; layer troughs stay rough; moss stays matte.
+  roughnessFactor = mix(0.84, 0.62, kScGloss);
   roughnessFactor = mix(roughnessFactor, 0.96, kScMossAmt);
   roughnessFactor = mix(roughnessFactor, 0.67, kScWetAmt);
 `,

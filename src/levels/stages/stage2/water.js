@@ -1,15 +1,33 @@
 // Stage 2 — the misty lake: a wave-displaced MeshStandardMaterial (sky/env reflection + sun glint for free, the
 // game-wide fog + height haze apply), analytic Gerstner-ish swell flowing past the tortoise (it wades toward +X, so the
 // water streams toward −X), foam where the water meets the shell outline and around the neck/legs, wake streaks.
+// env-r33: the NEAR-RIM contact foam follows the real scalloped waterline (rimZ at WATER_Y, under the marginal
+// overhang) and is PATCHY: surge zones form and fade along the rim (slow noise in shell-x and time, stronger when the
+// shell dips); inside them porous foam (cellular bubble network) hugs the lip and sheds thin, fragmented strands that
+// drift outward and downstream (−X) and die within ~1.5 m, so the gaps stay open blue-green water. Off-white (≤ 80 %),
+// never emissive; no foam on the deck (it is drawn under the shell). The old continuous contact line is kept only on the
+// far side and the rounded ends.
 // Plus: shell-edge spray (one Points draw, analytic bursts that surge with the sway) and ring-out splashes (CPU pool).
 import * as THREE from 'three';
 import { patchStandard, shared } from '../../../render/shaderlib.js';
-import { ZC, LIP_Z, FRONT, BACK, WATER_Y } from './shell.js';
+import { ZC, LIP_Z, FRONT, BACK, WATER_Y, CZ, OV, PM } from './shell.js';
 
 const RIM_GLSL = /* glsl */`
 uniform vec4 kWaRim;   // ZC, LIP_Z, FRONT.x0, FRONT.len
 uniform vec4 kWaRim2;  // BACK.x0, BACK.len, flow speed, far waterline z
 uniform vec4 kWaObs[4]; // extra foam circles: x, z, radius, strength (neck, legs)
+uniform vec4 kWaLip;    // CZ, OV, PM, outward drift (m/s) of shed foam
+uniform vec4 kWaRimF;   // birth threshold, age decay (s), surge (0..1, sway dip), density (High 1 / Low 0)
+uniform vec3 kWaFoam2;  // near-rim contact foam colour (off-white)
+// exact near waterline of the scalloped marginal rim (stage2/shell.js rimZ)
+float kRimZ(float x) {
+  float u = 0.0;
+  if (x > kWaRim.z) u = min(1.0, (x - kWaRim.z) / kWaRim.w);
+  if (x < kWaRim2.x) u = min(1.0, (kWaRim2.x - x) / kWaRim2.y);
+  float k = sqrt(max(0.02, 1.0 - u * u * 0.85));
+  float f = fract((x - kWaLip.y - kWaLip.z * 0.5) / kWaLip.z);
+  return kWaLip.x + (3.66 + 0.36 * (1.0 - abs(f * 2.0 - 1.0)) - kWaLip.x) * k;
+}
 float kSq(float x) {
   float u = 0.0;
   if (x > kWaRim.z) u = min(1.0, (x - kWaRim.z) / kWaRim.w);
@@ -53,6 +71,9 @@ export function buildWater(ctx, o = {}) {
     kWaRim2: { value: new THREE.Vector4(BACK.x0, BACK.len, o.flow ?? 1.1, -11.4) },
     kWaObs: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     kWaAmp: { value: o.amp ?? 1 },
+    kWaLip: { value: new THREE.Vector4(CZ, OV, PM, o.foamDrift ?? 0.55) },
+    kWaRimF: { value: new THREE.Vector4(o.foamBirth ?? 0.52, o.foamLife ?? 2.8, 0, low ? 0 : 1) },
+    kWaFoam2: { value: new THREE.Color(o.foam2 || '#cdd6d0') },
   };
   patchStandard(m, {
     key: 'kcaLake2', uniforms: U,
@@ -106,17 +127,45 @@ vec3 kWaveN(vec2 p, float t) {
   for (int i = 0; i < 4; i++) { vec4 ob = kWaObs[i]; if (ob.w > 0.0) dist = min(dist, (length((wp - ob.xy) * vec2(0.7, 1.0)) - ob.z) / max(ob.w, 0.2)); }
   kWaDist = dist;
   vec4 n1 = kN((wp + flow) * 0.09), n2 = kN((wp + flow * 1.6) * 0.37 + 0.5), n3 = kN((wp + flow * 1.2) * vec2(0.05, 0.18));
-  // contact foam: bright line hugging the shell, broken patches trailing downstream (−X)
-  float contact = (1.0 - smoothstep(0.0, 0.35 + n1.r * 0.9, dist)) * smoothstep(-0.6, 0.0, dist) * (0.55 + 0.45 * smoothstep(0.35, 0.6, n2.b));
+  // contact foam (far side + rounded ends only; the near rim along the belt gets the patchy model below)
+  float beltK = smoothstep(kWaRim2.x - 3.0, kWaRim2.x + 2.0, wp.x) * (1.0 - smoothstep(kWaRim.z - 2.0, kWaRim.z + 3.0, wp.x));
+  float nearSide = beltK * step(kWaRim.x, wp.y);
+  float contact = (1.0 - smoothstep(0.0, 0.35 + n1.r * 0.9, dist)) * smoothstep(-0.6, 0.0, dist) * (0.55 + 0.45 * smoothstep(0.35, 0.6, n2.b)) * (1.0 - nearSide);
+  // NEAR-RIM patchy contact foam + short trailing wakes. Integration correction (env-r33): the first build's broad
+  // birth zones saturated into flat white sheets, and its per-vertex crest term (interpolated across 2.4 m water
+  // triangles) cut straight-edged shards when thresholded. Now: contact foam hugs the scalloped lip only inside the
+  // active surge stretches, a cellular bubble network keeps every island porous (holes, no flat interior), and the wake
+  // is thin, fragmented strands along the drift streamlines that die within ~1.5 m. Blue-green water between and through.
+  float rimFoam = 0.0;
+  float dn = wp.y - kRimZ(wp.x);                                // metres outside the scalloped waterline
+  if (beltK > 0.0 && dn > -0.6 && dn < 2.4) {
+    float tau = max(dn + 0.15, 0.0) / kWaLip.w;                 // age of foam that has drifted out to dn
+    float xs = wp.x + kWaRim2.z * tau;                          // streamline: rim x where it was shed (drifted −X since)
+    float ts = t - tau;
+    float b = kN(vec2(xs * 0.031, ts * 0.012 + 0.37)).r * 0.6 + kN(vec2(xs * 0.083 + 0.5, ts * 0.029 + 0.13)).g * 0.4;
+    float birth = smoothstep(kWaRimF.x - 0.1 * kWaRimF.z, kWaRimF.x + 0.15, b) * beltK;
+    float hug = smoothstep(-0.6, -0.2, dn) * (1.0 - smoothstep(0.1, 0.62, dn + 0.3 * (kN(vec2(wp.x * 0.37, t * 0.05)).g - 0.5)));
+    float strand = smoothstep(0.52, 0.8, kN(vec2(xs * 0.42 + 0.3, ts * 0.065 + 0.71)).g);   // ~0.2-0.3 m strands, broken in time
+    float wake = strand * exp(-tau / kWaRimF.y) * smoothstep(0.15, 0.8, dn);
+    vec2 a = vec2(wp.x + kWaRim2.z * t, wp.y);                  // water frame: the bubbles ride the flow
+    vec2 aw = a + (kN(a * 0.09 + 0.33).rg - 0.5) * 2.2;         // domain warp: irregular, unequal bubble cells
+    float pore = smoothstep(0.14 + 0.2 * kN(a * 0.17 + 0.8).g, 0.56, kN(aw * vec2(0.3, 0.36) + 0.21).a);   // cellular F1 holes
+    if (kWaRimF.w > 0.5) pore *= 0.6 + 0.4 * smoothstep(0.3, 0.62, kN(aw * 0.55 + 0.6).g);   // second scale (High only)
+    float amt = birth * (hug * (0.25 + 0.75 * pore) + wake * pore * 0.85);
+    rimFoam = smoothstep(0.12, 0.55, amt) * (0.62 + 0.18 * kN(aw * 0.5 + 0.47).g);   // ≤ 0.8, never a flat white sheet
+  }
   float lace = smoothstep(0.6, 0.78, n2.r * 0.7 + n1.g * 0.5) * (1.0 - smoothstep(0.5, 6.0 + n3.b * 5.0, dist)) * smoothstep(-0.2, 0.3, dist);
   float streak = smoothstep(0.62, 0.8, n3.r) * (1.0 - smoothstep(2.0, 18.0, dist)) * 0.6;
   float crest = smoothstep(0.12, 0.24, vWaCrest + n2.g * 0.06) * 0.35;
-  float foam = clamp(contact * 0.95 + lace * 0.55 + streak * 0.45 + crest, 0.0, 1.0);
-  kWaFoamAmt = foam;
+  // near the near rim the old dull mottle (lace / streak / crest) gives way to clean blue-green water, so the gaps
+  // between the contact-foam islands read as open water and the islands read as foam
+  float quiet = 1.0 - 0.75 * beltK * step(kWaRim.x, wp.y) * (1.0 - smoothstep(2.5, 7.0, wp.y - kRimZ(wp.x)));
+  float foam = clamp(contact * 0.95 + (lace * 0.55 + streak * 0.45 + crest) * quiet, 0.0, 1.0);
+  kWaFoamAmt = max(foam, rimFoam);
   // colour: jade shallows near the shell (light scattering through the swell), deep teal-slate further out
   float sh = 1.0 - smoothstep(0.0, 22.0, dist);
   vec3 c = mix(kWaDeep, kWaShallow, sh * 0.8 + clamp(vWaCrest * 1.6, 0.0, 0.3));
-  diffuseColor.rgb = mix(c, kWaFoam, foam);
+  diffuseColor.rgb = mix(mix(c, kWaFoam, foam), kWaFoam2, rimFoam);
 `,
     rough: /* glsl */`
   roughnessFactor = mix(0.48, 0.9, kWaFoamAmt);

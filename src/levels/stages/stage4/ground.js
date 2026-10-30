@@ -44,16 +44,22 @@ float pv = s4fbm(p * 0.3 + vec2(3.0, 1.0)) + joint * 0.08 + step(h3, 0.1) * 0.12
 float pud = smoothstep(0.56, 0.62, pv) * s4Wet;
 // normal: per-stone tilt, bevel toward joints, pitting; ripples in puddles (and a little everywhere: it's pouring)
 vec3 nW = vec3((h1 - 0.5) * 0.09, 1.0, (h2 - 0.5) * 0.09);
-nW.xz += edir * bev * 0.55 * (1.0 - pud);
+// r33 fix: shallow worn joint shoulders, not a repeated tilted mirror around each slab.
+nW.xz += edir * bev * 0.18 * (1.0 - pud);
 nW.xz += (vec2(s4n(p * 14.0), s4n(p * 14.0 + 3.3)) - 0.5) * 0.12 * (1.0 - pud);
 vec2 rip = s4Ripple(p, 3.1, s4Time * 1.1) + s4Ripple(p + 0.37, 4.7, s4Time * 1.3) * 0.7;
 nW.xz = mix(nW.xz, rip * 0.22, pud);
 s4N = normalize(nW);
 normal = normalize((viewMatrix * vec4(s4N, 0.0)).xyz);
 diffuseColor.rgb = alb * mix(1.0, 0.55, pud);
-s4WetM = mix(0.75, 1.0, pud);
-s4Mirror = mix(0.22 + 0.2 * (1.0 - joint), 1.0, pud);
-roughnessFactor = mix(mix(0.55, 0.42, h3) + joint * 0.3, 0.09, pud);
+// Broad static roughness drift crosses several stones, breaking the regular blue specular grid.
+// Albedo/pool locations are unchanged. Puddles still carry moving ripples and the storm sky,
+// but the wet film over mineral stone is satin instead of a second moat mirror.
+float wear = s4n(p * vec2(0.42, 0.68) + vec2(17.0, 9.0));
+s4WetM = mix(0.38 + 0.18 * wear, 0.82, pud);
+s4Mirror = mix(0.045 + 0.065 * wear, 0.45, pud) * (1.0 - joint * 0.65);
+roughnessFactor = mix(mix(0.84, 0.69, wear) + joint * 0.12, 0.29 + 0.09 * wear, pud);
+roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.82), bev * (1.0 - pud));
 metalnessFactor = 0.0;
 `;
 
@@ -90,7 +96,11 @@ s4N = nW;
 normal = normalize((viewMatrix * vec4(s4N, 0.0)).xyz);
 diffuseColor.rgb = vec3(0.006, 0.009, 0.013);
 s4WetM = 1.0; s4Mirror = 1.0;
-roughnessFactor = 0.03 + 0.05 * (1.0 - fine);
+// r33 integration: resolve the moat's subpixel GGX spikes locally. The original
+// 0.03 surface reached the PBR minimum and produced >7000 HDR channel peaks during
+// lightning. A finite ripple footprint keeps a wet lobe without a delta-like glint.
+// Pigment, animated normals, analytic reflection and all light/exposure values stay intact.
+roughnessFactor = 0.12 + 0.05 * (1.0 - fine);
 metalnessFactor = 0.0;
 `;
 
@@ -101,7 +111,7 @@ function mkMat(surface, key, extra = '') {
 
 export function buildGround(ctx) {
   const { group } = ctx;
-  const flag = mkMat(FLAG_SURFACE, 'flag');
+  const flag = mkMat(FLAG_SURFACE, 'flag-r33-satin');
   const face = mkMat(FACE_SURFACE, 'face');
   const water = mkMat(WATER_SURFACE, 'water');
   const meshes = [];
@@ -133,7 +143,7 @@ export function buildGround(ctx) {
   const copeMat = mkMat(/* glsl */`
     float h = s4h(floor(vec2(vS4World.x * 1.02 + 0.3, vS4World.z * 0.3)));
     diffuseColor.rgb = mix(vec3(0.11, 0.105, 0.115), vec3(0.14, 0.135, 0.14), h) * (0.8 + 0.4 * s4fbm(vS4World.xz * 6.0));
-    s4WetM = 0.85; s4Mirror = 0.2; roughnessFactor = 0.35;`, 'cope');
+    s4WetM = 0.65; s4Mirror = 0.08; roughnessFactor = 0.72 + 0.1 * h;`, 'cope-r33-satin');
   const pos = [];
   for (let x = -40; x < cx - 0.5; x += 1.02) { pos.push([x + 0.5, BERM_Z1 - 0.2]); pos.push([x + 0.5, BERM_Z0 + 0.2]); }
   for (let z = BERM_Z1 + 0.5; z < 9; z += 1.02) pos.push([cx - 0.2, z, 1]);

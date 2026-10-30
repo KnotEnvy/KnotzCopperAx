@@ -15,6 +15,7 @@ import { EV } from '../../core/EventBus.js';
 import { loadKit } from './stage4/kit.js';
 import { buildGround } from './stage4/ground.js';
 import { buildCastle } from './stage4/castle.js';
+import { lightBreakables } from './stage4/props.js';
 import { createRain } from './stage4/rain.js';
 import { createStorm } from './stage4/storm.js';
 import { createBursts } from './stage4/fx.js';
@@ -80,6 +81,7 @@ export default {
 
     // wave hooks (screen, wave) → set-piece beats
     const scope = game.bus.scope();
+    const propLight = lightBreakables(game);
     scope.on(EV.WAVE_START, (ev) => {
       if (!ev) return;
       if (ev.screen === 2 && ev.wave === 1) game.after(10, () => sp.burstDoor(0));
@@ -116,7 +118,7 @@ export default {
       },
       dispose() {
         if (cam && cam.resetFraming) cam.resetFraming();
-        scope.dispose(); ring.dispose(); sp.dispose(); storm.dispose();
+        scope.dispose(); propLight.dispose(); ring.dispose(); sp.dispose(); storm.dispose();
         if (active === env) active = null;
       },
     };

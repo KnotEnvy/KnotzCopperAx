@@ -107,7 +107,7 @@ function buildNuchalHood() {
   g.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
   g.setAttribute('aSc', new THREE.Float32BufferAttribute(scutes, 2));
   g.setIndex(indices); g.computeVertexNormals();
-  const mesh = new THREE.Mesh(g, shellMaterial());
+  const mesh = new THREE.Mesh(g, shellMaterial({ worldSc: true }));
   mesh.name = 'shellfatherNuchalHood'; mesh.receiveShadow = true;
   return mesh;
 }
